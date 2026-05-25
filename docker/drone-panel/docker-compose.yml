@@ -1,0 +1,9 @@
+services:
+  drone-panel:
+    build: .
+    container_name: drone-panel
+    ports:
+      - "5051:5051"
+    volumes:
+      - /home/niwa/niwa/data:/data
+    restart: unless-stopped

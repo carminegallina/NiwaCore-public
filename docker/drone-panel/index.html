@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>NIWA Drone Panel</title>
+  <style>
+    body { margin:0; font-family:Arial,sans-serif; background:#111827; color:white; padding:20px; }
+    h1 { margin-bottom:8px; }
+    .subtitle { color:#9ca3af; margin-bottom:24px; }
+    .grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(220px,1fr)); gap:16px; }
+    .card { background:#1f2937; border-radius:16px; padding:18px; box-shadow:0 8px 20px rgba(0,0,0,.25); }
+    .card h2 { margin-top:0; font-size:20px; }
+    .value { font-size:26px; font-weight:bold; margin:6px 0; }
+    .label { color:#9ca3af; font-size:14px; }
+    a.button { display:block; background:#374151; color:white; text-decoration:none; padding:12px; border-radius:10px; margin:8px 0; }
+    a.button:hover { background:#4b5563; }
+    .warning { background:#7f1d1d; padding:12px; border-radius:10px; margin-top:20px; color:#fecaca; }
+    .small { color:#9ca3af; font-size:13px; margin-top:14px; }
+  </style>
+</head>
+<body>
+  <h1>🚁 NIWA Drone Panel</h1>
+  <div class="subtitle">Meteo operativo, mappe e checklist drone.</div>
+
+  <div class="grid">
+    <div class="card">
+      <h2>🌡 Temperatura</h2>
+      <div class="value" id="temp">--</div>
+      <div class="label">Temperatura attuale</div>
+    </div>
+
+    <div class="card">
+      <h2>💧 Umidità</h2>
+      <div class="value" id="humidity">--</div>
+      <div class="label">Umidità relativa</div>
+    </div>
+
+    <div class="card">
+      <h2>🌬 Vento 10 m</h2>
+      <div class="value" id="wind10">--</div>
+      <div class="label">Vento vicino al suolo</div>
+    </div>
+
+    <div class="card">
+      <h2>🚁 Vento 80 m</h2>
+      <div class="value" id="wind80">--</div>
+      <div class="label">Quota indicativa drone</div>
+    </div>
+
+    <div class="card">
+      <h2>🚁 Vento 120 m</h2>
+      <div class="value" id="wind120">--</div>
+      <div class="label">Limite operativo UAS tipico</div>
+    </div>
+
+    <div class="card">
+      <h2>💨 Raffiche</h2>
+      <div class="value" id="gusts">--</div>
+      <div class="label">Raffiche previste a 10 m</div>
+    </div>
+
+    <div class="card">
+      <h2>☔ Pioggia</h2>
+      <div class="value" id="rain">--</div>
+      <div class="label">Precipitazione oraria</div>
+    </div>
+
+    <div class="card">
+      <h2>🧭 Direzione vento</h2>
+      <div class="value" id="direction">--</div>
+      <div class="label">Direzione a 10 m</div>
+    </div>
+
+    <div class="card">
+      <h2>🗺 Mappe & Regole</h2>
+      <a class="button" href="https://www.d-flight.it/web-app/" target="_blank">Apri d-flight</a>
+      <a class="button" href="https://www.windy.com/" target="_blank">Apri Windy</a>
+      <a class="button" href="https://www.uavforecast.com/" target="_blank">Apri UAV Forecast</a>
+    </div>
+
+    <div class="card">
+      <h2>✅ Checklist Pre-volo</h2>
+      <p>☐ Batterie drone cariche</p>
+      <p>☐ Radiocomando carico</p>
+      <p>☐ SD / memoria libera</p>
+      <p>☐ Area verificata su d-flight</p>
+      <p>☐ Vento e raffiche controllati</p>
+      <p>☐ RTH e home point verificati</p>
+    </div>
+  </div>
+
+  <div class="small" id="updated">Aggiornamento: --</div>
+
+  <div class="warning">
+    ⚠️ Dati meteo previsionali. Verifica sempre condizioni reali, app DJI, d-flight ufficiale e normativa applicabile.
+  </div>
+
+<script>
+const LAT = 40.771;
+const LON = 14.789;
+
+async function loadWeather() {
+  const url =
+    `https://api.open-meteo.com/v1/forecast?latitude=${LAT}&longitude=${LON}` +
+    `&current=temperature_2m,relative_humidity_2m,precipitation,wind_speed_10m,wind_direction_10m,wind_gusts_10m` +
+    `&hourly=wind_speed_80m,wind_speed_120m` +
+    `&wind_speed_unit=kmh&timezone=auto`;
+
+  try {
+    const res = await fetch(url);
+    const data = await res.json();
+    const c = data.current;
+
+    document.getElementById("temp").textContent = `${c.temperature_2m} °C`;
+    document.getElementById("humidity").textContent = `${c.relative_humidity_2m} %`;
+    document.getElementById("wind10").textContent = `${c.wind_speed_10m} km/h`;
+    document.getElementById("gusts").textContent = `${c.wind_gusts_10m} km/h`;
+    document.getElementById("rain").textContent = `${c.precipitation} mm`;
+    document.getElementById("direction").textContent = `${c.wind_direction_10m}°`;
+
+    const currentHour = c.time.slice(0, 13);
+    const idx = data.hourly.time.findIndex(t => t.slice(0, 13) === currentHour);
+
+    document.getElementById("wind80").textContent =
+      idx >= 0 ? `${data.hourly.wind_speed_80m[idx]} km/h` : "--";
+
+    document.getElementById("wind120").textContent =
+      idx >= 0 ? `${data.hourly.wind_speed_120m[idx]} km/h` : "--";
+
+    document.getElementById("updated").textContent = `Aggiornamento: ${c.time}`;
+  } catch (e) {
+    document.getElementById("updated").textContent =
+      "Errore: impossibile aggiornare il meteo. Serve connessione internet.";
+  }
+}
+
+loadWeather();
+setInterval(loadWeather, 10 * 60 * 1000);
+</script>
+</body>
+</html>
