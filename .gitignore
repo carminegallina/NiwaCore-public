@@ -28,6 +28,8 @@ Thumbs.db
 # Runtime app state
 data/*.json
 !data/.gitkeep
+!data/drones_library.json
+!data/my_drones.example.json
 
 # FileBrowser runtime data / local config
 docker/filebrowser/database/

@@ -1,0 +1,20 @@
+{
+  "dji_neo": {
+    "brand": "DJI",
+    "model": "Neo",
+    "name": "DJI Neo",
+    "max_wind_kmh": 28.8,
+    "max_wind_ms": 8.0,
+    "source": "official",
+    "notes": "Official wind resistance 8 m/s."
+  },
+  "dji_avata_2": {
+    "brand": "DJI",
+    "model": "Avata 2",
+    "name": "DJI Avata 2",
+    "max_wind_kmh": 38.5,
+    "max_wind_ms": 10.7,
+    "source": "official",
+    "notes": "Official wind resistance 10.7 m/s."
+  }
+}

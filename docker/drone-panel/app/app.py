@@ -2,6 +2,7 @@ from flask import Flask, jsonify, request
 import requests
 import json
 import os
+import copy
 
 app = Flask(__name__)
 
@@ -9,11 +10,129 @@ LAT = 40.771
 LON = 14.789
 
 DATA_FILE = "/data/drone_batteries.json"
+DRONES_LIBRARY_FILE = "/data/drones_library.json"
+MY_DRONES_FILE = "/data/my_drones.json"
+
+DEFAULT_DRONE_LIBRARY = {
+    "dji_neo": {
+        "brand": "DJI",
+        "model": "Neo",
+        "name": "DJI Neo",
+        "max_wind_kmh": 28.8,
+        "max_wind_ms": 8.0,
+        "source": "official",
+        "notes": "Official wind resistance 8 m/s."
+    },
+    "dji_avata_2": {
+        "brand": "DJI",
+        "model": "Avata 2",
+        "name": "DJI Avata 2",
+        "max_wind_kmh": 38.5,
+        "max_wind_ms": 10.7,
+        "source": "official",
+        "notes": "Official wind resistance 10.7 m/s."
+    },
+}
+
+DEFAULT_MY_DRONES = {
+    "active": "dji_neo",
+    "items": ["dji_neo", "dji_avata_2"],
+}
 
 DEFAULT_BATTERIES = {
     "dji_neo": {"battery_count": 2, "batteries": [100, 100]},
     "dji_avata_2": {"battery_count": 3, "batteries": [100, 100, 100]},
 }
+
+
+def clone_default(data):
+    return copy.deepcopy(data)
+
+
+def save_json_file(path, data):
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(data, f, indent=2)
+
+
+def load_json_file(path, default_data, create_if_missing=False):
+    if not os.path.exists(path):
+        data = clone_default(default_data)
+        if create_if_missing:
+            save_json_file(path, data)
+        return data
+
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        if isinstance(data, dict):
+            return data
+    except Exception:
+        pass
+
+    return clone_default(default_data)
+
+
+def load_drone_library():
+    library = load_json_file(
+        DRONES_LIBRARY_FILE,
+        DEFAULT_DRONE_LIBRARY,
+        create_if_missing=True
+    )
+
+    changed = False
+    for drone_id, profile in DEFAULT_DRONE_LIBRARY.items():
+        if drone_id not in library:
+            library[drone_id] = clone_default(profile)
+            changed = True
+
+    if changed:
+        save_json_file(DRONES_LIBRARY_FILE, library)
+
+    return library
+
+
+def load_my_drones(library=None):
+    if library is None:
+        library = load_drone_library()
+
+    my_drones = load_json_file(
+        MY_DRONES_FILE,
+        DEFAULT_MY_DRONES,
+        create_if_missing=True
+    )
+
+    items = my_drones.get("items")
+    if not isinstance(items, list):
+        items = DEFAULT_MY_DRONES["items"]
+
+    valid_items = []
+    for drone_id in items:
+        if drone_id in library and drone_id not in valid_items:
+            valid_items.append(drone_id)
+
+    if not valid_items:
+        valid_items = [
+            drone_id for drone_id in DEFAULT_MY_DRONES["items"]
+            if drone_id in library
+        ]
+
+    if not valid_items and library:
+        valid_items = [next(iter(library))]
+
+    active = my_drones.get("active")
+    if active not in valid_items:
+        active = valid_items[0] if valid_items else "dji_neo"
+
+    clean_my_drones = {
+        "active": active,
+        "items": valid_items,
+    }
+
+    if clean_my_drones != my_drones:
+        save_json_file(MY_DRONES_FILE, clean_my_drones)
+
+    return clean_my_drones
 
 
 def load_battery_data():
@@ -242,21 +361,94 @@ button{width:100%;padding:10px;border-radius:8px;border:none;margin-top:8px;back
 </div>
 
 <script>
-const DRONES = {
-    dji_neo: { name: 'DJI Neo', maxWind: 28.8 },
-    dji_avata_2: { name: 'DJI Avata 2', maxWind: 38.5 }
+let DRONES = {
+    dji_neo: { id: 'dji_neo', name: 'DJI Neo', maxWind: 28.8 },
+    dji_avata_2: { id: 'dji_avata_2', name: 'DJI Avata 2', maxWind: 38.5 }
+};
+
+let MY_DRONES = {
+    active: 'dji_neo',
+    items: ['dji_neo', 'dji_avata_2']
 };
 
 function currentDrone(){
-    return localStorage.getItem('niwa_drone') || 'dji_neo';
+    const saved = localStorage.getItem('niwa_drone') || MY_DRONES.active || 'dji_neo';
+
+    if(DRONES[saved]){
+        return saved;
+    }
+
+    const firstAvailable = MY_DRONES.items.find((droneId)=>DRONES[droneId]);
+    const fallback = firstAvailable || 'dji_neo';
+    localStorage.setItem('niwa_drone', fallback);
+    return fallback;
+}
+
+function normalizeDroneProfile(id, profile){
+    return {
+        id,
+        name: profile.name || `${profile.brand || ''} ${profile.model || ''}`.trim() || id,
+        brand: profile.brand || '',
+        model: profile.model || '',
+        maxWind: Number(profile.max_wind_kmh || profile.maxWind || 0),
+        maxWindMs: Number(profile.max_wind_ms || 0),
+        source: profile.source || '',
+        notes: profile.notes || ''
+    };
+}
+
+function populateDroneSelect(){
+    const select = document.getElementById('droneSelect');
+    const selected = currentDrone();
+    select.innerHTML = '';
+
+    const itemIds = MY_DRONES.items.filter((droneId)=>DRONES[droneId]);
+    const options = itemIds.length ? itemIds : Object.keys(DRONES);
+
+    options.forEach((droneId)=>{
+        const option = document.createElement('option');
+        option.value = droneId;
+        option.textContent = DRONES[droneId].name;
+        select.appendChild(option);
+    });
+
+    select.value = DRONES[selected] ? selected : options[0];
+}
+
+async function loadDrones(){
+    try{
+        const res = await fetch('/api/drones');
+        const data = await res.json();
+
+        if(data.error){ throw new Error(data.error); }
+
+        const loadedDrones = {};
+        Object.entries(data.library || {}).forEach(([id, profile])=>{
+            loadedDrones[id] = normalizeDroneProfile(id, profile);
+        });
+
+        if(Object.keys(loadedDrones).length){
+            DRONES = loadedDrones;
+        }
+
+        if(data.my_drones && Array.isArray(data.my_drones.items)){
+            MY_DRONES = data.my_drones;
+        }
+    }catch(e){
+        document.getElementById('droneLimit').textContent = 'Profili drone offline: uso fallback locale.';
+    }
+
+    populateDroneSelect();
 }
 
 function loadDrone(){
-    document.getElementById('droneSelect').value = currentDrone();
+    populateDroneSelect();
 }
 
 function saveDrone(){
-    localStorage.setItem('niwa_drone', document.getElementById('droneSelect').value);
+    const selected = document.getElementById('droneSelect').value;
+    MY_DRONES.active = selected;
+    localStorage.setItem('niwa_drone', selected);
     loadWeather();
     loadBatteries();
 }
@@ -361,8 +553,8 @@ function resetChecklist(){
 }
 
 function updateSafety(d){
-    const drone = DRONES[currentDrone()];
-    const maxWind = drone.maxWind;
+    const drone = DRONES[currentDrone()] || DRONES.dji_neo;
+    const maxWind = Number(drone.maxWind || 0);
     const okLimit = maxWind * 0.65;
     const cautionLimit = maxWind * 0.90;
 
@@ -438,10 +630,15 @@ async function loadWeather(){
     }
 }
 
-loadDrone();
-loadChecklist();
-loadBatteries();
-loadWeather();
+async function init(){
+    await loadDrones();
+    loadDrone();
+    loadChecklist();
+    loadBatteries();
+    loadWeather();
+}
+
+init();
 setInterval(loadWeather, 10 * 60 * 1000);
 </script>
 
@@ -554,6 +751,26 @@ def weather():
 
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/drones")
+def get_drones():
+    library = load_drone_library()
+    my_drones = load_my_drones(library)
+
+    available = []
+    for drone_id in my_drones["items"]:
+        profile = library.get(drone_id)
+        if profile:
+            drone = {"id": drone_id}
+            drone.update(profile)
+            available.append(drone)
+
+    return jsonify({
+        "library": library,
+        "my_drones": my_drones,
+        "available": available,
+    })
 
 
 @app.route("/api/batteries")
