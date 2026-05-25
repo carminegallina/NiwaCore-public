@@ -1,0 +1,9 @@
+services:
+  review-panel:
+    build: .
+    container_name: review-panel
+    ports:
+      - "5052:5052"
+    volumes:
+      - /mnt/niwa-storage:/storage
+    restart: unless-stopped
