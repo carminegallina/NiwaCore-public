@@ -15,6 +15,7 @@ MY_DRONES_FILE = "/data/my_drones.json"
 
 DEFAULT_DRONE_LIBRARY = {
     "dji_neo": {
+        "id": "dji_neo",
         "brand": "DJI",
         "model": "Neo",
         "name": "DJI Neo",
@@ -24,6 +25,7 @@ DEFAULT_DRONE_LIBRARY = {
         "notes": "Official wind resistance 8 m/s."
     },
     "dji_avata_2": {
+        "id": "dji_avata_2",
         "brand": "DJI",
         "model": "Avata 2",
         "name": "DJI Avata 2",
@@ -32,11 +34,72 @@ DEFAULT_DRONE_LIBRARY = {
         "source": "official",
         "notes": "Official wind resistance 10.7 m/s."
     },
+    "dji_avata": {
+        "id": "dji_avata",
+        "brand": "DJI",
+        "model": "Avata",
+        "name": "DJI Avata",
+        "max_wind_kmh": 38.5,
+        "max_wind_ms": 10.7,
+        "source": "official",
+        "notes": "Official wind resistance 10.7 m/s."
+    },
+    "dji_mini_3_pro": {
+        "id": "dji_mini_3_pro",
+        "brand": "DJI",
+        "model": "Mini 3 Pro",
+        "name": "DJI Mini 3 Pro",
+        "max_wind_kmh": 38.5,
+        "max_wind_ms": 10.7,
+        "source": "official",
+        "notes": "Official wind resistance 10.7 m/s."
+    },
+    "dji_mini_4_pro": {
+        "id": "dji_mini_4_pro",
+        "brand": "DJI",
+        "model": "Mini 4 Pro",
+        "name": "DJI Mini 4 Pro",
+        "max_wind_kmh": 38.5,
+        "max_wind_ms": 10.7,
+        "source": "official",
+        "notes": "Official wind resistance 10.7 m/s."
+    },
+    "dji_air_3": {
+        "id": "dji_air_3",
+        "brand": "DJI",
+        "model": "Air 3",
+        "name": "DJI Air 3",
+        "max_wind_kmh": 43.2,
+        "max_wind_ms": 12.0,
+        "source": "official",
+        "notes": "Official wind resistance 12 m/s."
+    },
+    "dji_air_3s": {
+        "id": "dji_air_3s",
+        "brand": "DJI",
+        "model": "Air 3S",
+        "name": "DJI Air 3S",
+        "max_wind_kmh": 43.2,
+        "max_wind_ms": 12.0,
+        "source": "official",
+        "notes": "Official wind resistance 12 m/s."
+    },
+    "dji_mavic_3_pro": {
+        "id": "dji_mavic_3_pro",
+        "brand": "DJI",
+        "model": "Mavic 3 Pro",
+        "name": "DJI Mavic 3 Pro",
+        "max_wind_kmh": 43.2,
+        "max_wind_ms": 12.0,
+        "source": "official",
+        "notes": "Official wind resistance 12 m/s."
+    },
 }
 
 DEFAULT_MY_DRONES = {
     "active": "dji_neo",
     "items": ["dji_neo", "dji_avata_2"],
+    "custom": {},
 }
 
 DEFAULT_BATTERIES = {
@@ -85,6 +148,11 @@ def load_drone_library():
         if drone_id not in library:
             library[drone_id] = clone_default(profile)
             changed = True
+        elif isinstance(library[drone_id], dict):
+            for key, value in profile.items():
+                if key not in library[drone_id]:
+                    library[drone_id][key] = value
+                    changed = True
 
     if changed:
         save_json_file(DRONES_LIBRARY_FILE, library)
@@ -102,13 +170,27 @@ def load_my_drones(library=None):
         create_if_missing=True
     )
 
+    custom = my_drones.get("custom")
+    if not isinstance(custom, dict):
+        custom = {}
+
+    clean_custom = {}
+    for drone_id, profile in custom.items():
+        clean_profile = clean_drone_profile(profile, drone_id, source="user")
+        if clean_profile:
+            clean_custom[drone_id] = clean_profile
+
+    valid_profiles = {}
+    valid_profiles.update(library)
+    valid_profiles.update(clean_custom)
+
     items = my_drones.get("items")
     if not isinstance(items, list):
         items = DEFAULT_MY_DRONES["items"]
 
     valid_items = []
     for drone_id in items:
-        if drone_id in library and drone_id not in valid_items:
+        if drone_id in valid_profiles and drone_id not in valid_items:
             valid_items.append(drone_id)
 
     if not valid_items:
@@ -127,12 +209,90 @@ def load_my_drones(library=None):
     clean_my_drones = {
         "active": active,
         "items": valid_items,
+        "custom": clean_custom,
     }
 
     if clean_my_drones != my_drones:
         save_json_file(MY_DRONES_FILE, clean_my_drones)
 
     return clean_my_drones
+
+
+def clean_drone_profile(profile, drone_id, source="user"):
+    if not isinstance(profile, dict):
+        return None
+
+    brand = str(profile.get("brand", "")).strip()
+    model = str(profile.get("model", "")).strip()
+    name = str(profile.get("name", "")).strip()
+
+    if not name:
+        name = " ".join(part for part in [brand, model] if part).strip()
+
+    try:
+        max_wind_kmh = float(profile.get("max_wind_kmh", 0))
+    except (TypeError, ValueError):
+        max_wind_kmh = 0
+
+    try:
+        max_wind_ms = float(profile.get("max_wind_ms", 0))
+    except (TypeError, ValueError):
+        max_wind_ms = 0
+
+    if max_wind_kmh <= 0 and max_wind_ms > 0:
+        max_wind_kmh = round(max_wind_ms * 3.6, 1)
+
+    if max_wind_ms <= 0 and max_wind_kmh > 0:
+        max_wind_ms = round(max_wind_kmh / 3.6, 1)
+
+    if not brand or not model or not name or max_wind_kmh <= 0:
+        return None
+
+    return {
+        "id": drone_id,
+        "brand": brand,
+        "model": model,
+        "name": name,
+        "max_wind_kmh": round(max_wind_kmh, 1),
+        "max_wind_ms": round(max_wind_ms, 1),
+        "source": str(profile.get("source", source)).strip() or source,
+        "notes": str(profile.get("notes", "")).strip(),
+    }
+
+
+def make_custom_drone_id(brand, model, existing_ids):
+    base = f"custom_{brand}_{model}".lower()
+    cleaned = []
+
+    for char in base:
+        if char.isascii() and char.isalnum():
+            cleaned.append(char)
+        else:
+            cleaned.append("_")
+
+    drone_id = "_".join("".join(cleaned).split("_"))
+    if not drone_id or drone_id == "custom":
+        drone_id = "custom_drone"
+
+    candidate = drone_id
+    counter = 2
+    while candidate in existing_ids:
+        candidate = f"{drone_id}_{counter}"
+        counter += 1
+
+    return candidate
+
+
+def get_drone_profiles(library=None, my_drones=None):
+    if library is None:
+        library = load_drone_library()
+    if my_drones is None:
+        my_drones = load_my_drones(library)
+
+    profiles = {}
+    profiles.update(library)
+    profiles.update(my_drones.get("custom", {}))
+    return profiles
 
 
 def load_battery_data():
@@ -177,6 +337,14 @@ button{width:100%;padding:10px;border-radius:8px;border:none;margin-top:8px;back
 .safe{background:#064e3b}.caution{background:#78350f}.danger{background:#7f1d1d}
 .checkitem{display:flex;gap:10px;align-items:center;margin:10px 0;color:#e5e7eb}
 .checkitem input{width:auto;margin:0}
+.drone-row{display:flex;gap:8px;align-items:center;margin-top:8px}
+.drone-row button{width:auto;min-width:90px;margin-top:10px}
+.drone-list{display:flex;flex-direction:column;gap:8px;margin-top:12px}
+.drone-pill{display:grid;grid-template-columns:1fr auto;gap:8px;align-items:center;background:#111827;border-radius:10px;padding:10px}
+.drone-pill.active{border:1px solid #3b82f6}
+.drone-pill button{width:auto;margin:0;padding:8px 10px}
+.drone-meta{color:#9ca3af;font-size:12px;margin-top:3px}
+.custom-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:8px}
 
 .battery-section{
     margin-top:16px;
@@ -279,6 +447,9 @@ button{width:100%;padding:10px;border-radius:8px;border:none;margin-top:8px;back
 
 @media(max-width:700px){
     .battery-header{grid-template-columns:1fr}
+    .drone-row{display:block}
+    .drone-row button{width:100%}
+    .custom-grid{grid-template-columns:1fr}
 }
 </style>
 </head>
@@ -301,6 +472,12 @@ button{width:100%;padding:10px;border-radius:8px;border:none;margin-top:8px;back
 <div class="value" id="safetyStatus">--</div>
 <div class="label" id="safetyReason">Analisi condizioni...</div>
 <div class="label" id="droneLimit">Limite vento drone: --</div>
+</div>
+
+<div class="card">
+<h2>Gestione Droni</h2>
+<div class="label">Gestisci libreria, droni posseduti e custom in una pagina dedicata.</div>
+<a class="button" href="/drones">Apri gestione droni</a>
 </div>
 
 <div class="card">
@@ -422,6 +599,60 @@ function populateDroneSelect(){
     select.value = DRONES[selected] ? selected : options[0];
 }
 
+function setDroneManagerStatus(message){
+    const status = document.getElementById('droneManagerStatus');
+    if(status){
+        status.textContent = message || '';
+    }
+}
+
+function renderDroneManager(){
+    const librarySelect = document.getElementById('libraryDroneSelect');
+    const myDroneList = document.getElementById('myDroneList');
+
+    if(!librarySelect || !myDroneList){
+        return;
+    }
+
+    const myDroneIds = MY_DRONES.items.filter((droneId)=>DRONES[droneId]);
+    const libraryIds = Object.keys(DRONES).sort((a,b)=>DRONES[a].name.localeCompare(DRONES[b].name));
+    const addableIds = libraryIds.filter((droneId)=>!myDroneIds.includes(droneId));
+
+    librarySelect.innerHTML = '';
+
+    if(addableIds.length){
+        addableIds.forEach((droneId)=>{
+            const option = document.createElement('option');
+            option.value = droneId;
+            option.textContent = `${DRONES[droneId].brand || 'Drone'} - ${DRONES[droneId].name}`;
+            librarySelect.appendChild(option);
+        });
+        librarySelect.disabled = false;
+    }else{
+        const option = document.createElement('option');
+        option.value = '';
+        option.textContent = 'Tutti i droni della libreria sono gia presenti';
+        librarySelect.appendChild(option);
+        librarySelect.disabled = true;
+    }
+
+    myDroneList.innerHTML = '';
+
+    myDroneIds.forEach((droneId)=>{
+        const drone = DRONES[droneId];
+        const div = document.createElement('div');
+        div.className = 'drone-pill' + (droneId === currentDrone() ? ' active' : '');
+        div.innerHTML = `
+            <div>
+                <strong>${drone.name}</strong>
+                <div class="drone-meta">${drone.brand || 'Drone'} ${drone.model || ''} - vento max ${drone.maxWind.toFixed(1)} km/h</div>
+            </div>
+            <button onclick="removeMyDrone('${droneId}')">Rimuovi</button>
+        `;
+        myDroneList.appendChild(div);
+    });
+}
+
 async function loadDrones(){
     try{
         const res = await fetch('/api/drones');
@@ -430,7 +661,7 @@ async function loadDrones(){
         if(data.error){ throw new Error(data.error); }
 
         const loadedDrones = {};
-        Object.entries(data.library || {}).forEach(([id, profile])=>{
+        Object.entries(data.profiles || data.library || {}).forEach(([id, profile])=>{
             loadedDrones[id] = normalizeDroneProfile(id, profile);
         });
 
@@ -446,18 +677,108 @@ async function loadDrones(){
     }
 
     populateDroneSelect();
+    renderDroneManager();
 }
 
 function loadDrone(){
     populateDroneSelect();
+    renderDroneManager();
 }
 
 function saveDrone(){
     const selected = document.getElementById('droneSelect').value;
     MY_DRONES.active = selected;
     localStorage.setItem('niwa_drone', selected);
+    setActiveDrone(selected);
     loadWeather();
     loadBatteries();
+    renderDroneManager();
+}
+
+async function refreshDrones(){
+    await loadDrones();
+    loadWeather();
+    loadBatteries();
+}
+
+async function setActiveDrone(droneId){
+    try{
+        await fetch('/api/my-drones/active', {
+            method:'POST',
+            headers:{'Content-Type':'application/json'},
+            body:JSON.stringify({drone:droneId})
+        });
+    }catch(e){}
+}
+
+async function addSelectedDrone(){
+    const select = document.getElementById('libraryDroneSelect');
+    const drone = select.value;
+
+    if(!drone){
+        return;
+    }
+
+    try{
+        const res = await fetch('/api/my-drones/add', {
+            method:'POST',
+            headers:{'Content-Type':'application/json'},
+            body:JSON.stringify({drone})
+        });
+        const data = await res.json();
+        if(data.error){ throw new Error(data.error); }
+        setDroneManagerStatus('Drone aggiunto.');
+        await refreshDrones();
+    }catch(e){
+        setDroneManagerStatus('Errore aggiunta drone: ' + e.message);
+    }
+}
+
+async function removeMyDrone(drone){
+    try{
+        const res = await fetch('/api/my-drones/remove', {
+            method:'POST',
+            headers:{'Content-Type':'application/json'},
+            body:JSON.stringify({drone})
+        });
+        const data = await res.json();
+        if(data.error){ throw new Error(data.error); }
+        localStorage.setItem('niwa_drone', data.my_drones.active);
+        setDroneManagerStatus('Drone rimosso.');
+        await refreshDrones();
+    }catch(e){
+        setDroneManagerStatus('Errore rimozione drone: ' + e.message);
+    }
+}
+
+async function addCustomDrone(){
+    const payload = {
+        brand: document.getElementById('customBrand').value.trim(),
+        model: document.getElementById('customModel').value.trim(),
+        name: document.getElementById('customName').value.trim(),
+        max_wind_kmh: Number(document.getElementById('customWindKmh').value),
+        notes: document.getElementById('customNotes').value.trim()
+    };
+
+    try{
+        const res = await fetch('/api/custom-drones', {
+            method:'POST',
+            headers:{'Content-Type':'application/json'},
+            body:JSON.stringify(payload)
+        });
+        const data = await res.json();
+        if(data.error){ throw new Error(data.error); }
+
+        ['customBrand','customModel','customName','customWindKmh','customNotes'].forEach((id)=>{
+            document.getElementById(id).value = '';
+        });
+
+        localStorage.setItem('niwa_drone', data.my_drones.active);
+        setDroneManagerStatus('Drone custom aggiunto.');
+        await refreshDrones();
+    }catch(e){
+        setDroneManagerStatus('Errore custom: ' + e.message);
+    }
 }
 
 function batteryColor(value){
@@ -659,6 +980,289 @@ setInterval(loadWeather, 10 * 60 * 1000);
 """
 
 
+@app.route("/drones")
+def drones_page():
+    return """
+<!DOCTYPE html>
+<html lang="it">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>NIWA - Gestione Droni</title>
+<style>
+body{margin:0;font-family:Arial,sans-serif;background:#111827;color:white;padding:20px}
+h1{margin-bottom:8px}.subtitle{color:#9ca3af;margin-bottom:20px}
+.topbar{display:flex;gap:12px;align-items:center;justify-content:space-between;margin-bottom:16px}
+.topbar a{color:white;text-decoration:none;background:#374151;padding:10px 12px;border-radius:10px}
+.layout{display:grid;grid-template-columns:minmax(0,1fr) minmax(280px,360px);gap:16px}
+.card{background:#1f2937;border-radius:16px;padding:18px;box-shadow:0 8px 20px rgba(0,0,0,.25)}
+.card h2{margin-top:0;font-size:20px}.label{color:#9ca3af;font-size:14px}.small{color:#9ca3af;font-size:13px;margin-top:10px}
+input,select{width:100%;padding:10px;border-radius:8px;border:none;margin-top:10px;box-sizing:border-box}
+button{padding:10px 12px;border-radius:8px;border:none;background:#374151;color:white}
+button:hover,.topbar a:hover{background:#4b5563}.primary{background:#2563eb}.danger-btn{background:#7f1d1d}
+.toolbar{display:grid;grid-template-columns:minmax(180px,280px) 1fr;gap:12px;align-items:end;margin-bottom:14px}
+.drone-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:12px}
+.drone-card{background:#111827;border-radius:12px;padding:14px;border:1px solid transparent}
+.drone-card.mine{border-color:#3b82f6}.drone-card.owned{border-color:#22c55e}.drone-card h3{margin:0 0 6px 0;font-size:17px}
+.meta{color:#9ca3af;font-size:13px;line-height:1.4}.actions{display:flex;gap:8px;margin-top:12px;flex-wrap:wrap}
+.owned-label{color:#86efac;font-size:13px;font-weight:bold;margin-top:12px}
+.custom-grid{display:grid;grid-template-columns:1fr;gap:8px}.status{min-height:18px}
+@media(max-width:850px){.layout{grid-template-columns:1fr}.toolbar{grid-template-columns:1fr}.topbar{display:block}.topbar a{display:inline-block;margin-top:10px}}
+</style>
+</head>
+<body>
+<div class="topbar">
+<div>
+<h1>Gestione Droni</h1>
+<div class="subtitle">Libreria locale, droni posseduti e profili custom.</div>
+</div>
+<a href="/">Torna al Drone Panel</a>
+</div>
+
+<div class="layout">
+<div class="card">
+<h2>Libreria droni</h2>
+<div class="toolbar">
+<div>
+<div class="label">Marca</div>
+<select id="brandFilter" onchange="renderDroneLibrary()"></select>
+</div>
+<div class="label">La lista operativa del Drone Panel mostra solo i droni aggiunti a "I miei droni".</div>
+</div>
+<div id="droneLibrary" class="drone-grid"></div>
+</div>
+
+<div>
+<div class="card">
+<h2>I miei droni</h2>
+<div id="myDroneSummary" class="drone-grid"></div>
+<div class="small status" id="managerStatus"></div>
+</div>
+
+<div class="card" style="margin-top:16px">
+<h2>Drone custom</h2>
+<div class="label">Crea un profilo manuale per droni assemblati o non presenti in libreria.</div>
+<div class="custom-grid">
+<input id="customName" placeholder="Nome drone">
+<input id="customWindKmh" type="number" min="1" step="0.1" placeholder="Vento max km/h">
+<input id="customNotes" placeholder="Note opzionali">
+<button class="primary" onclick="addCustomDrone()">Aggiungi custom</button>
+</div>
+</div>
+</div>
+</div>
+
+<script>
+let DRONES = {};
+let MY_DRONES = {active:'dji_neo',items:[],custom:{}};
+
+function normalizeDroneProfile(id, profile){
+    return {
+        id,
+        name: profile.name || `${profile.brand || ''} ${profile.model || ''}`.trim() || id,
+        brand: profile.brand || 'Custom',
+        model: profile.model || '',
+        maxWind: Number(profile.max_wind_kmh || profile.maxWind || 0),
+        maxWindMs: Number(profile.max_wind_ms || 0),
+        source: profile.source || '',
+        notes: profile.notes || ''
+    };
+}
+
+function setStatus(message){
+    document.getElementById('managerStatus').textContent = message || '';
+}
+
+async function loadDrones(){
+    const res = await fetch('/api/drones');
+    const data = await res.json();
+    const loaded = {};
+
+    Object.entries(data.profiles || data.library || {}).forEach(([id, profile])=>{
+        loaded[id] = normalizeDroneProfile(id, profile);
+    });
+
+    DRONES = loaded;
+    MY_DRONES = data.my_drones || MY_DRONES;
+    populateBrandFilter();
+    renderDroneLibrary();
+    renderMyDrones();
+}
+
+function populateBrandFilter(){
+    const select = document.getElementById('brandFilter');
+    const current = select.value;
+    const brands = [...new Set(Object.values(DRONES).map((drone)=>drone.brand || 'Custom'))].sort();
+    if(!brands.includes('Custom')){
+        brands.push('Custom');
+        brands.sort();
+    }
+
+    select.innerHTML = '';
+    brands.forEach((brand)=>{
+        const option = document.createElement('option');
+        option.value = brand;
+        option.textContent = brand;
+        select.appendChild(option);
+    });
+
+    if(brands.includes(current)){
+        select.value = current;
+    }else if(brands.includes('DJI')){
+        select.value = 'DJI';
+    }else if(brands.length){
+        select.value = brands[0];
+    }
+}
+
+function renderDroneLibrary(){
+    const container = document.getElementById('droneLibrary');
+    const brand = document.getElementById('brandFilter').value;
+    const myIds = MY_DRONES.items || [];
+    const drones = Object.values(DRONES)
+        .filter((drone)=>!brand || drone.brand === brand)
+        .sort((a,b)=>a.name.localeCompare(b.name));
+
+    container.innerHTML = '';
+
+    if(!drones.length){
+        container.innerHTML = brand === 'Custom'
+            ? '<div class="label">Nessun drone custom salvato.</div>'
+            : '<div class="label">Nessun drone per questa marca.</div>';
+        return;
+    }
+
+    drones.forEach((drone)=>{
+        const isMine = myIds.includes(drone.id);
+        const card = document.createElement('div');
+        card.className = 'drone-card' + (isMine ? ' owned' : '');
+
+        card.innerHTML = `
+            <h3>${drone.name}</h3>
+            <div class="meta">${drone.brand} ${drone.model}</div>
+            <div class="meta">Vento max: ${drone.maxWind.toFixed(1)} km/h (${drone.maxWindMs.toFixed(1)} m/s)</div>
+            <div class="meta">${drone.notes || ''}</div>
+        `;
+
+        if(isMine){
+            const label = document.createElement('div');
+            label.className = 'owned-label';
+            label.textContent = 'In flotta';
+            card.appendChild(label);
+        }else{
+            const action = document.createElement('button');
+            action.textContent = 'Aggiungi';
+            action.className = 'primary';
+            action.onclick = ()=>addMyDrone(drone.id);
+
+            const actions = document.createElement('div');
+            actions.className = 'actions';
+            actions.appendChild(action);
+            card.appendChild(actions);
+        }
+
+        container.appendChild(card);
+    });
+}
+
+function renderMyDrones(){
+    const container = document.getElementById('myDroneSummary');
+    const myIds = (MY_DRONES.items || []).filter((id)=>DRONES[id]);
+    container.innerHTML = '';
+
+    if(!myIds.length){
+        container.innerHTML = '<div class="label">Nessun drone selezionato.</div>';
+        return;
+    }
+
+    myIds.forEach((id)=>{
+        const drone = DRONES[id];
+        const div = document.createElement('div');
+        div.className = 'drone-card mine';
+        div.innerHTML = `
+            <h3>${drone.name}</h3>
+            <div class="meta">${drone.brand} - vento max ${drone.maxWind.toFixed(1)} km/h</div>
+        `;
+        const actions = document.createElement('div');
+        actions.className = 'actions';
+
+        const removeButton = document.createElement('button');
+        removeButton.className = 'danger-btn';
+        removeButton.textContent = drone.brand === 'Custom' ? 'Elimina' : 'Rimuovi';
+        removeButton.onclick = ()=>removeMyDrone(drone.id);
+
+        actions.appendChild(removeButton);
+        div.appendChild(actions);
+        container.appendChild(div);
+    });
+}
+
+async function addMyDrone(drone){
+    try{
+        const res = await fetch('/api/my-drones/add', {
+            method:'POST',
+            headers:{'Content-Type':'application/json'},
+            body:JSON.stringify({drone})
+        });
+        const data = await res.json();
+        if(data.error){ throw new Error(data.error); }
+        setStatus('Drone aggiunto.');
+        await loadDrones();
+    }catch(e){
+        setStatus('Errore: ' + e.message);
+    }
+}
+
+async function removeMyDrone(drone){
+    try{
+        const res = await fetch('/api/my-drones/remove', {
+            method:'POST',
+            headers:{'Content-Type':'application/json'},
+            body:JSON.stringify({drone})
+        });
+        const data = await res.json();
+        if(data.error){ throw new Error(data.error); }
+        setStatus('Drone rimosso.');
+        await loadDrones();
+    }catch(e){
+        setStatus('Errore: ' + e.message);
+    }
+}
+
+async function addCustomDrone(){
+    const payload = {
+        name: document.getElementById('customName').value.trim(),
+        max_wind_kmh: Number(document.getElementById('customWindKmh').value),
+        notes: document.getElementById('customNotes').value.trim()
+    };
+
+    try{
+        const res = await fetch('/api/custom-drones', {
+            method:'POST',
+            headers:{'Content-Type':'application/json'},
+            body:JSON.stringify(payload)
+        });
+        const data = await res.json();
+        if(data.error){ throw new Error(data.error); }
+
+        ['customName','customWindKmh','customNotes'].forEach((id)=>{
+            document.getElementById(id).value = '';
+        });
+
+        setStatus('Drone custom aggiunto.');
+        await loadDrones();
+    }catch(e){
+        setStatus('Errore custom: ' + e.message);
+    }
+}
+
+loadDrones().catch((e)=>setStatus('Errore caricamento droni: ' + e.message));
+</script>
+</body>
+</html>
+"""
+
+
 def reverse_geocode(lat, lon):
     try:
         url = "https://nominatim.openstreetmap.org/reverse"
@@ -769,10 +1373,11 @@ def weather():
 def get_drones():
     library = load_drone_library()
     my_drones = load_my_drones(library)
+    profiles = get_drone_profiles(library, my_drones)
 
     available = []
     for drone_id in my_drones["items"]:
-        profile = library.get(drone_id)
+        profile = profiles.get(drone_id)
         if profile:
             drone = {"id": drone_id}
             drone.update(profile)
@@ -780,8 +1385,118 @@ def get_drones():
 
     return jsonify({
         "library": library,
+        "profiles": profiles,
         "my_drones": my_drones,
         "available": available,
+    })
+
+
+@app.route("/api/my-drones/add", methods=["POST"])
+def add_my_drone():
+    payload = request.get_json(silent=True) or {}
+    drone_id = payload.get("drone")
+
+    library = load_drone_library()
+    my_drones = load_my_drones(library)
+    profiles = get_drone_profiles(library, my_drones)
+
+    if drone_id not in profiles:
+        return jsonify({"error": "Drone non presente nella libreria."}), 400
+
+    if drone_id not in my_drones["items"]:
+        my_drones["items"].append(drone_id)
+
+    if my_drones.get("active") not in my_drones["items"]:
+        my_drones["active"] = drone_id
+
+    save_json_file(MY_DRONES_FILE, my_drones)
+
+    return jsonify({"ok": True, "my_drones": my_drones})
+
+
+@app.route("/api/my-drones/remove", methods=["POST"])
+def remove_my_drone():
+    payload = request.get_json(silent=True) or {}
+    drone_id = payload.get("drone")
+
+    library = load_drone_library()
+    my_drones = load_my_drones(library)
+
+    if drone_id not in my_drones["items"]:
+        if drone_id in my_drones.get("custom", {}):
+            del my_drones["custom"][drone_id]
+            save_json_file(MY_DRONES_FILE, my_drones)
+        return jsonify({"ok": True, "my_drones": my_drones})
+
+    if len(my_drones["items"]) <= 1:
+        return jsonify({"error": "Deve restare almeno un drone operativo."}), 400
+
+    my_drones["items"] = [
+        current_id for current_id in my_drones["items"]
+        if current_id != drone_id
+    ]
+
+    if my_drones["active"] == drone_id:
+        my_drones["active"] = my_drones["items"][0]
+
+    if drone_id in my_drones.get("custom", {}):
+        del my_drones["custom"][drone_id]
+
+    save_json_file(MY_DRONES_FILE, my_drones)
+
+    return jsonify({"ok": True, "my_drones": my_drones})
+
+
+@app.route("/api/my-drones/active", methods=["POST"])
+def set_active_drone():
+    payload = request.get_json(silent=True) or {}
+    drone_id = payload.get("drone")
+
+    library = load_drone_library()
+    my_drones = load_my_drones(library)
+
+    if drone_id not in my_drones["items"]:
+        return jsonify({"error": "Drone non presente nei miei droni."}), 400
+
+    my_drones["active"] = drone_id
+    save_json_file(MY_DRONES_FILE, my_drones)
+
+    return jsonify({"ok": True, "my_drones": my_drones})
+
+
+@app.route("/api/custom-drones", methods=["POST"])
+def add_custom_drone():
+    payload = request.get_json(silent=True) or {}
+
+    library = load_drone_library()
+    my_drones = load_my_drones(library)
+    profiles = get_drone_profiles(library, my_drones)
+
+    payload["brand"] = "Custom"
+    payload["model"] = "Custom"
+
+    brand = "Custom"
+    model = str(payload.get("name", "")).strip() or "custom"
+    drone_id = make_custom_drone_id(brand, model, profiles.keys())
+    profile = clean_drone_profile(payload, drone_id, source="user")
+
+    if not profile:
+        return jsonify({
+            "error": "Inserisci nome e vento max valido."
+        }), 400
+
+    my_drones.setdefault("custom", {})[drone_id] = profile
+
+    if drone_id not in my_drones["items"]:
+        my_drones["items"].append(drone_id)
+
+    my_drones["active"] = drone_id
+    save_json_file(MY_DRONES_FILE, my_drones)
+
+    return jsonify({
+        "ok": True,
+        "drone": {"id": drone_id, **profile},
+        "my_drones": my_drones,
     })
 
 

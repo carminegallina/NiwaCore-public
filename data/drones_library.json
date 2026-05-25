@@ -1,5 +1,6 @@
 {
   "dji_neo": {
+    "id": "dji_neo",
     "brand": "DJI",
     "model": "Neo",
     "name": "DJI Neo",
@@ -9,6 +10,7 @@
     "notes": "Official wind resistance 8 m/s."
   },
   "dji_avata_2": {
+    "id": "dji_avata_2",
     "brand": "DJI",
     "model": "Avata 2",
     "name": "DJI Avata 2",
@@ -16,5 +18,65 @@
     "max_wind_ms": 10.7,
     "source": "official",
     "notes": "Official wind resistance 10.7 m/s."
+  },
+  "dji_avata": {
+    "id": "dji_avata",
+    "brand": "DJI",
+    "model": "Avata",
+    "name": "DJI Avata",
+    "max_wind_kmh": 38.5,
+    "max_wind_ms": 10.7,
+    "source": "official",
+    "notes": "Official wind resistance 10.7 m/s."
+  },
+  "dji_mini_3_pro": {
+    "id": "dji_mini_3_pro",
+    "brand": "DJI",
+    "model": "Mini 3 Pro",
+    "name": "DJI Mini 3 Pro",
+    "max_wind_kmh": 38.5,
+    "max_wind_ms": 10.7,
+    "source": "official",
+    "notes": "Official wind resistance 10.7 m/s."
+  },
+  "dji_mini_4_pro": {
+    "id": "dji_mini_4_pro",
+    "brand": "DJI",
+    "model": "Mini 4 Pro",
+    "name": "DJI Mini 4 Pro",
+    "max_wind_kmh": 38.5,
+    "max_wind_ms": 10.7,
+    "source": "official",
+    "notes": "Official wind resistance 10.7 m/s."
+  },
+  "dji_air_3": {
+    "id": "dji_air_3",
+    "brand": "DJI",
+    "model": "Air 3",
+    "name": "DJI Air 3",
+    "max_wind_kmh": 43.2,
+    "max_wind_ms": 12.0,
+    "source": "official",
+    "notes": "Official wind resistance 12 m/s."
+  },
+  "dji_air_3s": {
+    "id": "dji_air_3s",
+    "brand": "DJI",
+    "model": "Air 3S",
+    "name": "DJI Air 3S",
+    "max_wind_kmh": 43.2,
+    "max_wind_ms": 12.0,
+    "source": "official",
+    "notes": "Official wind resistance 12 m/s."
+  },
+  "dji_mavic_3_pro": {
+    "id": "dji_mavic_3_pro",
+    "brand": "DJI",
+    "model": "Mavic 3 Pro",
+    "name": "DJI Mavic 3 Pro",
+    "max_wind_kmh": 43.2,
+    "max_wind_ms": 12.0,
+    "source": "official",
+    "notes": "Official wind resistance 12 m/s."
   }
 }
