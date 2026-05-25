@@ -228,6 +228,7 @@ button{width:100%;padding:10px;border-radius:8px;border:none;margin-top:8px;back
 }
 
 .battery-slider{
+    --battery-level:0%;
     width:calc(100% + 18px);
     margin-left:-9px;
     margin-right:-9px;
@@ -239,7 +240,7 @@ button{width:100%;padding:10px;border-radius:8px;border:none;margin-top:8px;back
 
 .battery-slider::-webkit-slider-runnable-track{
     height:8px;
-    background:#374151;
+    background:linear-gradient(to right,#3b82f6 0%,#3b82f6 var(--battery-level),#374151 var(--battery-level),#374151 100%);
     border-radius:999px;
 }
 
@@ -257,6 +258,12 @@ button{width:100%;padding:10px;border-radius:8px;border:none;margin-top:8px;back
 .battery-slider::-moz-range-track{
     height:8px;
     background:#374151;
+    border-radius:999px;
+}
+
+.battery-slider::-moz-range-progress{
+    height:8px;
+    background:#3b82f6;
     border-radius:999px;
 }
 
@@ -459,6 +466,10 @@ function batteryColor(value){
     return 'red';
 }
 
+function updateBatterySliderFill(slider){
+    slider.style.setProperty('--battery-level', slider.value + '%');
+}
+
 async function loadBatteries(){
     const drone = currentDrone();
     const res = await fetch(`/api/batteries?drone=${drone}`);
@@ -479,7 +490,7 @@ async function loadBatteries(){
             <strong>Batteria ${index + 1}</strong>
             <div class="slider-row">
                 <div class="slider-box">
-                    <input class="battery-slider" type="range" min="0" max="100" value="${value}" id="battery_${index}" oninput="updateBatteryLabel(${index})">
+                    <input class="battery-slider" type="range" min="0" max="100" value="${value}" id="battery_${index}" style="--battery-level:${value}%" oninput="updateBatteryLabel(${index})">
                 </div>
                 <span class="percent" id="battery_label_${index}">${value}%</span>
             </div>
@@ -493,6 +504,7 @@ async function loadBatteries(){
 function updateBatteryLabel(index){
     const slider = document.getElementById(`battery_${index}`);
     const label = document.getElementById(`battery_label_${index}`);
+    updateBatterySliderFill(slider);
     label.textContent = slider.value + '%';
 }
 

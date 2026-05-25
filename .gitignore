@@ -13,6 +13,7 @@ logs/
 *.secret
 *.key
 *.pem
+.codex_ssh/
 
 # OS / editor
 .DS_Store
