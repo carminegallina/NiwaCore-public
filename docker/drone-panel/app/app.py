@@ -325,7 +325,10 @@ def index():
 
 <style>
 body{margin:0;font-family:Arial,sans-serif;background:#111827;color:white;padding:20px}
-h1{margin-bottom:8px}.subtitle{color:#9ca3af;margin-bottom:24px}
+.topbar{display:flex;gap:12px;align-items:flex-start;justify-content:space-between;margin-bottom:24px}
+.topbar a{color:white;text-decoration:none;background:#374151;padding:10px 12px;border-radius:10px}
+.topbar a:hover{background:#4b5563}
+h1{margin:0 0 8px 0}.subtitle{color:#9ca3af}
 .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:16px}
 .card{background:#1f2937;border-radius:16px;padding:18px;box-shadow:0 8px 20px rgba(0,0,0,.25)}
 .card h2{margin-top:0;font-size:20px}.value{font-size:28px;font-weight:bold;margin:8px 0}.label{color:#9ca3af;font-size:14px}
@@ -450,14 +453,21 @@ button{width:100%;padding:10px;border-radius:8px;border:none;margin-top:8px;back
     .drone-row{display:block}
     .drone-row button{width:100%}
     .custom-grid{grid-template-columns:1fr}
+    .topbar{display:block}
+    .topbar a{display:inline-block;margin-top:10px}
 }
 </style>
 </head>
 
 <body>
 
+<div class="topbar">
+<div>
 <h1>🚁 NIWA Drone Panel</h1>
 <div class="subtitle">Meteo operativo, batterie, checklist e sicurezza drone.</div>
+</div>
+<a href="http://10.42.0.1:3000">Dashboard</a>
+</div>
 
 <div class="grid">
 
