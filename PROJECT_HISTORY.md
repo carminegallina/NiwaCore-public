@@ -20,6 +20,18 @@ Remote access is interesting for the future, but not the core operating mode.
 
 Tailscale is useful for future remote access, but not the core event workflow. Event workflow must not depend on internet.
 
+Tailscale has now been installed on the Raspberry as private remote access. It is useful for browser access to NIWA panels when the client device is also connected to the same tailnet.
+
+### Hotspot persistence
+
+The Raspberry hotspot connection is named:
+
+Hotspot
+
+It has been configured in NetworkManager to autoconnect at boot with priority 100. The old `netplan-wlan0-ReteHospot` connection has autoconnect disabled so it should not take over `wlan0`.
+
+This still needs verification after a real Raspberry reboot.
+
 ### Mini router
 
 A travel router may be useful later, especially for stability, range and keeping the Raspberry focused on server tasks. For now the Raspberry hotspot is being tested.
@@ -84,6 +96,19 @@ Current purpose:
 - show per-folder media usage
 - track photo, video, GoPro, backstage, exports, backup and events folders
 - keep the dashboard separate from the heavier media/review workflow
+
+### NIWA Shooting Tools
+
+NIWA Shooting Tools has been implemented as a separate Flask/Docker module on port 5054.
+
+Current purpose:
+- plan photo/video sessions by location
+- show sunrise and sunset
+- estimate golden hour and blue hour windows
+- combine weather data with a simple shooting score
+- provide a color harmony helper
+
+The module uses Open-Meteo from the Raspberry backend when internet is available. The color helper remains usable without weather data.
 
 ### Drone Panel
 

@@ -1,0 +1,7 @@
+services:
+  shooting-tools:
+    build: .
+    container_name: shooting-tools
+    ports:
+      - "5054:5054"
+    restart: unless-stopped

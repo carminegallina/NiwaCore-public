@@ -48,6 +48,18 @@ Current status:
 - Per-folder usage cards
 - Media categories for photo, video, GoPro, backstage, exports, backup and events
 
+### NIWA Shooting Tools
+
+Current status:
+- Flask single-file app
+- Docker container
+- Port 5054
+- Location search
+- Sunrise/sunset planning
+- Estimated golden hour and blue hour windows
+- Weather-based shooting score
+- Color harmony helper
+
 ## Immediate next steps
 
 ### 1. Documentation and stable snapshots
@@ -67,7 +79,7 @@ Goal:
 Make the system reliable after reboot and during real events.
 
 Tasks:
-- Ensure hotspot starts automatically at boot
+- Verify hotspot starts automatically at boot after NetworkManager autoconnect configuration
 - Ensure SSD mounts automatically at boot
 - Ensure all Docker services start automatically at boot
 - Verify reboot recovery
@@ -79,23 +91,7 @@ Tasks:
 - Verify Samba share
 - Commit stable version
 
-### 3. Shooting tools
-
-Separate module for photography/video planning.
-
-This should be relatively quick and useful.
-
-Should include:
-- sunrise
-- sunset
-- golden hour
-- blue hour
-- general weather useful for photography/video
-- location search similar to Drone Panel if practical
-
-Do not put golden hour in Drone Panel because it is not drone-specific.
-
-### 4. Drone database expansion
+### 3. Drone database expansion
 
 Goal:
 Increase the drone library beyond the initial models while keeping values reliable.
@@ -128,7 +124,7 @@ Rules:
 - keep brand/model/name/max wind fields consistent
 - keep custom drone support separate from official library drones
 
-### 5. Media import assistant
+### 4. Media import assistant
 
 This is a future feature to implement absolutely, but it should be approached carefully.
 
@@ -155,7 +151,7 @@ Postponed until better understood:
 - drone internal storage workflow
 - Insta360 formats and conversion workflow
 
-### 6. Review performance improvements
+### 5. Review performance improvements
 
 Current Review Panel scans folders on demand.
 

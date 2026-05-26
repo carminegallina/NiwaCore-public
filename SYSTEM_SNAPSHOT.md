@@ -7,6 +7,7 @@
 /home/niwa/niwa/docker/drone-panel
 /home/niwa/niwa/docker/review-panel
 /home/niwa/niwa/docker/storage-panel
+/home/niwa/niwa/docker/shooting-tools
 /home/niwa/niwa/data
 /mnt/niwa-storage
 
@@ -19,6 +20,7 @@ portainer
 drone-panel
 review-panel
 storage-panel
+shooting-tools
 
 ## Local URLs when connected to NIWA-AP
 
@@ -39,6 +41,9 @@ http://10.42.0.1:5052
 
 NIWA Storage:
 http://10.42.0.1:5053
+
+NIWA Shooting Tools:
+http://10.42.0.1:5054
 
 Portainer:
 https://10.42.0.1:9443
@@ -65,6 +70,9 @@ http://192.168.1.100:5052
 
 NIWA Storage:
 http://192.168.1.100:5053
+
+NIWA Shooting Tools:
+http://192.168.1.100:5054
 
 ## Remote URLs through Tailscale
 
@@ -97,6 +105,9 @@ http://100.64.0.1:5052
 
 NIWA Storage:
 http://100.64.0.1:5053
+
+NIWA Shooting Tools:
+http://100.64.0.1:5054
 
 Homepage host validation has been updated on the Raspberry external Homepage compose file to allow:
 
@@ -267,6 +278,43 @@ API tests:
 
 curl http://localhost:5053/api/storage
 
+## NIWA Shooting Tools
+
+Path:
+
+/home/niwa/niwa/docker/shooting-tools
+
+Main app file:
+
+/home/niwa/niwa/docker/shooting-tools/app/app.py
+
+Docker Compose file:
+
+/home/niwa/niwa/docker/shooting-tools/docker-compose.yml
+
+Port:
+
+5054
+
+Current behavior:
+- search location by place name
+- load sunrise, sunset, daily weather and hourly conditions through Open-Meteo
+- show estimated blue hour and golden hour windows
+- show a simple shooting score
+- provide color harmony helper
+
+Useful commands:
+
+cd ~/niwa/docker/shooting-tools
+python3 -m py_compile app/app.py
+docker compose up -d --build
+docker logs shooting-tools --tail=80
+
+API tests:
+
+curl 'http://localhost:5054/api/geocode?q=Torino'
+curl 'http://localhost:5054/api/plan?lat=45.0703&lon=7.6869&name=Torino&country=Italia'
+
 ## Storage
 
 SSD mount path:
@@ -297,6 +345,22 @@ Typical hotspot IP:
 
 10.42.0.1
 
+NetworkManager hotspot connection:
+
+Hotspot
+
+Current hotspot autostart configuration:
+- Hotspot autoconnect: yes
+- Hotspot autoconnect priority: 100
+- netplan-wlan0-ReteHospot autoconnect: no
+
+Useful hotspot commands:
+
+nmcli connection show
+sudo nmcli connection up Hotspot
+nmcli -f NAME,TYPE,AUTOCONNECT,AUTOCONNECT-PRIORITY connection show
+nmcli -f GENERAL.STATE,GENERAL.CONNECTION device show wlan0
+
 The tablet can connect to NIWA-AP and access local services.
 
 Important:
@@ -310,13 +374,14 @@ Tailscale is configured as private remote access. It should not replace the loca
 ## Reboot/hardening status
 
 Known area to verify:
-- hotspot persistence after reboot
+- hotspot persistence after next real reboot
 - SSD automount after reboot
 - Docker services autostart after reboot
 - FileBrowser access after reboot
 - Drone Panel access after reboot
 - Review Panel access after reboot
 - Storage Panel access after reboot
+- Shooting Tools access after reboot
 - Homepage access after reboot
 
 ## Safety note

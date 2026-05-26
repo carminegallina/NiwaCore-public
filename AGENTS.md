@@ -73,6 +73,12 @@ NIWA Storage:
 - Port: 5053
 - Local URL: http://10.42.0.1:5053
 
+NIWA Shooting Tools:
+- Folder: /home/niwa/niwa/docker/shooting-tools
+- Container: shooting-tools
+- Port: 5054
+- Local URL: http://10.42.0.1:5054
+
 ## Storage
 
 SSD mount path:
@@ -103,6 +109,12 @@ The Raspberry can create a local hotspot:
 
 SSID: NIWA-AP
 Typical hotspot IP: 10.42.0.1
+NetworkManager connection name: Hotspot
+
+Hotspot autostart is configured with:
+- Hotspot autoconnect enabled
+- Hotspot autoconnect priority 100
+- old netplan-wlan0-ReteHospot autoconnect disabled
 
 The tablet connects to NIWA-AP and accesses local services without needing internet.
 
@@ -226,6 +238,20 @@ docker logs storage-panel --tail=80
 Test API:
 
 curl http://localhost:5053/api/storage
+
+## NIWA Shooting Tools commands
+
+From the Raspberry:
+
+cd ~/niwa/docker/shooting-tools
+python3 -m py_compile app/app.py
+docker compose up -d --build
+docker logs shooting-tools --tail=80
+
+Test API:
+
+curl 'http://localhost:5054/api/geocode?q=Torino'
+curl 'http://localhost:5054/api/plan?lat=45.0703&lon=7.6869&name=Torino&country=Italia'
 
 ## Important project direction
 
