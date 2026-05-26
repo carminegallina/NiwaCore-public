@@ -61,6 +61,18 @@ Drone Panel:
 - Port: 5051
 - Local URL: http://10.42.0.1:5051
 
+NIWA Review:
+- Folder: /home/niwa/niwa/docker/review-panel
+- Container: review-panel
+- Port: 5052
+- Local URL: http://10.42.0.1:5052
+
+NIWA Storage:
+- Folder: /home/niwa/niwa/docker/storage-panel
+- Container: storage-panel
+- Port: 5053
+- Local URL: http://10.42.0.1:5053
+
 ## Storage
 
 SSD mount path:
@@ -75,11 +87,13 @@ Suggested media structure:
 
 /mnt/niwa-storage/photo
 /mnt/niwa-storage/video
-/mnt/niwa-storage/drone
+/mnt/niwa-storage/gopro
 /mnt/niwa-storage/backstage
 /mnt/niwa-storage/exports
 /mnt/niwa-storage/backup
 /mnt/niwa-storage/events
+
+Drone internal storage and Insta360 media workflows are intentionally postponed until their file behavior is better understood.
 
 ## Network philosophy
 
@@ -106,12 +120,17 @@ It currently provides:
 - Manual location entry by city/place name
 - Reverse geocoding through Nominatim/OpenStreetMap
 - Drone Safety Indicator
-- DJI Neo / DJI Avata 2 selector
+- Server-side drone library
+- My drones list
+- Custom drone support
+- DJI drone management page
 - Safety thresholds based on selected drone wind resistance
 - Pre-flight checklist with persistent state in browser localStorage
 - Drone battery manager saved server-side on the Raspberry
 - Battery percentages managed through sliders
 - Battery data stored in /home/niwa/niwa/data/drone_batteries.json
+- Drone library stored in /home/niwa/niwa/data/drones_library.json
+- My drones runtime data stored in /home/niwa/niwa/data/my_drones.json
 
 The Drone Panel docker-compose.yml must mount:
 
@@ -164,6 +183,37 @@ Test API:
 
 curl http://localhost:5051/api/weather
 curl http://localhost:5051/api/batteries?drone=dji_neo
+curl http://localhost:5051/api/drones
+
+## NIWA Review commands
+
+From the Raspberry:
+
+cd ~/niwa/docker/review-panel
+python3 -m py_compile app/app.py
+docker compose up -d --build
+docker logs review-panel --tail=80
+
+Test API:
+
+curl http://localhost:5052/api/status
+curl http://localhost:5052/api/media/photo
+curl http://localhost:5052/api/media/video
+curl 'http://localhost:5052/api/media/gopro?kind=all'
+curl http://localhost:5052/api/previews/status
+
+## NIWA Storage commands
+
+From the Raspberry:
+
+cd ~/niwa/docker/storage-panel
+python3 -m py_compile app/app.py
+docker compose up -d --build
+docker logs storage-panel --tail=80
+
+Test API:
+
+curl http://localhost:5053/api/storage
 
 ## Important project direction
 
@@ -187,19 +237,19 @@ High priority:
 - Persistent hotspot at boot
 - Hardening reboot behavior
 - Clean dashboard links
-- Drone database system
-- Custom drone support
-- My drones list
+- DJI database extension
 - Battery manager per drone
-- Storage dashboard for RAW/JPG/MP4/drone/GoPro/Insta360
-- Event folder workflow
-- NIWA Review webapp
+- Media import assistant for Nikon photo/video and GoPro
+- Event folder workflow if needed later
+- Review performance/indexing improvements
 
 Medium priority:
 - Golden hour / sunrise / sunset module
 - Print workflow
 - SD import assistant
 - Checksums for import
+- Drone internal storage workflow research
+- Insta360 workflow research
 - Tailscale remote access
 - Backup strategy
 - Powerbank/power management

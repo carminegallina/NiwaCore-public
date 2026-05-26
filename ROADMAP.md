@@ -1,6 +1,8 @@
 # NIWA HUB - Roadmap
 
-## Current stable module: Drone Panel
+## Current stable modules
+
+### Drone Panel
 
 Current status:
 - Flask single-file app
@@ -9,15 +11,57 @@ Current status:
 - Manual location
 - Reverse geocoding
 - Drone safety indicator
-- DJI Neo / DJI Avata 2 selector
+- Server-side drone library
+- My drones list
+- Custom drone support
+- DJI drone management page
 - Persistent checklist
 - Server-side battery manager
 - Battery sliders
 - Responsive dark UI
 
+### NIWA Review
+
+Current status:
+- Flask single-file app
+- Docker container
+- Port 5052
+- Reads /mnt/niwa-storage/photo
+- Reads /mnt/niwa-storage/video
+- Reads /mnt/niwa-storage/gopro
+- RAW/JPG gallery
+- Server-side RAW preview extraction and cache
+- Full-screen tablet-friendly viewer
+- Swipe and keyboard navigation
+- Original file download
+- XMP sidecar star ratings for photo files
+- GoPro all/photo/video filter
+
+### NIWA Storage
+
+Current status:
+- Flask single-file app
+- Docker container
+- Port 5053
+- Read-only storage mount
+- SSD total/used/free summary
+- Per-folder usage cards
+- Media categories for photo, video, GoPro, backstage, exports, backup and events
+
 ## Immediate next steps
 
-### 1. Hardening
+### 1. Documentation and stable snapshots
+
+Goal:
+Keep the local repo and project notes aligned with the Raspberry state.
+
+Tasks:
+- Keep PROJECT_HISTORY.md updated after stable milestones
+- Keep SYSTEM_SNAPSHOT.md aligned with ports, paths and containers
+- Keep ROADMAP.md focused on next actions rather than old completed tasks
+- Commit stable versions before larger risky changes
+
+### 2. Hardening
 
 Goal:
 Make the system reliable after reboot and during real events.
@@ -30,59 +74,12 @@ Tasks:
 - Verify FileBrowser
 - Verify Homepage
 - Verify Drone Panel
+- Verify Review Panel
+- Verify Storage Panel
 - Verify Samba share
 - Commit stable version
 
-### 2. Drone database
-
-Goal:
-Move drone profiles out of hardcoded JavaScript and into server-side JSON.
-
-Proposed files:
-
-/home/niwa/niwa/data/drones_library.json
-/home/niwa/niwa/data/my_drones.json
-
-Library example:
-
-{
-  "dji_neo": {
-    "brand": "DJI",
-    "model": "Neo",
-    "max_wind_kmh": 28.8,
-    "max_wind_ms": 8,
-    "source": "official",
-    "notes": "Official wind resistance 8 m/s"
-  },
-  "dji_avata_2": {
-    "brand": "DJI",
-    "model": "Avata 2",
-    "max_wind_kmh": 38.5,
-    "max_wind_ms": 10.7,
-    "source": "official",
-    "notes": "Official wind resistance 10.7 m/s"
-  }
-}
-
-My drones example:
-
-{
-  "active": "dji_avata_2",
-  "items": ["dji_neo", "dji_avata_2"]
-}
-
-### 3. Custom drone support
-
-Allow the user to add:
-- brand
-- model/name
-- max wind km/h
-- optional max wind m/s
-- optional notes
-
-Custom drones should be saved server-side on the Raspberry.
-
-### 4. DJI extended database
+### 3. DJI extended database
 
 Add common DJI models first.
 
@@ -99,34 +96,37 @@ Candidate models:
 
 Only add values when verified from reliable or official sources.
 
-### 5. Storage dashboard
-
-Separate module, not Drone Panel.
+### 4. Media import assistant
 
 Goal:
-Analyze storage usage by media type and workflow category.
+Copy new media from SD cards to the SSD without duplicating files.
 
-Should show:
-- total SSD space
-- free space
-- RAW size
-- JPG size
-- MP4 size
-- drone footage size
-- GoPro size
-- Insta360 size
-- exports size
-- backup size
-- event folder size
+First target folders:
+- /mnt/niwa-storage/photo for Nikon photo RAW/JPG files
+- /mnt/niwa-storage/video for Nikon Z6 II videos
+- /mnt/niwa-storage/gopro for GoPro JPG/MP4 files
 
-Possible future categories:
-- Nikon RAW
-- Nikon JPG
-- DJI footage
-- GoPro footage
-- Insta360 footage
-- edited exports
-- print-ready files
+Important future behavior:
+- import only files not already present
+- keep source SD data safe
+- generate RAW previews during or immediately after import
+- generate video thumbnails later if needed
+- consider checksums before deleting or trusting copies
+
+Postponed until better understood:
+- drone internal storage workflow
+- Insta360 formats and conversion workflow
+
+### 5. Review performance improvements
+
+Current Review Panel scans folders on demand.
+
+Future improvements:
+- persistent media index
+- pagination for very large folders
+- background watcher for new files
+- server-side video thumbnails
+- cache cleanup for missing files is already started for RAW previews, but can be expanded
 
 ### 6. Shooting tools
 
@@ -141,24 +141,7 @@ Should include:
 
 Do not put golden hour in Drone Panel because it is not drone-specific.
 
-### 7. NIWA Review
-
-Future larger webapp.
-
-Main purpose:
-- event selection
-- JPG gallery
-- JPG/RAW pairing
-- RAW download
-- rating stars
-- XMP sidecar export for Adobe Bridge/Lightroom
-- print queue
-- selects queue
-
-Important:
-Camera dual SD RAW backup must never be compromised.
-
-### 8. Remote access
+### 7. Remote access
 
 Future:
 - Tailscale preferred
@@ -166,7 +149,7 @@ Future:
 - require authentication/security review before exposing services
 - remote access should not replace local-first event workflow
 
-### 9. Power management
+### 8. Power management
 
 Future:
 - choose reliable powerbank
@@ -174,7 +157,7 @@ Future:
 - avoid unexpected Raspberry shutdown
 - maybe add system power notes/status panel
 
-### 10. Print workflow
+### 9. Print workflow
 
 Future:
 - SELPHY CP1500 workflow

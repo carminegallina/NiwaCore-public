@@ -48,15 +48,25 @@ It should not become a giant file manager or monolithic application.
 
 ### NIWA Review
 
-A future webapp called NIWA Review was planned, but postponed.
+NIWA Review has been implemented as a separate Flask/Docker module on port 5052.
 
-Its purpose will be:
-- show JPG previews
-- pair JPG and RAW by filename
-- allow downloading associated RAW
-- rate photos with stars
-- export XMP sidecars compatible with Adobe Bridge/Lightroom
-- support event selection and print/select queues
+Current purpose:
+- browse photo files from /mnt/niwa-storage/photo
+- show JPG files directly
+- extract and cache browser-friendly previews from RAW files when available
+- allow downloading the original file
+- rate photo files with stars
+- write XMP sidecars compatible with Adobe Bridge style ratings
+- browse Nikon video files from /mnt/niwa-storage/video
+- browse GoPro JPG/video files from /mnt/niwa-storage/gopro
+- filter GoPro media by all/photo/video
+
+The current design is intentionally simple:
+- no event database yet
+- no import assistant yet
+- no destructive file operations from the browser
+- RAW preview cache is generated server-side and reused
+- asynchronous tab loading is guarded so stale responses do not update the wrong tab
 
 Important photography workflow:
 - Camera uses dual SD cards for RAW backup redundancy.
@@ -64,6 +74,16 @@ Important photography workflow:
 - Raspberry is an operational hub and tertiary backup, not primary safety.
 - RAW preview should not be forced in browser.
 - Preferred approach is JPG preview plus RAW association.
+
+### NIWA Storage
+
+NIWA Storage has been implemented as a separate Flask/Docker module on port 5053.
+
+Current purpose:
+- show total, used and free SSD space
+- show per-folder media usage
+- track photo, video, GoPro, backstage, exports, backup and events folders
+- keep the dashboard separate from the heavier media/review workflow
 
 ### Drone Panel
 
@@ -74,7 +94,10 @@ Current implemented functionality:
 - location by typed city/place
 - reverse geocoding
 - safety indicator
-- DJI Neo / DJI Avata 2 selector
+- local server-side drone library
+- my drones list
+- custom drone support
+- DJI drone management page
 - checklist
 - server-side battery manager
 
@@ -110,14 +133,30 @@ Battery values are saved on the Raspberry, not only in browser localStorage, bec
 
 ### Drone database
 
-The next direction is:
-- move from hardcoded DJI Neo / Avata 2 to a local drone database
-- add custom drone support
-- add a "my drones" list
-- later add DJI extended database
-- eventually add multi-brand database
+Drone profiles have been moved from hardcoded JavaScript to local JSON data.
+
+Current state:
+- data/drones_library.json is versioned and contains the local drone library
+- data/my_drones.example.json is versioned
+- data/my_drones.json is runtime data and is not versioned
+- data/drone_batteries.json remains runtime data and is not versioned
+- library drones and "my drones" are separate concepts
+- custom drones are stored locally and added directly to the user's fleet
+
+Next direction:
+- extend the DJI database carefully with verified official values
+- eventually add multi-brand drone support
 
 Avoid trying to create "all drones ever made" immediately. It is a maintenance problem.
+
+### Version checkpoints
+
+Recent stable commits:
+- b3cca7c Add review media and storage panels
+- 7b395d6 Add review ratings and cache status
+- b995a3b Add dashboard link to drone panel
+- 4c46bcf Add NIWA Review panel
+- e19e816 Add drone fleet management
 
 ## Current philosophy
 
