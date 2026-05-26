@@ -9,6 +9,7 @@ import os
 import subprocess
 import threading
 import time
+import xml.etree.ElementTree as ET
 
 app = Flask(__name__)
 
@@ -35,6 +36,17 @@ WORKER_STATE = {
     "errors": 0,
     "message": "Worker non ancora avviato.",
 }
+
+XMP_TEMPLATE = """<?xpacket begin="" id="W5M0MpCehiHzreSzNTczkc9d"?>
+<x:xmpmeta xmlns:x="adobe:ns:meta/">
+  <rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
+    <rdf:Description rdf:about=""
+      xmlns:xmp="http://ns.adobe.com/xap/1.0/"
+      xmp:Rating="{rating}" />
+  </rdf:RDF>
+</x:xmpmeta>
+<?xpacket end="w"?>
+"""
 
 
 def encode_id(relative_path):
@@ -69,6 +81,44 @@ def resolve_photo(file_id):
         abort(404, "File not found")
 
     return path, relative
+
+
+def xmp_path_for(path):
+    return path.with_suffix(".xmp")
+
+
+def read_rating(path):
+    xmp_path = xmp_path_for(path)
+    if not xmp_path.exists():
+        return 0
+
+    try:
+        root = ET.parse(xmp_path).getroot()
+    except Exception:
+        return 0
+
+    for element in root.iter():
+        for key, value in element.attrib.items():
+            if key.endswith("Rating"):
+                try:
+                    rating = int(value)
+                except ValueError:
+                    return 0
+                return max(0, min(5, rating))
+
+    return 0
+
+
+def write_rating(path, rating):
+    rating = max(0, min(5, int(rating)))
+    xmp_path = xmp_path_for(path)
+
+    if rating == 0:
+        if xmp_path.exists():
+            xmp_path.unlink()
+        return
+
+    xmp_path.write_text(XMP_TEMPLATE.format(rating=rating), encoding="utf-8")
 
 
 def human_size(size):
@@ -134,6 +184,7 @@ def scan_photos():
             ),
             "preview_url": f"/api/preview/{encode_id(relative)}",
             "download_url": f"/api/download/{encode_id(relative)}",
+            "rating": read_rating(path),
         })
 
     items.sort(key=lambda item: item["mtime"], reverse=True)
@@ -240,6 +291,23 @@ def run_preview_scan():
     state = load_preview_state()
     files_state = state.setdefault("files", {})
     raw_files = list(iter_photo_files(RAW_EXTENSIONS))
+    existing_keys = {state_key(relative) for _path, relative in raw_files}
+
+    for key, entry in list(files_state.items()):
+        if key in existing_keys:
+            continue
+
+        preview = entry.get("preview")
+        if preview:
+            preview_path = Path(preview)
+            try:
+                if preview_path.exists() and preview_path.is_file():
+                    preview_path.unlink()
+            except OSError:
+                pass
+
+        del files_state[key]
+
     total, cached = count_cached_raw_previews()
     queued = 0
 
@@ -305,6 +373,7 @@ def run_preview_scan():
                 **photo_signature(path),
                 "status": "error",
                 "last_error": time.time(),
+                "error": "No embedded JPEG preview found",
                 "updated": time.time(),
             }
             update_worker_state(
@@ -406,6 +475,9 @@ h1{margin:0 0 8px 0}.subtitle{color:#9ca3af;margin-bottom:18px}
 .nav-button{top:50%;transform:translateY(-50%);width:42px;height:42px;font-size:26px;line-height:20px;display:flex;align-items:center;justify-content:center}
 .nav-prev{left:14px}.nav-next{right:14px}
 .photo-counter{position:absolute;left:14px;top:14px;background:rgba(17,24,39,.72);color:#e5e7eb;border-radius:999px;padding:8px 11px;font-size:13px;backdrop-filter:blur(8px)}
+.rating{position:absolute;left:14px;bottom:14px;display:flex;gap:4px;background:rgba(17,24,39,.72);border-radius:999px;padding:8px 10px;backdrop-filter:blur(8px)}
+.star{background:transparent;border:none;color:#6b7280;font-size:24px;line-height:1;padding:0 2px}
+.star.active{color:#facc15}
 @media(max-width:800px){.topbar{display:block}.topbar .button{margin-top:10px}.modal{padding:6px}.nav-button{width:36px;height:36px;font-size:22px;opacity:.72}.download-button{top:10px;right:10px}.photo-counter{top:10px;left:10px}}
 </style>
 </head>
@@ -437,6 +509,7 @@ h1{margin:0 0 8px 0}.subtitle{color:#9ca3af;margin-bottom:18px}
 <img id="modalImage" alt="" onclick="event.stopPropagation()">
 <button class="overlay-button nav-button nav-next" onclick="showNextPhoto(event)">›</button>
 <a class="overlay-button download-button" id="downloadLink" href="#" onclick="event.stopPropagation()">Scarica RAW</a>
+<div class="rating" id="ratingStars" onclick="event.stopPropagation()"></div>
 </div>
 </div>
 
@@ -525,6 +598,47 @@ function renderCurrentPhoto(){
     document.getElementById('modalImage').src = item.preview_url;
     document.getElementById('downloadLink').href = item.download_url;
     document.getElementById('photoCounter').textContent = `${CURRENT_INDEX + 1} / ${PHOTOS.length}`;
+    renderRating(item.rating || 0);
+}
+
+function renderRating(rating){
+    const container = document.getElementById('ratingStars');
+    container.innerHTML = '';
+
+    for(let value = 1; value <= 5; value++){
+        const button = document.createElement('button');
+        button.className = 'star' + (value <= rating ? ' active' : '');
+        button.textContent = '★';
+        button.onclick = (event)=>setRating(value, event);
+        container.appendChild(button);
+    }
+}
+
+async function setRating(rating, event){
+    if(event){
+        event.stopPropagation();
+    }
+
+    const item = PHOTOS[CURRENT_INDEX];
+    if(!item){
+        return;
+    }
+
+    const nextRating = item.rating === rating ? 0 : rating;
+
+    try{
+        const res = await fetch(`/api/rating/${item.id}`, {
+            method:'POST',
+            headers:{'Content-Type':'application/json'},
+            body:JSON.stringify({rating:nextRating})
+        });
+        const data = await res.json();
+        if(data.error){ throw new Error(data.error); }
+        item.rating = data.rating;
+        renderRating(item.rating);
+    }catch(e){
+        alert('Errore salvataggio rating: ' + e.message);
+    }
 }
 
 function showPreviousPhoto(event){
@@ -640,6 +754,30 @@ def api_download(file_id):
     return send_file(path, mimetype=mime, as_attachment=True, download_name=path.name)
 
 
+@app.route("/api/rating/<file_id>", methods=["POST"])
+def api_set_rating(file_id):
+    path, _relative = resolve_photo(file_id)
+    payload = request.get_json(silent=True) or {}
+
+    try:
+        rating = int(payload.get("rating", 0))
+    except (TypeError, ValueError):
+        return jsonify({"error": "Rating non valido."}), 400
+
+    rating = max(0, min(5, rating))
+
+    try:
+        write_rating(path, rating)
+    except OSError as exc:
+        return jsonify({"error": str(exc)}), 500
+
+    return jsonify({
+        "ok": True,
+        "rating": read_rating(path),
+        "xmp": str(xmp_path_for(path)),
+    })
+
+
 @app.route("/api/status")
 def api_status():
     return jsonify({
@@ -656,6 +794,12 @@ def api_status():
 @app.route("/api/previews/status")
 def api_preview_status():
     total, cached = count_cached_raw_previews()
+    state = load_preview_state()
+    errors = [
+        {"path": path, **entry}
+        for path, entry in state.get("files", {}).items()
+        if entry.get("status") == "error"
+    ]
 
     with WORKER_LOCK:
         worker = dict(WORKER_STATE)
@@ -667,6 +811,8 @@ def api_preview_status():
         "state_file": str(PREVIEW_STATE_FILE),
         "scan_interval_seconds": PREVIEW_SCAN_INTERVAL_SECONDS,
         "stable_seconds": PREVIEW_STABLE_SECONDS,
+        "error_count": len(errors),
+        "errors": errors[:20],
         "worker": worker,
     })
 
