@@ -14,6 +14,8 @@ import xml.etree.ElementTree as ET
 app = Flask(__name__)
 
 PHOTO_ROOT = Path("/storage/photo")
+VIDEO_ROOT = Path("/storage/video")
+GOPRO_ROOT = Path("/storage/gopro")
 CACHE_ROOT = Path("/storage/.niwa_cache/review_previews")
 PREVIEW_STATE_FILE = CACHE_ROOT / "preview_state.json"
 
@@ -23,7 +25,30 @@ PREVIEW_RETRY_SECONDS = 300
 
 RAW_EXTENSIONS = {".nef", ".nrw", ".dng", ".arw", ".cr2", ".cr3", ".raf", ".rw2"}
 JPEG_EXTENSIONS = {".jpg", ".jpeg"}
+VIDEO_EXTENSIONS = {".mp4", ".mov", ".m4v"}
 PHOTO_EXTENSIONS = RAW_EXTENSIONS | JPEG_EXTENSIONS
+GOPRO_EXTENSIONS = JPEG_EXTENSIONS | VIDEO_EXTENSIONS
+
+MEDIA_SECTIONS = {
+    "photo": {
+        "label": "Foto",
+        "root": PHOTO_ROOT,
+        "extensions": PHOTO_EXTENSIONS,
+        "empty": "Nessun RAW o JPG trovato nella cartella photo.",
+    },
+    "video": {
+        "label": "Video",
+        "root": VIDEO_ROOT,
+        "extensions": VIDEO_EXTENSIONS,
+        "empty": "Nessun video trovato nella cartella video.",
+    },
+    "gopro": {
+        "label": "GoPro",
+        "root": GOPRO_ROOT,
+        "extensions": GOPRO_EXTENSIONS,
+        "empty": "Nessun JPG o MP4 trovato nella cartella gopro.",
+    },
+}
 
 WORKER_LOCK = threading.Lock()
 WORKER_STATE = {
@@ -67,20 +92,31 @@ def decode_id(file_id):
     return Path(value)
 
 
-def resolve_photo(file_id):
+def section_config(section):
+    config = MEDIA_SECTIONS.get(section)
+    if not config:
+        abort(404, "Unknown media section")
+    return config
+
+
+def resolve_media(root_path, file_id):
     relative = decode_id(file_id)
-    path = (PHOTO_ROOT / relative).resolve()
-    root = PHOTO_ROOT.resolve()
+    path = (root_path / relative).resolve()
+    root = root_path.resolve()
 
     try:
         path.relative_to(root)
     except ValueError:
-        abort(400, "Path outside photo root")
+        abort(400, "Path outside media root")
 
     if not path.exists() or not path.is_file():
         abort(404, "File not found")
 
     return path, relative
+
+
+def resolve_photo(file_id):
+    return resolve_media(PHOTO_ROOT, file_id)
 
 
 def xmp_path_for(path):
@@ -130,51 +166,76 @@ def human_size(size):
         value /= 1024
 
 
-def is_raw(path):
-    return path.suffix.lower() in RAW_EXTENSIONS
+def media_kind(path):
+    suffix = path.suffix.lower()
+    if suffix in RAW_EXTENSIONS:
+        return "raw"
+    if suffix in JPEG_EXTENSIONS:
+        return "photo"
+    if suffix in VIDEO_EXTENSIONS:
+        return "video"
+    return "file"
 
 
-def iter_photo_files(extensions):
-    if not PHOTO_ROOT.exists():
+def iter_media_files(root_path, extensions):
+    if not root_path.exists():
         return
 
-    for root, dirs, files in os.walk(PHOTO_ROOT):
+    for root, dirs, files in os.walk(root_path):
         dirs[:] = [
             directory for directory in dirs
             if not directory.startswith(".") and directory != ".niwa_cache"
         ]
 
-        root_path = Path(root)
+        root_path_current = Path(root)
         for filename in files:
-            path = root_path / filename
+            path = root_path_current / filename
             if path.suffix.lower() not in extensions:
                 continue
 
             try:
-                relative = path.relative_to(PHOTO_ROOT)
+                relative = path.relative_to(root_path)
             except ValueError:
                 continue
 
             yield path, relative
 
 
-def scan_photos():
+def iter_photo_files(extensions):
+    yield from iter_media_files(PHOTO_ROOT, extensions)
+
+
+def scan_media(section, kind_filter="all"):
+    config = section_config(section)
+    root_path = config["root"]
     items = []
 
-    for path, relative in iter_photo_files(PHOTO_EXTENSIONS):
+    for path, relative in iter_media_files(root_path, config["extensions"]):
         suffix = path.suffix.lower()
+        kind = media_kind(path)
+
+        if kind_filter == "photo" and kind == "video":
+            continue
+        if kind_filter == "video" and kind != "video":
+            continue
 
         try:
             stat = path.stat()
         except OSError:
             continue
 
-        items.append({
-            "id": encode_id(relative),
+        file_id = encode_id(relative)
+        preview_url = f"/api/media-file/{section}/{file_id}"
+        if section == "photo" and suffix in RAW_EXTENSIONS:
+            preview_url = f"/api/preview/{file_id}"
+
+        item = {
+            "id": file_id,
+            "section": section,
             "name": path.name,
             "relative_path": str(relative).replace("\\", "/"),
             "extension": suffix.upper().lstrip("."),
-            "kind": "raw" if suffix in RAW_EXTENSIONS else "jpg",
+            "kind": kind,
             "size": stat.st_size,
             "size_label": human_size(stat.st_size),
             "mtime": stat.st_mtime,
@@ -182,13 +243,19 @@ def scan_photos():
                 "%Y-%m-%d %H:%M",
                 time.localtime(stat.st_mtime)
             ),
-            "preview_url": f"/api/preview/{encode_id(relative)}",
-            "download_url": f"/api/download/{encode_id(relative)}",
-            "rating": read_rating(path),
-        })
+            "preview_url": preview_url,
+            "media_url": f"/api/media-file/{section}/{file_id}",
+            "download_url": f"/api/download/{section}/{file_id}",
+            "rating": read_rating(path) if section == "photo" and kind != "video" else 0,
+        }
+        items.append(item)
 
     items.sort(key=lambda item: item["mtime"], reverse=True)
     return items
+
+
+def scan_photos():
+    return scan_media("photo")
 
 
 def cache_path_for(path, relative):
@@ -457,18 +524,21 @@ h1{margin:0 0 8px 0}.subtitle{color:#9ca3af;margin-bottom:18px}
 .button:hover{background:#4b5563}.status{color:#9ca3af;font-size:14px;margin:12px 0}
 .worker{background:#1f2937;border-radius:12px;padding:12px;margin:12px 0;color:#d1d5db;font-size:14px}
 .worker strong{color:#e5e7eb}
-.tabs{display:flex;gap:8px;margin:16px 0;flex-wrap:wrap}
-.tab{background:#1f2937;color:#e5e7eb;border:none;border-radius:10px;padding:10px 12px}
-.tab.active{background:#2563eb;color:white}
+.tabs,.filters{display:flex;gap:8px;margin:16px 0;flex-wrap:wrap}
+.filter-row{display:none}.filter-row.visible{display:flex}
+.tab,.filter-button{background:#1f2937;color:#e5e7eb;border:none;border-radius:10px;padding:10px 12px}
+.tab.active,.filter-button.active{background:#2563eb;color:white}
 .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(170px,1fr));gap:12px}
-.card{background:#1f2937;border-radius:12px;overflow:hidden;box-shadow:0 8px 20px rgba(0,0,0,.25)}
+.card{background:#1f2937;border-radius:12px;overflow:hidden;box-shadow:0 8px 20px rgba(0,0,0,.25);position:relative}
 .thumb{width:100%;aspect-ratio:3/2;object-fit:cover;background:#111827;display:block}
+.video-thumb{filter:saturate(.9)}.play-badge{position:absolute;top:10px;right:10px;background:rgba(17,24,39,.74);border-radius:999px;padding:6px 9px;color:#e5e7eb;font-size:13px}
 .info{padding:10px}.name{font-weight:bold;font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .meta{color:#9ca3af;font-size:12px;margin-top:4px}.badge{display:inline-block;background:#374151;color:#e5e7eb;border-radius:999px;padding:3px 7px;font-size:11px;margin-top:8px}
 .empty{background:#1f2937;border-radius:12px;padding:18px;color:#9ca3af}
 .modal{position:fixed;inset:0;background:rgba(0,0,0,.9);display:none;align-items:center;justify-content:center;padding:12px;z-index:10}
 .modal.open{display:flex}.modal-inner{position:relative;width:100%;height:100%;display:flex;align-items:center;justify-content:center}
-.modal img{max-width:100%;max-height:100%;object-fit:contain}
+.modal img,.modal video{max-width:100%;max-height:100%;object-fit:contain}
+.modal video{background:#000}
 .overlay-button{position:absolute;background:rgba(17,24,39,.72);color:white;text-decoration:none;border:none;border-radius:999px;padding:10px 12px;backdrop-filter:blur(8px)}
 .overlay-button:hover{background:rgba(55,65,81,.9)}
 .download-button{top:14px;right:14px}
@@ -476,6 +546,7 @@ h1{margin:0 0 8px 0}.subtitle{color:#9ca3af;margin-bottom:18px}
 .nav-prev{left:14px}.nav-next{right:14px}
 .photo-counter{position:absolute;left:14px;top:14px;background:rgba(17,24,39,.72);color:#e5e7eb;border-radius:999px;padding:8px 11px;font-size:13px;backdrop-filter:blur(8px)}
 .rating{position:absolute;left:14px;bottom:14px;display:flex;gap:4px;background:rgba(17,24,39,.72);border-radius:999px;padding:8px 10px;backdrop-filter:blur(8px)}
+.rating.hidden{display:none}
 .star{background:transparent;border:none;color:#6b7280;font-size:24px;line-height:1;padding:0 2px}
 .star.active{color:#facc15}
 @media(max-width:800px){.topbar{display:block}.topbar .button{margin-top:10px}.modal{padding:6px}.nav-button{width:36px;height:36px;font-size:22px;opacity:.72}.download-button{top:10px;right:10px}.photo-counter{top:10px;left:10px}}
@@ -485,17 +556,21 @@ h1{margin:0 0 8px 0}.subtitle{color:#9ca3af;margin-bottom:18px}
 <div class="topbar">
 <div>
 <h1>NIWA Review</h1>
-<div class="subtitle">Anteprime RAW/JPG dalla cartella photo del NAS.</div>
+<div class="subtitle">Gallery locale per foto, video Nikon e media GoPro dal NAS.</div>
 </div>
 <a class="button" href="http://10.42.0.1:3000">Dashboard</a>
 </div>
 
 <div class="tabs">
 <button class="tab active" data-section="photo" onclick="setSection('photo')">Foto</button>
-<button class="tab" data-section="video" onclick="setSection('video')" disabled>Video</button>
-<button class="tab" data-section="drone" onclick="setSection('drone')" disabled>Drone</button>
-<button class="tab" data-section="gopro" onclick="setSection('gopro')" disabled>GoPro</button>
-<button class="tab" data-section="insta360" onclick="setSection('insta360')" disabled>Insta360</button>
+<button class="tab" data-section="video" onclick="setSection('video')">Video</button>
+<button class="tab" data-section="gopro" onclick="setSection('gopro')">GoPro</button>
+</div>
+
+<div class="filters filter-row" id="goproFilters">
+<button class="filter-button active" data-filter="all" onclick="setGoProFilter('all')">Tutti</button>
+<button class="filter-button" data-filter="photo" onclick="setGoProFilter('photo')">Foto</button>
+<button class="filter-button" data-filter="video" onclick="setGoProFilter('video')">Video</button>
 </div>
 
 <div class="status" id="status">Caricamento...</div>
@@ -505,10 +580,11 @@ h1{margin:0 0 8px 0}.subtitle{color:#9ca3af;margin-bottom:18px}
 <div class="modal" id="modal" onclick="closeModal(event)" ontouchstart="startSwipe(event)" ontouchend="endSwipe(event)">
 <div class="modal-inner">
 <div class="photo-counter" id="photoCounter"></div>
-<button class="overlay-button nav-button nav-prev" onclick="showPreviousPhoto(event)">‹</button>
+<button class="overlay-button nav-button nav-prev" onclick="showPreviousPhoto(event)">&lsaquo;</button>
 <img id="modalImage" alt="" onclick="event.stopPropagation()">
-<button class="overlay-button nav-button nav-next" onclick="showNextPhoto(event)">›</button>
-<a class="overlay-button download-button" id="downloadLink" href="#" onclick="event.stopPropagation()">Scarica RAW</a>
+<video id="modalVideo" controls playsinline onclick="event.stopPropagation()"></video>
+<button class="overlay-button nav-button nav-next" onclick="showNextPhoto(event)">&rsaquo;</button>
+<a class="overlay-button download-button" id="downloadLink" href="#" onclick="event.stopPropagation()">Scarica originale</a>
 <div class="rating" id="ratingStars" onclick="event.stopPropagation()"></div>
 </div>
 </div>
@@ -516,30 +592,65 @@ h1{margin:0 0 8px 0}.subtitle{color:#9ca3af;margin-bottom:18px}
 <script>
 let PHOTOS = [];
 let CURRENT_INDEX = -1;
+let CURRENT_SECTION = 'photo';
+let GOPRO_FILTER = 'all';
+let LOAD_SEQUENCE = 0;
 let SWIPE_START_X = 0;
 let SWIPE_START_Y = 0;
 
+const SECTION_LABELS = {
+    photo: 'foto',
+    video: 'video',
+    gopro: 'media GoPro'
+};
+
 function setSection(section){
-    if(section !== 'photo'){
-        return;
-    }
+    CURRENT_SECTION = section;
+    document.querySelectorAll('.tab').forEach((button)=>{
+        button.classList.toggle('active', button.dataset.section === section);
+    });
+    document.getElementById('goproFilters').classList.toggle('visible', section === 'gopro');
+    document.getElementById('workerStatus').style.display = section === 'photo' ? 'block' : 'none';
+    loadMedia();
 }
 
-async function loadPhotos(){
+function setGoProFilter(filter){
+    GOPRO_FILTER = filter;
+    document.querySelectorAll('.filter-button').forEach((button)=>{
+        button.classList.toggle('active', button.dataset.filter === filter);
+    });
+    loadMedia();
+}
+
+async function loadMedia(){
     const status = document.getElementById('status');
     const gallery = document.getElementById('gallery');
-    status.textContent = 'Scansione foto...';
+    const requestSection = CURRENT_SECTION;
+    const requestFilter = GOPRO_FILTER;
+    const requestId = ++LOAD_SEQUENCE;
+    const label = SECTION_LABELS[requestSection] || 'media';
+    status.textContent = `Scansione ${label}...`;
     gallery.innerHTML = '';
 
     try{
-        const res = await fetch('/api/photos');
+        let url = `/api/media/${requestSection}`;
+        if(requestSection === 'gopro'){
+            url += `?kind=${encodeURIComponent(requestFilter)}`;
+        }
+
+        const res = await fetch(url);
         const data = await res.json();
+
+        if(requestId !== LOAD_SEQUENCE || requestSection !== CURRENT_SECTION){
+            return;
+        }
+
         PHOTOS = data.items || [];
 
-        status.textContent = `${PHOTOS.length} file foto trovati in /mnt/niwa-storage/photo`;
+        status.textContent = `${PHOTOS.length} file trovati in ${data.storage_path || data.root}`;
 
         if(!PHOTOS.length){
-            gallery.innerHTML = '<div class="empty">Nessun RAW o JPG trovato nella cartella photo.</div>';
+            gallery.innerHTML = `<div class="empty">${data.empty_message || 'Nessun file trovato.'}</div>`;
             return;
         }
 
@@ -547,8 +658,13 @@ async function loadPhotos(){
             const card = document.createElement('div');
             card.className = 'card';
             card.onclick = ()=>openPhoto(item.id);
+
+            const thumb = item.kind === 'video'
+                ? `<video class="thumb video-thumb" muted preload="metadata" src="${item.media_url}"></video><div class="play-badge">Play</div>`
+                : `<img class="thumb" loading="lazy" src="${item.preview_url}" alt="">`;
+
             card.innerHTML = `
-                <img class="thumb" loading="lazy" src="${item.preview_url}" alt="">
+                ${thumb}
                 <div class="info">
                     <div class="name">${item.name}</div>
                     <div class="meta">${item.size_label} - ${item.mtime_label}</div>
@@ -558,7 +674,10 @@ async function loadPhotos(){
             gallery.appendChild(card);
         });
     }catch(e){
-        status.textContent = 'Errore caricamento foto: ' + e.message;
+        if(requestId !== LOAD_SEQUENCE || requestSection !== CURRENT_SECTION){
+            return;
+        }
+        status.textContent = 'Errore caricamento media: ' + e.message;
     }
 }
 
@@ -595,10 +714,35 @@ function renderCurrentPhoto(){
         return;
     }
 
-    document.getElementById('modalImage').src = item.preview_url;
+    const image = document.getElementById('modalImage');
+    const video = document.getElementById('modalVideo');
+
+    if(item.kind === 'video'){
+        image.style.display = 'none';
+        image.removeAttribute('src');
+        video.style.display = 'block';
+        video.src = item.media_url;
+        video.load();
+    }else{
+        video.pause();
+        video.removeAttribute('src');
+        video.style.display = 'none';
+        image.style.display = 'block';
+        image.src = item.preview_url;
+    }
+
     document.getElementById('downloadLink').href = item.download_url;
+    document.getElementById('downloadLink').textContent = item.kind === 'raw' ? 'Scarica RAW' : 'Scarica originale';
     document.getElementById('photoCounter').textContent = `${CURRENT_INDEX + 1} / ${PHOTOS.length}`;
-    renderRating(item.rating || 0);
+
+    const rating = document.getElementById('ratingStars');
+    if(item.section === 'photo' && item.kind !== 'video'){
+        rating.classList.remove('hidden');
+        renderRating(item.rating || 0);
+    }else{
+        rating.classList.add('hidden');
+        rating.innerHTML = '';
+    }
 }
 
 function renderRating(rating){
@@ -608,7 +752,7 @@ function renderRating(rating){
     for(let value = 1; value <= 5; value++){
         const button = document.createElement('button');
         button.className = 'star' + (value <= rating ? ' active' : '');
-        button.textContent = '★';
+        button.textContent = String.fromCharCode(9733);
         button.onclick = (event)=>setRating(value, event);
         container.appendChild(button);
     }
@@ -620,7 +764,7 @@ async function setRating(rating, event){
     }
 
     const item = PHOTOS[CURRENT_INDEX];
-    if(!item){
+    if(!item || item.section !== 'photo'){
         return;
     }
 
@@ -671,6 +815,7 @@ function closeModal(event){
     if(event && event.target.id !== 'modal' && !event.target.classList.contains('modal-inner')){
         return;
     }
+    document.getElementById('modalVideo').pause();
     document.getElementById('modal').classList.remove('open');
 }
 
@@ -712,7 +857,7 @@ document.addEventListener('keydown', (event)=>{
     }
 });
 
-loadPhotos();
+loadMedia();
 loadPreviewStatus();
 setInterval(loadPreviewStatus, 10000);
 </script>
@@ -726,6 +871,25 @@ def api_photos():
     return jsonify({
         "root": str(PHOTO_ROOT),
         "items": scan_photos(),
+    })
+
+
+@app.route("/api/media/<section>")
+def api_media(section):
+    config = section_config(section)
+    kind_filter = request.args.get("kind", "all")
+    if kind_filter not in {"all", "photo", "video"}:
+        kind_filter = "all"
+
+    items = scan_media(section, kind_filter)
+    return jsonify({
+        "section": section,
+        "label": config["label"],
+        "root": str(config["root"]),
+        "storage_path": str(config["root"]),
+        "exists": config["root"].exists(),
+        "empty_message": config["empty"],
+        "items": items,
     })
 
 
@@ -747,9 +911,33 @@ def api_preview(file_id):
     return placeholder_svg(path.name, "Anteprima RAW non disponibile")
 
 
+@app.route("/api/media-file/<section>/<file_id>")
+def api_media_file(section, file_id):
+    config = section_config(section)
+    path, _relative = resolve_media(config["root"], file_id)
+
+    if path.suffix.lower() not in config["extensions"]:
+        abort(404)
+
+    mime = mimetypes.guess_type(path.name)[0] or "application/octet-stream"
+    return send_file(path, mimetype=mime, conditional=True)
+
+
 @app.route("/api/download/<file_id>")
-def api_download(file_id):
+def api_download_legacy(file_id):
     path, _relative = resolve_photo(file_id)
+    mime = mimetypes.guess_type(path.name)[0] or "application/octet-stream"
+    return send_file(path, mimetype=mime, as_attachment=True, download_name=path.name)
+
+
+@app.route("/api/download/<section>/<file_id>")
+def api_download(section, file_id):
+    config = section_config(section)
+    path, _relative = resolve_media(config["root"], file_id)
+
+    if path.suffix.lower() not in config["extensions"]:
+        abort(404)
+
     mime = mimetypes.guess_type(path.name)[0] or "application/octet-stream"
     return send_file(path, mimetype=mime, as_attachment=True, download_name=path.name)
 
@@ -758,6 +946,9 @@ def api_download(file_id):
 def api_set_rating(file_id):
     path, _relative = resolve_photo(file_id)
     payload = request.get_json(silent=True) or {}
+
+    if path.suffix.lower() not in PHOTO_EXTENSIONS:
+        return jsonify({"error": "Rating disponibile solo per le foto."}), 400
 
     try:
         rating = int(payload.get("rating", 0))
@@ -783,6 +974,10 @@ def api_status():
     return jsonify({
         "photo_root": str(PHOTO_ROOT),
         "photo_root_exists": PHOTO_ROOT.exists(),
+        "video_root": str(VIDEO_ROOT),
+        "video_root_exists": VIDEO_ROOT.exists(),
+        "gopro_root": str(GOPRO_ROOT),
+        "gopro_root_exists": GOPRO_ROOT.exists(),
         "cache_root": str(CACHE_ROOT),
         "exiftool": subprocess.run(
             ["sh", "-c", "command -v exiftool >/dev/null 2>&1"],

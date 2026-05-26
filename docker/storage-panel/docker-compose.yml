@@ -1,0 +1,9 @@
+services:
+  storage-panel:
+    build: .
+    container_name: storage-panel
+    ports:
+      - "5053:5053"
+    volumes:
+      - /mnt/niwa-storage:/storage:ro
+    restart: unless-stopped
