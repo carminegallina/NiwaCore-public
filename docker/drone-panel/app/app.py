@@ -466,7 +466,7 @@ button{width:100%;padding:10px;border-radius:8px;border:none;margin-top:8px;back
 <h1>🚁 NIWA Drone Panel</h1>
 <div class="subtitle">Meteo operativo, batterie, checklist e sicurezza drone.</div>
 </div>
-<a href="http://10.42.0.1:3000">Dashboard</a>
+<a id="dashboardLink" href="/">Dashboard</a>
 </div>
 
 <div class="grid">
@@ -555,6 +555,12 @@ button{width:100%;padding:10px;border-radius:8px;border:none;margin-top:8px;back
 </div>
 
 <script>
+function serviceUrl(port, path=''){
+    return `${window.location.protocol}//${window.location.hostname}:${port}${path}`;
+}
+
+document.getElementById('dashboardLink').href = serviceUrl(3000);
+
 let DRONES = {
     dji_neo: { id: 'dji_neo', name: 'DJI Neo', maxWind: 28.8 },
     dji_avata_2: { id: 'dji_avata_2', name: 'DJI Avata 2', maxWind: 38.5 }

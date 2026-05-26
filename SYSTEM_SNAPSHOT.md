@@ -66,6 +66,52 @@ http://192.168.1.100:5052
 NIWA Storage:
 http://192.168.1.100:5053
 
+## Remote URLs through Tailscale
+
+Tailscale is installed on the Raspberry and enabled at boot.
+
+Tailscale IPv4:
+
+100.64.0.1
+
+Tailscale DNS name:
+
+niwahub.tailnet.ts.net
+
+Use these only from devices logged into the same Tailscale tailnet.
+
+Homepage:
+http://100.64.0.1:3000
+
+FileBrowser:
+http://100.64.0.1:8080
+
+Glances:
+http://100.64.0.1:61208
+
+Drone Panel:
+http://100.64.0.1:5051
+
+NIWA Review:
+http://100.64.0.1:5052
+
+NIWA Storage:
+http://100.64.0.1:5053
+
+Homepage host validation has been updated on the Raspberry external Homepage compose file to allow:
+
+100.64.0.1:3000
+niwahub.tailnet.ts.net:3000
+
+Homepage custom.js on the Raspberry rewrites NIWA service links in the browser so they keep the current access host and only change port. This allows dashboard links to work from hotspot, wired LAN and Tailscale without maintaining separate link sets.
+
+Tailscale command checks:
+
+tailscale status
+tailscale ip -4
+systemctl is-active tailscaled
+systemctl is-enabled tailscaled
+
 ## Drone Panel
 
 Path:
@@ -257,6 +303,9 @@ Important:
 The tablet may not have internet while connected only to NIWA-AP.
 
 Weather data should be fetched by the Raspberry backend, not directly by the tablet browser.
+
+Remote access note:
+Tailscale is configured as private remote access. It should not replace the local-first workflow and should not be treated as public exposure. Do not add public port forwarding without a security review.
 
 ## Reboot/hardening status
 

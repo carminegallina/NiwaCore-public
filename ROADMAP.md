@@ -79,45 +79,83 @@ Tasks:
 - Verify Samba share
 - Commit stable version
 
-### 3. DJI extended database
+### 3. Shooting tools
 
-Add common DJI models first.
+Separate module for photography/video planning.
 
-Candidate models:
+This should be relatively quick and useful.
+
+Should include:
+- sunrise
+- sunset
+- golden hour
+- blue hour
+- general weather useful for photography/video
+- location search similar to Drone Panel if practical
+
+Do not put golden hour in Drone Panel because it is not drone-specific.
+
+### 4. Drone database expansion
+
+Goal:
+Increase the drone library beyond the initial models while keeping values reliable.
+
+DJI first:
 - DJI Neo
 - DJI Avata 2
 - DJI Avata
 - DJI Mini 4 Pro
 - DJI Mini 3 Pro
+- DJI Mini 3
+- DJI Mini 2 SE
 - DJI Air 3
 - DJI Air 3S
 - DJI Mavic 3 Pro
+- DJI Mavic 3 Classic
+- DJI Mavic 3
 - DJI FPV
+- DJI Flip if official values are available
 
-Only add values when verified from reliable or official sources.
+Later multi-brand expansion:
+- Autel
+- Parrot
+- Skydio
+- Sony Airpeak if useful
+- professional/industrial brands only if their specs are useful for this workflow
 
-### 4. Media import assistant
+Rules:
+- only add values when verified from reliable or official sources
+- keep brand/model/name/max wind fields consistent
+- keep custom drone support separate from official library drones
+
+### 5. Media import assistant
+
+This is a future feature to implement absolutely, but it should be approached carefully.
 
 Goal:
-Copy new media from SD cards to the SSD without duplicating files.
+Copy new media from SD cards to the SSD without duplicating files and without risking source files.
 
-First target folders:
-- /mnt/niwa-storage/photo for Nikon photo RAW/JPG files
-- /mnt/niwa-storage/video for Nikon Z6 II videos
-- /mnt/niwa-storage/gopro for GoPro JPG/MP4 files
-
-Important future behavior:
-- import only files not already present
-- keep source SD data safe
+Checklist:
+- detect inserted SD/card reader
+- identify Nikon photo/video files
+- identify GoPro photo/video files
+- copy Nikon photo RAW/JPG files to /mnt/niwa-storage/photo
+- copy Nikon Z6 II videos to /mnt/niwa-storage/video
+- copy GoPro JPG/MP4 files to /mnt/niwa-storage/gopro
+- skip files already present
+- preserve original filenames and timestamps
 - generate RAW previews during or immediately after import
 - generate video thumbnails later if needed
-- consider checksums before deleting or trusting copies
+- keep an import log
+- use checksums before trusting copies
+- never delete files from the SD in the first implementation
+- show clear progress and errors from tablet
 
 Postponed until better understood:
 - drone internal storage workflow
 - Insta360 formats and conversion workflow
 
-### 5. Review performance improvements
+### 6. Review performance improvements
 
 Current Review Panel scans folders on demand.
 
@@ -128,36 +166,60 @@ Future improvements:
 - server-side video thumbnails
 - cache cleanup for missing files is already started for RAW previews, but can be expanded
 
-### 6. Shooting tools
+## Medium/low priority
 
-Separate module for photography/video planning.
+### NIWA System status panel
 
-Should include:
-- sunrise
-- sunset
-- golden hour
-- blue hour
-- general weather useful for photography/video
+Goal:
+Create a simple tablet-friendly system panel that answers one question: "Is NIWA ready to work right now?"
 
-Do not put golden hour in Drone Panel because it is not drone-specific.
+Should show:
+- Raspberry reachable status
+- current IP addresses when available
+- SSD mount status
+- SSD free/used space summary
+- Docker service status for Homepage, FileBrowser, Drone Panel, Review Panel and Storage Panel
+- Samba/share availability
+- hotspot/network status when practical
+- last reboot or uptime
+- quick links to service URLs
 
-### 7. Remote access
+Useful behavior:
+- show green/yellow/red status cards
+- keep checks read-only
+- avoid exposing secrets or system controls at first
+- use it before events as a pre-flight check for the whole NIWA system
+
+Possible future actions after the read-only version:
+- restart selected local containers
+- show recent logs
+- export a diagnostic report
+- warn if SSD is missing or almost full
+
+### Remote access
+
+Current:
+- Tailscale is installed on the Raspberry
+- Raspberry Tailscale IPv4 is 100.64.0.1
+- Raspberry Tailscale DNS name is niwahub.tailnet.ts.net
+- tailscaled is enabled at boot
 
 Future:
-- Tailscale preferred
+- test access from tablet and phone on mobile data
+- document the user-facing setup flow for new devices
 - avoid public port forwarding
-- require authentication/security review before exposing services
+- require authentication/security review before exposing services publicly
 - remote access should not replace local-first event workflow
 
-### 8. Power management
+### Power management
 
 Future:
 - choose reliable powerbank
 - test runtime
 - avoid unexpected Raspberry shutdown
-- maybe add system power notes/status panel
+- maybe add battery/runtime notes in NIWA System
 
-### 9. Print workflow
+### Print workflow
 
 Future:
 - SELPHY CP1500 workflow

@@ -176,7 +176,7 @@ h1{margin:0 0 8px 0}.subtitle{color:#9ca3af;margin-bottom:18px}
 <h1>NIWA Storage</h1>
 <div class="subtitle">Spazio SSD e riepilogo cartelle media.</div>
 </div>
-<a class="button" href="http://10.42.0.1:3000">Dashboard</a>
+<a class="button" id="dashboardLink" href="/">Dashboard</a>
 </div>
 
 <div class="status" id="status">Caricamento...</div>
@@ -185,6 +185,12 @@ h1{margin:0 0 8px 0}.subtitle{color:#9ca3af;margin-bottom:18px}
 <div class="grid" id="groups" style="margin-top:12px"></div>
 
 <script>
+function serviceUrl(port, path=''){
+    return `${window.location.protocol}//${window.location.hostname}:${port}${path}`;
+}
+
+document.getElementById('dashboardLink').href = serviceUrl(3000);
+
 async function loadStorage(){
     const status = document.getElementById('status');
     const summary = document.getElementById('summary');

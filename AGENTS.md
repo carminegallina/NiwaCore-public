@@ -108,6 +108,18 @@ The tablet connects to NIWA-AP and accesses local services without needing inter
 
 Internet is optional. If a feature needs internet, it must fail gracefully and clearly show the status.
 
+Remote access is currently provided through Tailscale.
+
+Raspberry Tailscale IPv4:
+
+100.64.0.1
+
+Raspberry Tailscale DNS name:
+
+niwahub.tailnet.ts.net
+
+Tailscale must remain private access only. Do not configure public port forwarding without an explicit security review.
+
 ## Current Drone Panel features
 
 The Drone Panel is a Flask app in:
@@ -237,19 +249,21 @@ High priority:
 - Persistent hotspot at boot
 - Hardening reboot behavior
 - Clean dashboard links
+- Golden hour / sunrise / sunset module
 - DJI database extension
+- Multi-brand drone database expansion
 - Battery manager per drone
-- Media import assistant for Nikon photo/video and GoPro
+- Media import assistant for Nikon photo/video and GoPro, mandatory future feature
 - Event folder workflow if needed later
 - Review performance/indexing improvements
 
 Medium priority:
-- Golden hour / sunrise / sunset module
 - Print workflow
 - SD import assistant
 - Checksums for import
 - Drone internal storage workflow research
 - Insta360 workflow research
+- NIWA System status panel
 - Tailscale remote access
 - Backup strategy
 - Powerbank/power management

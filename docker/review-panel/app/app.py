@@ -558,7 +558,7 @@ h1{margin:0 0 8px 0}.subtitle{color:#9ca3af;margin-bottom:18px}
 <h1>NIWA Review</h1>
 <div class="subtitle">Gallery locale per foto, video Nikon e media GoPro dal NAS.</div>
 </div>
-<a class="button" href="http://10.42.0.1:3000">Dashboard</a>
+<a class="button" id="dashboardLink" href="/">Dashboard</a>
 </div>
 
 <div class="tabs">
@@ -590,6 +590,12 @@ h1{margin:0 0 8px 0}.subtitle{color:#9ca3af;margin-bottom:18px}
 </div>
 
 <script>
+function serviceUrl(port, path=''){
+    return `${window.location.protocol}//${window.location.hostname}:${port}${path}`;
+}
+
+document.getElementById('dashboardLink').href = serviceUrl(3000);
+
 let PHOTOS = [];
 let CURRENT_INDEX = -1;
 let CURRENT_SECTION = 'photo';
