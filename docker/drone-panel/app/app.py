@@ -1,4 +1,5 @@
 from flask import Flask, jsonify, request
+from datetime import datetime, timezone
 import requests
 import json
 import os
@@ -12,6 +13,18 @@ LON = 14.789
 DATA_FILE = "/data/drone_batteries.json"
 DRONES_LIBRARY_FILE = "/data/drones_library.json"
 MY_DRONES_FILE = "/data/my_drones.json"
+WEATHER_CACHE_FILE = "/data/drone_weather_cache.json"
+OPEN_METEO_FORECAST_URL = "https://api.open-meteo.com/v1/forecast"
+METNO_FORECAST_URL = "https://api.met.no/weatherapi/locationforecast/2.0/compact"
+SECONDARY_WEATHER_SOURCE = os.environ.get("NIWA_SECONDARY_WEATHER_SOURCE", "metno").strip().lower()
+METNO_USER_AGENT = os.environ.get("NIWA_METNO_USER_AGENT", "NIWA-AP/0.1")
+REQUEST_TIMEOUT = 10
+
+WEATHER_DISCREPANCY_THRESHOLDS = {
+    "temperature_c": 4,
+    "wind_kmh": 8,
+    "gust_kmh": 10,
+}
 
 DEFAULT_DRONE_LIBRARY = {
     "dji_neo": {
@@ -311,6 +324,186 @@ def save_battery_data(data):
     os.makedirs(os.path.dirname(DATA_FILE), exist_ok=True)
     with open(DATA_FILE, "w", encoding="utf-8") as f:
         json.dump(data, f, indent=2)
+
+
+def number(value, default=0):
+    try:
+        if value is None:
+            return default
+        return float(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def weather_cache_key(lat, lon):
+    return f"{round(float(lat), 4):.4f},{round(float(lon), 4):.4f}"
+
+
+def utc_now_label():
+    return datetime.now(timezone.utc).replace(microsecond=0).isoformat()
+
+
+def parse_iso(value):
+    if not value:
+        return None
+    try:
+        return datetime.fromisoformat(value)
+    except ValueError:
+        return None
+
+
+def cache_age_hours(raw_time):
+    parsed = parse_iso(raw_time)
+    if not parsed:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    delta = datetime.now(timezone.utc) - parsed.astimezone(timezone.utc)
+    return max(0, delta.total_seconds() / 3600)
+
+
+def fetch_open_meteo_drone_weather(lat, lon):
+    params = {
+        "latitude": lat,
+        "longitude": lon,
+        "current": ",".join([
+            "temperature_2m",
+            "relative_humidity_2m",
+            "precipitation",
+            "wind_speed_10m",
+            "wind_direction_10m",
+            "wind_gusts_10m",
+        ]),
+        "hourly": ",".join([
+            "wind_speed_80m",
+            "wind_speed_120m",
+        ]),
+        "wind_speed_unit": "kmh",
+        "timezone": "auto",
+    }
+    response = requests.get(OPEN_METEO_FORECAST_URL, params=params, timeout=REQUEST_TIMEOUT)
+    response.raise_for_status()
+    return response.json()
+
+
+def build_open_meteo_payload(data, lat, lon, source, place):
+    current = data["current"]
+    current_hour = current["time"][:13]
+    hourly = data.get("hourly", {})
+    hourly_times = hourly.get("time", [])
+
+    idx = next(
+        (i for i, t in enumerate(hourly_times) if t[:13] == current_hour),
+        None
+    )
+
+    wind80_values = hourly.get("wind_speed_80m", [])
+    wind120_values = hourly.get("wind_speed_120m", [])
+
+    return {
+        "lat": lat,
+        "lon": lon,
+        "source": source,
+        "place": place,
+        "temperature": current.get("temperature_2m"),
+        "humidity": current.get("relative_humidity_2m"),
+        "wind10": current.get("wind_speed_10m"),
+        "wind80": wind80_values[idx] if idx is not None and idx < len(wind80_values) else None,
+        "wind120": wind120_values[idx] if idx is not None and idx < len(wind120_values) else None,
+        "gusts": current.get("wind_gusts_10m"),
+        "rain": current.get("precipitation"),
+        "direction": current.get("wind_direction_10m"),
+        "updated": current.get("time"),
+    }
+
+
+def fetch_metno_drone_weather(lat, lon):
+    if SECONDARY_WEATHER_SOURCE not in {"metno", "met.no", "met_norway"}:
+        return None
+
+    headers = {"User-Agent": METNO_USER_AGENT}
+    params = {"lat": round(float(lat), 4), "lon": round(float(lon), 4)}
+    response = requests.get(METNO_FORECAST_URL, params=params, headers=headers, timeout=REQUEST_TIMEOUT)
+    response.raise_for_status()
+    data = response.json()
+    timeseries = data.get("properties", {}).get("timeseries", [])
+    if not timeseries:
+        return None
+
+    current = timeseries[0]
+    instant = current.get("data", {}).get("instant", {}).get("details", {})
+    next_1h = current.get("data", {}).get("next_1_hours", {}).get("details", {})
+    wind_ms = instant.get("wind_speed")
+    gust_ms = instant.get("wind_speed_of_gust")
+
+    return {
+        "time": current.get("time"),
+        "temperature": instant.get("air_temperature"),
+        "humidity": instant.get("relative_humidity"),
+        "wind10": round(wind_ms * 3.6, 1) if isinstance(wind_ms, (int, float)) else None,
+        "gusts": round(gust_ms * 3.6, 1) if isinstance(gust_ms, (int, float)) else None,
+        "rain": next_1h.get("precipitation_amount"),
+        "direction": instant.get("wind_from_direction"),
+        "cloud_cover": instant.get("cloud_area_fraction"),
+    }
+
+
+def compare_drone_weather(primary, secondary):
+    comparison = {
+        "enabled": SECONDARY_WEATHER_SOURCE not in {"", "none", "off", "disabled"},
+        "primary": "Open-Meteo",
+        "secondary": "MET Norway" if SECONDARY_WEATHER_SOURCE not in {"", "none", "off", "disabled"} else None,
+        "uncertainty": "non verificata",
+        "high_uncertainty": False,
+        "discrepancies": [],
+        "thresholds": WEATHER_DISCREPANCY_THRESHOLDS,
+    }
+
+    if not comparison["enabled"] or not secondary:
+        return comparison
+
+    discrepancies = []
+    comparable = 0
+
+    if primary.get("temperature") is not None and secondary.get("temperature") is not None:
+        comparable += 1
+        temp_diff = abs(number(primary.get("temperature")) - number(secondary.get("temperature")))
+        if temp_diff >= WEATHER_DISCREPANCY_THRESHOLDS["temperature_c"]:
+            discrepancies.append(f"temperatura {round(temp_diff, 1)}C")
+
+    if primary.get("wind10") is not None and secondary.get("wind10") is not None:
+        comparable += 1
+        wind_diff = abs(number(primary.get("wind10")) - number(secondary.get("wind10")))
+        if wind_diff >= WEATHER_DISCREPANCY_THRESHOLDS["wind_kmh"]:
+            discrepancies.append(f"vento 10m {round(wind_diff, 1)} km/h")
+
+    if primary.get("gusts") is not None and secondary.get("gusts") is not None:
+        comparable += 1
+        gust_diff = abs(number(primary.get("gusts")) - number(secondary.get("gusts")))
+        if gust_diff >= WEATHER_DISCREPANCY_THRESHOLDS["gust_kmh"]:
+            discrepancies.append(f"raffiche {round(gust_diff, 1)} km/h")
+
+    if primary.get("rain") is not None and secondary.get("rain") is not None:
+        comparable += 1
+        primary_rain = number(primary.get("rain"))
+        secondary_rain = number(secondary.get("rain"))
+        rain_conflict = (primary_rain > 0 and secondary_rain <= 0) or (primary_rain <= 0 and secondary_rain >= 0.5)
+        if rain_conflict:
+            discrepancies.append("pioggia discordante")
+
+    comparison["comparable_fields"] = comparable
+    comparison["discrepancies"] = discrepancies
+    if comparable == 0:
+        comparison["uncertainty"] = "non verificabile"
+    elif len(discrepancies) >= 2 or any(item.startswith(("vento", "raffiche")) for item in discrepancies):
+        comparison["uncertainty"] = "alta"
+        comparison["high_uncertainty"] = True
+    elif discrepancies:
+        comparison["uncertainty"] = "media"
+    else:
+        comparison["uncertainty"] = "bassa"
+
+    return comparison
 
 
 @app.route("/")
@@ -901,6 +1094,13 @@ function resetChecklist(){
     });
 }
 
+function displayValue(value, suffix=''){
+    if(value === null || value === undefined || value === ''){
+        return '--';
+    }
+    return `${value}${suffix}`;
+}
+
 function updateSafety(d){
     const drone = DRONES[currentDrone()] || DRONES.dji_neo;
     const maxWind = Number(drone.maxWind || 0);
@@ -923,6 +1123,12 @@ function updateSafety(d){
     let level = 'safe';
     let text = '🟢 OK';
     let msg = `Condizioni entro margine prudenziale per ${drone.name}.`;
+
+    if(d.weather_comparison && d.weather_comparison.high_uncertainty){
+        level = 'caution';
+        text = '🟡 INCERTEZZA';
+        msg = 'Fonti meteo discordanti su vento, raffiche o pioggia. Valuta manualmente e controlla app ufficiali prima del volo.';
+    }
 
     if(rain > 0){
         level = 'danger';
@@ -960,17 +1166,20 @@ async function loadWeather(){
 
         document.getElementById('place').textContent = d.place;
         document.getElementById('coords').textContent = `Coordinate: ${d.lat}, ${d.lon}`;
-        document.getElementById('source').textContent = `Fonte: ${d.source}`;
+        const confidence = d.weather_confidence ? ` - incertezza ${d.weather_confidence}` : '';
+        const status = d.weather_status ? ` - ${d.weather_status}` : '';
+        document.getElementById('source').textContent = `Fonte: ${d.source}${status}${confidence}`;
 
-        document.getElementById('temp').textContent = d.temperature + ' °C';
-        document.getElementById('humidity').textContent = d.humidity + ' %';
-        document.getElementById('wind10').textContent = d.wind10 + ' km/h';
-        document.getElementById('wind80').textContent = d.wind80 + ' km/h';
-        document.getElementById('wind120').textContent = d.wind120 + ' km/h';
-        document.getElementById('gusts').textContent = d.gusts + ' km/h';
-        document.getElementById('rain').textContent = d.rain + ' mm';
-        document.getElementById('direction').textContent = d.direction + '°';
-        document.getElementById('updated').textContent = 'Aggiornamento: ' + d.updated;
+        document.getElementById('temp').textContent = displayValue(d.temperature, ' °C');
+        document.getElementById('humidity').textContent = displayValue(d.humidity, ' %');
+        document.getElementById('wind10').textContent = displayValue(d.wind10, ' km/h');
+        document.getElementById('wind80').textContent = displayValue(d.wind80, ' km/h');
+        document.getElementById('wind120').textContent = displayValue(d.wind120, ' km/h');
+        document.getElementById('gusts').textContent = displayValue(d.gusts, ' km/h');
+        document.getElementById('rain').textContent = displayValue(d.rain, ' mm');
+        document.getElementById('direction').textContent = displayValue(d.direction, '°');
+        const warning = d.warning ? ` - ${d.warning}` : '';
+        document.getElementById('updated').textContent = 'Aggiornamento: ' + d.updated + warning;
 
         updateSafety(d);
 
@@ -1341,47 +1550,62 @@ def weather():
         lat = str(LAT)
         lon = str(LON)
 
-    url = (
-        f"https://api.open-meteo.com/v1/forecast?"
-        f"latitude={lat}&longitude={lon}"
-        f"&current=temperature_2m,relative_humidity_2m,precipitation,"
-        f"wind_speed_10m,wind_direction_10m,wind_gusts_10m"
-        f"&hourly=wind_speed_80m,wind_speed_120m"
-        f"&wind_speed_unit=kmh&timezone=auto"
-    )
+    cache_key = weather_cache_key(lat, lon)
+    weather_cache = load_json_file(WEATHER_CACHE_FILE, {}, create_if_missing=False)
+    cached_entry = weather_cache.get(cache_key, {}) if isinstance(weather_cache, dict) else {}
 
     try:
-        response = requests.get(url, timeout=10)
-        response.raise_for_status()
-        data = response.json()
-
-        current = data["current"]
-        current_hour = current["time"][:13]
-
-        idx = next(
-            (i for i, t in enumerate(data["hourly"]["time"]) if t[:13] == current_hour),
-            None
-        )
-
+        data = fetch_open_meteo_drone_weather(lat, lon)
         place = reverse_geocode(lat, lon)
+        payload = build_open_meteo_payload(data, lat, lon, source, place)
+        payload["source"] = "Open-Meteo"
+        payload["weather_status"] = "meteo live"
+        payload["weather_confidence"] = "non verificata"
+        payload["weather_comparison"] = compare_drone_weather(payload, None)
+        payload["warning"] = None
 
-        return jsonify({
-            "lat": lat,
-            "lon": lon,
-            "source": source,
-            "place": place,
-            "temperature": current["temperature_2m"],
-            "humidity": current["relative_humidity_2m"],
-            "wind10": current["wind_speed_10m"],
-            "wind80": data["hourly"]["wind_speed_80m"][idx] if idx is not None else None,
-            "wind120": data["hourly"]["wind_speed_120m"][idx] if idx is not None else None,
-            "gusts": current["wind_gusts_10m"],
-            "rain": current["precipitation"],
-            "direction": current["wind_direction_10m"],
-            "updated": current["time"]
-        })
+        secondary_data = None
+        try:
+            secondary_data = fetch_metno_drone_weather(lat, lon)
+            comparison = compare_drone_weather(payload, secondary_data)
+            payload["weather_comparison"] = comparison
+            payload["weather_confidence"] = comparison["uncertainty"]
+            if comparison["high_uncertainty"]:
+                payload["weather_status"] = "meteo live - incertezza alta"
+                payload["warning"] = "Open-Meteo e MET Norway divergono: verifica vento e pioggia prima del volo."
+        except requests.RequestException as exc:
+            payload["weather_confidence"] = "non verificata"
+            payload["weather_comparison"]["error"] = str(exc)
+            payload["warning"] = "Seconda fonte meteo non disponibile: confronto non eseguito."
 
+        weather_cache[cache_key] = {
+            "updated": utc_now_label(),
+            "payload": payload,
+            "primary_weather": data,
+            "secondary_weather": secondary_data,
+        }
+        save_json_file(WEATHER_CACHE_FILE, weather_cache)
+        return jsonify(payload)
+
+    except requests.RequestException as exc:
+        cached_payload = cached_entry.get("payload") if isinstance(cached_entry, dict) else None
+        if isinstance(cached_payload, dict):
+            cached_payload = copy.deepcopy(cached_payload)
+            age = cache_age_hours(cached_entry.get("updated"))
+            cached_payload["weather_status"] = "meteo cache"
+            cached_payload["weather_confidence"] = "cache"
+            cached_payload["cache_age_hours"] = round(age, 1) if age is not None else None
+            cached_payload["warning"] = "Meteo online non disponibile: uso ultimo dato salvato."
+            return jsonify(cached_payload)
+        return jsonify({"error": f"Meteo non disponibile e nessuna cache locale: {exc}"}), 500
     except Exception as e:
+        cached_payload = cached_entry.get("payload") if isinstance(cached_entry, dict) else None
+        if isinstance(cached_payload, dict):
+            cached_payload = copy.deepcopy(cached_payload)
+            cached_payload["weather_status"] = "meteo cache"
+            cached_payload["weather_confidence"] = "cache"
+            cached_payload["warning"] = "Errore meteo: uso ultimo dato salvato."
+            return jsonify(cached_payload)
         return jsonify({"error": str(e)}), 500
 
 

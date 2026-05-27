@@ -1,0 +1,43 @@
+{
+  "version": 1,
+  "active": "demo_light",
+  "devices": [
+    {
+      "id": "demo_light",
+      "name": "Luce Demo",
+      "type": "esp32cam_pan_tilt",
+      "host": "",
+      "enabled": true,
+      "demo": true,
+      "pan": {
+        "min": 0,
+        "max": 180,
+        "center": 90,
+        "invert": false
+      },
+      "tilt": {
+        "min": 20,
+        "max": 160,
+        "center": 90,
+        "invert": false
+      },
+      "presets": [
+        {
+          "name": "Centro",
+          "pan": 90,
+          "tilt": 90
+        },
+        {
+          "name": "Alto 45",
+          "pan": 90,
+          "tilt": 55
+        },
+        {
+          "name": "Basso 45",
+          "pan": 90,
+          "tilt": 125
+        }
+      ]
+    }
+  ]
+}

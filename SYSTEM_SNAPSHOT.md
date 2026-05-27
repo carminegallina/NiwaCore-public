@@ -8,6 +8,7 @@
 /home/niwa/niwa/docker/review-panel
 /home/niwa/niwa/docker/storage-panel
 /home/niwa/niwa/docker/shooting-tools
+/home/niwa/niwa/docker/lights-panel
 /home/niwa/niwa/data
 /mnt/niwa-storage
 
@@ -21,6 +22,7 @@ drone-panel
 review-panel
 storage-panel
 shooting-tools
+lights-panel
 
 ## Local URLs when connected to NIWA-AP
 
@@ -44,6 +46,9 @@ http://10.42.0.1:5053
 
 NIWA Shooting Tools:
 http://10.42.0.1:5054
+
+NIWA Lights:
+http://10.42.0.1:5055
 
 Portainer:
 https://10.42.0.1:9443
@@ -73,6 +78,9 @@ http://192.168.1.100:5053
 
 NIWA Shooting Tools:
 http://192.168.1.100:5054
+
+NIWA Lights:
+http://192.168.1.100:5055
 
 ## Remote URLs through Tailscale
 
@@ -108,6 +116,9 @@ http://100.64.0.1:5053
 
 NIWA Shooting Tools:
 http://100.64.0.1:5054
+
+NIWA Lights:
+http://100.64.0.1:5055
 
 Homepage host validation has been updated on the Raspberry external Homepage compose file to allow:
 
@@ -315,6 +326,56 @@ API tests:
 curl 'http://localhost:5054/api/geocode?q=Torino'
 curl 'http://localhost:5054/api/plan?lat=45.0703&lon=7.6869&name=Torino&country=Italia'
 
+## NIWA Lights
+
+Path:
+
+/home/niwa/niwa/docker/lights-panel
+
+Main app file:
+
+/home/niwa/niwa/docker/lights-panel/app/app.py
+
+Docker Compose file:
+
+/home/niwa/niwa/docker/lights-panel/docker-compose.yml
+
+Port:
+
+5055
+
+Expected Docker volume:
+
+/home/niwa/niwa/data:/data
+
+Runtime device configuration:
+
+/home/niwa/niwa/data/lights_devices.json
+
+Versioned example configuration:
+
+/home/niwa/niwa/data/lights_devices.example.json
+
+Current behavior:
+- controls pan/tilt modules for future ESP32-CAM firmware
+- works in demo mode when no ESP32 host is configured
+- supports pan and tilt sliders
+- supports step buttons and center
+- stores device state/config in server-side JSON
+- prepares HTTP protocol for ESP32-CAM endpoints: GET /status, POST /move, POST /center
+
+Useful commands:
+
+cd ~/niwa/docker/lights-panel
+python3 -m py_compile app/app.py
+docker compose up -d --build
+docker logs lights-panel --tail=80
+
+API tests:
+
+curl http://localhost:5055/api/devices
+curl http://localhost:5055/api/devices/demo_light/status
+
 ## Storage
 
 SSD mount path:
@@ -382,6 +443,7 @@ Known area to verify:
 - Review Panel access after reboot
 - Storage Panel access after reboot
 - Shooting Tools access after reboot
+- Lights Panel access after reboot
 - Homepage access after reboot
 
 ## Safety note

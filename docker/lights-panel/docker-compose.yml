@@ -1,0 +1,8 @@
+services:
+  lights-panel:
+    build: .
+    container_name: lights-panel
+    network_mode: host
+    volumes:
+      - /home/niwa/niwa/data:/data
+    restart: unless-stopped

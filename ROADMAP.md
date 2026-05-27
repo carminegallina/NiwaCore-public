@@ -60,6 +60,21 @@ Current status:
 - Weather-based shooting score
 - Color harmony helper
 
+### NIWA Lights
+
+Current status:
+- Flask single-file app
+- Docker container
+- Port 5055
+- Demo-ready tablet UI
+- Pan slider
+- Tilt slider
+- Step controls
+- Center command
+- Presets
+- Server-side JSON device configuration
+- Prepared ESP32-CAM HTTP protocol
+
 ## Immediate next steps
 
 ### 1. Documentation and stable snapshots
@@ -91,7 +106,36 @@ Tasks:
 - Verify Samba share
 - Commit stable version
 
-### 3. Drone database expansion
+### 3. Location search autocomplete
+
+Goal:
+Make location selection feel like a map search bar without requiring browser GPS or HTTPS.
+
+Tasks:
+- Add Google Maps style search suggestions while typing
+- Use Nominatim/OpenStreetMap for places, venues, stations, parks and points of interest
+- Keep Open-Meteo geocoding only where it is useful for city-level fallback
+- Cache searched places in /home/niwa/niwa/data so common locations remain available later
+- Require at least 3 typed characters and debounce requests to avoid hammering external services
+- Let the user tap a suggestion and save exact name, display address, latitude, longitude and timezone
+- Implement first in NIWA Shooting Tools, then replicate in Drone Panel
+- Support places such as Mostra d'Oltremare rather than only city names like Napoli
+- Fail gracefully when internet is missing and show cached suggestions if available
+
+### 4. Visual style unification
+
+Goal:
+Unify all NIWA panels visually around the newer NIWA Lights look and feel.
+
+Tasks:
+- Reuse the NIWA Lights visual direction for cards, spacing, buttons, labels and responsive layout
+- Keep the dark tablet-friendly interface
+- Avoid changing feature logic while styling
+- Apply the style module by module: Drone Panel, Shooting Tools, Review, Storage, then dashboard cards if needed
+- Preserve each panel's workflow and layout density
+- Consider extracting a small shared CSS reference later, but do not merge panels into one app
+
+### 5. Drone database expansion
 
 Goal:
 Increase the drone library beyond the initial models while keeping values reliable.
@@ -124,7 +168,7 @@ Rules:
 - keep brand/model/name/max wind fields consistent
 - keep custom drone support separate from official library drones
 
-### 4. Media import assistant
+### 6. Media import assistant
 
 This is a future feature to implement absolutely, but it should be approached carefully.
 
@@ -151,7 +195,7 @@ Postponed until better understood:
 - drone internal storage workflow
 - Insta360 formats and conversion workflow
 
-### 5. Review performance improvements
+### 7. Review performance improvements
 
 Current Review Panel scans folders on demand.
 
@@ -161,6 +205,21 @@ Future improvements:
 - background watcher for new files
 - server-side video thumbnails
 - cache cleanup for missing files is already started for RAW previews, but can be expanded
+
+### 8. NIWA Lights firmware
+
+Goal:
+Create firmware for the ESP32-CAM module used without camera and sensors, controlling only two servomotors.
+
+Tasks:
+- connect ESP32-CAM to NIWA-AP Wi-Fi
+- expose GET /status
+- expose POST /move
+- expose POST /center
+- configure safe GPIO pins for pan and tilt servos
+- test without servos first
+- test one servo at a time
+- document external servo power and common ground
 
 ## Medium/low priority
 

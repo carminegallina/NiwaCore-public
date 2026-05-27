@@ -79,6 +79,12 @@ NIWA Shooting Tools:
 - Port: 5054
 - Local URL: http://10.42.0.1:5054
 
+NIWA Lights:
+- Folder: /home/niwa/niwa/docker/lights-panel
+- Container: lights-panel
+- Port: 5055
+- Local URL: http://10.42.0.1:5055
+
 ## Storage
 
 SSD mount path:
@@ -253,6 +259,20 @@ Test API:
 curl 'http://localhost:5054/api/geocode?q=Torino'
 curl 'http://localhost:5054/api/plan?lat=45.0703&lon=7.6869&name=Torino&country=Italia'
 
+## NIWA Lights commands
+
+From the Raspberry:
+
+cd ~/niwa/docker/lights-panel
+python3 -m py_compile app/app.py
+docker compose up -d --build
+docker logs lights-panel --tail=80
+
+Test API:
+
+curl http://localhost:5055/api/devices
+curl http://localhost:5055/api/devices/demo_light/status
+
 ## Important project direction
 
 NIWA should evolve as modular panels:
@@ -264,6 +284,7 @@ NIWA should evolve as modular panels:
 - NIWA Storage
 - NIWA System
 - NIWA Shooting Tools
+- NIWA Lights
 
 Homepage should stay a launcher/dashboard, not become a giant app.
 

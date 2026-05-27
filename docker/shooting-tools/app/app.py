@@ -1,12 +1,29 @@
-from datetime import datetime, timedelta
+from datetime import datetime, time, timedelta, timezone
 from flask import Flask, jsonify, request
+from pathlib import Path
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+import json
+import math
+import os
 import requests
 
 app = Flask(__name__)
 
 GEOCODING_URL = "https://geocoding-api.open-meteo.com/v1/search"
 FORECAST_URL = "https://api.open-meteo.com/v1/forecast"
+METNO_FORECAST_URL = "https://api.met.no/weatherapi/locationforecast/2.0/compact"
 REQUEST_TIMEOUT = 10
+DATA_DIR = Path("/data")
+LOCATIONS_CACHE_FILE = DATA_DIR / "shooting_locations_cache.json"
+PLAN_CACHE_FILE = DATA_DIR / "shooting_plan_cache.json"
+DEFAULT_TIMEZONE = "Europe/Rome"
+SECONDARY_WEATHER_SOURCE = os.environ.get("NIWA_SECONDARY_WEATHER_SOURCE", "metno").strip().lower()
+METNO_USER_AGENT = os.environ.get("NIWA_METNO_USER_AGENT", "NIWA-AP/0.1")
+UNCERTAINTY_THRESHOLDS = {
+    "temperature_c": 4,
+    "wind_kmh": 10,
+    "cloud_percent": 35,
+}
 
 WEATHER_CODES = {
     0: "Sereno",
@@ -58,6 +75,104 @@ def shifted_label(value, minutes):
     if not parsed:
         return "-"
     return (parsed + timedelta(minutes=minutes)).strftime("%H:%M")
+
+
+def safe_zoneinfo(name):
+    try:
+        return ZoneInfo(name or DEFAULT_TIMEZONE)
+    except ZoneInfoNotFoundError:
+        return ZoneInfo(DEFAULT_TIMEZONE)
+
+
+def read_json(path, fallback):
+    try:
+        if not path.exists():
+            return fallback
+        with open(path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        return data if isinstance(data, type(fallback)) else fallback
+    except Exception:
+        return fallback
+
+
+def write_json(path, data):
+    DATA_DIR.mkdir(parents=True, exist_ok=True)
+    temp_path = path.with_suffix(".tmp")
+    with open(temp_path, "w", encoding="utf-8") as f:
+        json.dump(data, f, indent=2, ensure_ascii=False)
+    temp_path.replace(path)
+
+
+def cache_key(latitude, longitude):
+    return f"{round(float(latitude), 4):.4f},{round(float(longitude), 4):.4f}"
+
+
+def utc_now_label():
+    return datetime.now(timezone.utc).replace(microsecond=0).isoformat()
+
+
+def cache_age_hours(raw_time):
+    parsed = parse_iso(raw_time)
+    if not parsed:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    delta = datetime.now(timezone.utc) - parsed.astimezone(timezone.utc)
+    return max(0, delta.total_seconds() / 3600)
+
+
+def decimal_hour_to_time(value):
+    if value is None:
+        return None
+    total_minutes = int(round(value * 60)) % (24 * 60)
+    return time(total_minutes // 60, total_minutes % 60)
+
+
+def solar_event_utc(day, latitude, longitude, is_sunrise):
+    # NOAA sunrise/sunset approximation. Accurate enough for planning windows.
+    zenith = 90.833
+    n = day.timetuple().tm_yday
+    lng_hour = longitude / 15.0
+    approx = n + ((6 if is_sunrise else 18) - lng_hour) / 24
+    mean_anomaly = (0.9856 * approx) - 3.289
+    true_long = mean_anomaly + (1.916 * math.sin(math.radians(mean_anomaly))) + (0.020 * math.sin(math.radians(2 * mean_anomaly))) + 282.634
+    true_long = true_long % 360
+    right_ascension = math.degrees(math.atan(0.91764 * math.tan(math.radians(true_long)))) % 360
+    quadrant_l = math.floor(true_long / 90) * 90
+    quadrant_ra = math.floor(right_ascension / 90) * 90
+    right_ascension = (right_ascension + quadrant_l - quadrant_ra) / 15
+    sin_dec = 0.39782 * math.sin(math.radians(true_long))
+    cos_dec = math.cos(math.asin(sin_dec))
+    cos_hour = (math.cos(math.radians(zenith)) - (sin_dec * math.sin(math.radians(latitude)))) / (cos_dec * math.cos(math.radians(latitude)))
+
+    if cos_hour > 1 or cos_hour < -1:
+        return None
+
+    hour_angle = 360 - math.degrees(math.acos(cos_hour)) if is_sunrise else math.degrees(math.acos(cos_hour))
+    hour_angle /= 15
+    local_mean = hour_angle + right_ascension - (0.06571 * approx) - 6.622
+    utc_hour = (local_mean - lng_hour) % 24
+    event_time = decimal_hour_to_time(utc_hour)
+    if not event_time:
+        return None
+    return datetime.combine(day, event_time, tzinfo=timezone.utc)
+
+
+def solar_times(day, latitude, longitude, timezone_name):
+    tz = safe_zoneinfo(timezone_name)
+    sunrise_utc = solar_event_utc(day, latitude, longitude, True)
+    sunset_utc = solar_event_utc(day, latitude, longitude, False)
+    sunrise = sunrise_utc.astimezone(tz) if sunrise_utc else None
+    sunset = sunset_utc.astimezone(tz) if sunset_utc else None
+    return sunrise, sunset
+
+
+def label_from_dt(value):
+    return value.strftime("%H:%M") if value else "-"
+
+
+def shifted_dt_label(value, minutes):
+    return (value + timedelta(minutes=minutes)).strftime("%H:%M") if value else "-"
 
 
 def number(value, default=0):
@@ -119,37 +234,36 @@ def hour_notes(hour):
     return notes
 
 
-def build_daily_items(daily):
+def build_solar_daily_items(latitude, longitude, timezone_name, weather_daily=None):
     items = []
-    dates = daily.get("time", [])
-    sunrises = daily.get("sunrise", [])
-    sunsets = daily.get("sunset", [])
+    tz = safe_zoneinfo(timezone_name)
+    start_date = datetime.now(tz).date()
+    daily = weather_daily or {}
     weather_codes = daily.get("weather_code", [])
     rain_max = daily.get("precipitation_probability_max", [])
-    daylight = daily.get("daylight_duration", [])
     sunshine = daily.get("sunshine_duration", [])
 
-    for index, date in enumerate(dates):
-        sunrise = sunrises[index] if index < len(sunrises) else None
-        sunset = sunsets[index] if index < len(sunsets) else None
+    for index in range(7):
+        current_date = start_date + timedelta(days=index)
+        sunrise, sunset = solar_times(current_date, latitude, longitude, timezone_name)
+        daylight_hours = ((sunset - sunrise).total_seconds() / 3600) if sunrise and sunset else 0
+        sunshine_hours = number(sunshine[index], 0) / 3600 if index < len(sunshine) else None
         code = weather_codes[index] if index < len(weather_codes) else None
         rain = rain_max[index] if index < len(rain_max) else None
-        daylight_hours = number(daylight[index], 0) / 3600 if index < len(daylight) else 0
-        sunshine_hours = number(sunshine[index], 0) / 3600 if index < len(sunshine) else 0
-
         items.append({
-            "date": date,
-            "label": datetime.fromisoformat(date).strftime("%d/%m") if date else "-",
-            "sunrise": time_label(sunrise),
-            "sunset": time_label(sunset),
-            "blue_morning": f"{shifted_label(sunrise, -35)} - {shifted_label(sunrise, -10)}",
-            "golden_morning": f"{shifted_label(sunrise, 0)} - {shifted_label(sunrise, 60)}",
-            "golden_evening": f"{shifted_label(sunset, -60)} - {time_label(sunset)}",
-            "blue_evening": f"{shifted_label(sunset, 10)} - {shifted_label(sunset, 35)}",
+            "date": current_date.isoformat(),
+            "label": current_date.strftime("%d/%m"),
+            "sunrise": label_from_dt(sunrise),
+            "sunset": label_from_dt(sunset),
+            "blue_morning": f"{shifted_dt_label(sunrise, -35)} - {shifted_dt_label(sunrise, -10)}",
+            "golden_morning": f"{label_from_dt(sunrise)} - {shifted_dt_label(sunrise, 60)}",
+            "golden_evening": f"{shifted_dt_label(sunset, -60)} - {label_from_dt(sunset)}",
+            "blue_evening": f"{shifted_dt_label(sunset, 10)} - {shifted_dt_label(sunset, 35)}",
             "weather": weather_label(code),
             "rain_probability": rain,
             "daylight_hours": round(daylight_hours, 1),
-            "sunshine_hours": round(sunshine_hours, 1),
+            "sunshine_hours": round(sunshine_hours, 1) if sunshine_hours is not None else None,
+            "light_source": "calcolo locale",
         })
 
     return items
@@ -182,6 +296,156 @@ def build_hourly_items(hourly):
 def pick(data, key, index):
     values = data.get(key, [])
     return values[index] if index < len(values) else None
+
+
+def normalize_hour_key(raw_time, timezone_name=None):
+    parsed = parse_iso(raw_time)
+    if not parsed:
+        return raw_time[:13] if raw_time else None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=safe_zoneinfo(timezone_name))
+    return parsed.astimezone(timezone.utc).strftime("%Y-%m-%dT%H")
+
+
+def fetch_open_meteo(latitude, longitude):
+    params = {
+        "latitude": latitude,
+        "longitude": longitude,
+        "timezone": "auto",
+        "forecast_days": 7,
+        "daily": ",".join([
+            "sunshine_duration",
+            "weather_code",
+            "precipitation_probability_max",
+        ]),
+        "hourly": ",".join([
+            "temperature_2m",
+            "relative_humidity_2m",
+            "precipitation_probability",
+            "cloud_cover",
+            "wind_speed_10m",
+            "visibility",
+            "weather_code",
+        ]),
+    }
+    response = requests.get(FORECAST_URL, params=params, timeout=REQUEST_TIMEOUT)
+    response.raise_for_status()
+    return response.json()
+
+
+def fetch_metno(latitude, longitude):
+    if SECONDARY_WEATHER_SOURCE not in {"metno", "met.no", "met_norway"}:
+        return None
+
+    headers = {"User-Agent": METNO_USER_AGENT}
+    params = {"lat": round(latitude, 4), "lon": round(longitude, 4)}
+    response = requests.get(METNO_FORECAST_URL, params=params, headers=headers, timeout=REQUEST_TIMEOUT)
+    response.raise_for_status()
+    return response.json()
+
+
+def metno_to_hourly_items(data):
+    items = []
+    timeseries = data.get("properties", {}).get("timeseries", [])
+    for entry in timeseries[:48]:
+        instant = entry.get("data", {}).get("instant", {}).get("details", {})
+        next_1h = entry.get("data", {}).get("next_1_hours", {}).get("details", {})
+        wind_ms = instant.get("wind_speed")
+        item = {
+            "time": entry.get("time"),
+            "temperature_2m": instant.get("air_temperature"),
+            "relative_humidity_2m": instant.get("relative_humidity"),
+            "cloud_cover": instant.get("cloud_area_fraction"),
+            "wind_speed_10m": round(wind_ms * 3.6, 1) if isinstance(wind_ms, (int, float)) else None,
+            "precipitation_amount": next_1h.get("precipitation_amount"),
+        }
+        items.append(item)
+    return items
+
+
+def compare_weather_sources(primary_hourly, secondary_hourly, timezone_name):
+    secondary_by_hour = {
+        normalize_hour_key(item.get("time")): item
+        for item in secondary_hourly
+        if normalize_hour_key(item.get("time"))
+    }
+
+    checks = []
+    compared = 0
+    discrepancy_hits = 0
+    severe_hits = 0
+
+    for primary in primary_hourly[:24]:
+        hour_key = normalize_hour_key(primary.get("time"), timezone_name)
+        secondary = secondary_by_hour.get(hour_key)
+        if not secondary:
+            continue
+
+        compared_fields = 0
+
+        hour_flags = []
+        severe = False
+        if primary.get("temperature_2m") is not None and secondary.get("temperature_2m") is not None:
+            compared_fields += 1
+            temp_diff = abs(number(primary.get("temperature_2m"), 0) - number(secondary.get("temperature_2m"), 0))
+            if temp_diff >= UNCERTAINTY_THRESHOLDS["temperature_c"]:
+                hour_flags.append(f"temperatura {round(temp_diff, 1)}C")
+                severe = True
+
+        if primary.get("wind_speed_10m") is not None and secondary.get("wind_speed_10m") is not None:
+            compared_fields += 1
+            wind_diff = abs(number(primary.get("wind_speed_10m"), 0) - number(secondary.get("wind_speed_10m"), 0))
+            if wind_diff >= UNCERTAINTY_THRESHOLDS["wind_kmh"]:
+                hour_flags.append(f"vento {round(wind_diff, 1)} km/h")
+                severe = True
+
+        if primary.get("cloud_cover") is not None and secondary.get("cloud_cover") is not None:
+            compared_fields += 1
+            cloud_diff = abs(number(primary.get("cloud_cover"), 0) - number(secondary.get("cloud_cover"), 0))
+            if cloud_diff >= UNCERTAINTY_THRESHOLDS["cloud_percent"]:
+                hour_flags.append(f"nuvole {round(cloud_diff)}%")
+
+        if primary.get("precipitation_probability") is not None and secondary.get("precipitation_amount") is not None:
+            compared_fields += 1
+            primary_rain = number(primary.get("precipitation_probability"), 0)
+            secondary_rain_amount = number(secondary.get("precipitation_amount"), 0)
+            rain_conflict = (primary_rain >= 60 and secondary_rain_amount < 0.1) or (primary_rain <= 20 and secondary_rain_amount >= 0.5)
+            if rain_conflict:
+                hour_flags.append("pioggia discordante")
+                severe = True
+
+        if compared_fields == 0:
+            continue
+
+        compared += 1
+        if hour_flags:
+            discrepancy_hits += 1
+            if severe:
+                severe_hits += 1
+            checks.append({
+                "hour": primary.get("label") or primary.get("time"),
+                "items": hour_flags,
+                "severity": "alta" if severe else "media",
+            })
+
+    uncertainty = "bassa"
+    if compared == 0:
+        uncertainty = "non verificabile"
+    elif severe_hits >= 1:
+        uncertainty = "alta"
+    elif discrepancy_hits >= 1:
+        uncertainty = "media"
+
+    return {
+        "enabled": True,
+        "primary": "Open-Meteo",
+        "secondary": "MET Norway",
+        "compared_hours": compared,
+        "uncertainty": uncertainty,
+        "high_uncertainty": uncertainty == "alta",
+        "discrepancies": checks[:8],
+        "thresholds": UNCERTAINTY_THRESHOLDS,
+    }
 
 
 @app.route("/")
@@ -291,7 +555,7 @@ async function searchLocation(){
         if(data.error){ throw new Error(data.error); }
         if(!data.results || !data.results.length){ throw new Error('Localita non trovata.'); }
         const place = data.results[0];
-        loadPlan(place.latitude, place.longitude, place.name, place.country);
+        loadPlan(place.latitude, place.longitude, place.name, place.country, place.timezone || '');
     }catch(e){
         status('Errore geocoding: ' + e.message, true);
     }
@@ -304,21 +568,22 @@ function useDeviceLocation(){
     }
     status('Leggo posizione dispositivo...');
     navigator.geolocation.getCurrentPosition(
-        (pos)=>loadPlan(pos.coords.latitude, pos.coords.longitude, 'Posizione attuale', ''),
+        (pos)=>loadPlan(pos.coords.latitude, pos.coords.longitude, 'Posizione attuale', '', ''),
         (err)=>status('GPS non disponibile: ' + err.message, true),
         {enableHighAccuracy:true, timeout:10000}
     );
 }
 
-async function loadPlan(lat, lon, name, country){
+async function loadPlan(lat, lon, name, country, timezone){
     status(`Carico piano luce/meteo per ${name}...`);
     try{
-        const res = await fetch(`/api/plan?lat=${encodeURIComponent(lat)}&lon=${encodeURIComponent(lon)}&name=${encodeURIComponent(name)}&country=${encodeURIComponent(country || '')}`);
+        const res = await fetch(`/api/plan?lat=${encodeURIComponent(lat)}&lon=${encodeURIComponent(lon)}&name=${encodeURIComponent(name)}&country=${encodeURIComponent(country || '')}&timezone=${encodeURIComponent(timezone || '')}`);
         const data = await res.json();
         if(data.error){ throw new Error(data.error); }
         CURRENT_PLAN = data;
         renderPlan(data);
-        status(`Piano caricato: ${data.location.name}${data.location.country ? ', ' + data.location.country : ''}.`);
+        const suffix = data.warning ? ` ${data.warning}` : '';
+        status(`Piano caricato: ${data.location.name}${data.location.country ? ', ' + data.location.country : ''}.${suffix}`, Boolean(data.warning && data.weather_status !== 'meteo live'));
     }catch(e){
         status('Meteo/luce non disponibili: ' + e.message, true);
     }
@@ -332,6 +597,9 @@ function renderPlan(data){
         <div class="phase"><strong>Meteo</strong><span>${today.weather}</span></div>
         <div class="phase"><strong>Pioggia max</strong><span>${today.rain_probability ?? '-'}%</span></div>
         <div class="phase"><strong>Luce diurna</strong><span>${today.daylight_hours}h</span></div>
+        <span class="pill">${data.weather_status || 'meteo non disponibile'}</span>
+        <span class="pill">${data.weather_confidence ? 'Incertezza: ' + data.weather_confidence : 'Incertezza: non verificata'}</span>
+        <span class="pill">Luce: ${data.light_source || 'calcolo locale'}</span>
     ` : 'Nessun dato giornaliero.';
 
     const score = data.hourly.length ? Math.round(data.hourly.slice(0, 6).reduce((sum, h)=>sum + h.score, 0) / Math.min(6, data.hourly.length)) : 0;
@@ -339,9 +607,14 @@ function renderPlan(data){
     scoreEl.textContent = data.hourly.length ? `${score}/100` : '--';
     scoreEl.className = 'score ' + (score >= 75 ? 'good' : score >= 45 ? 'mid' : 'bad');
     document.getElementById('scoreNotes').textContent = data.hourly[0] ? data.hourly[0].notes.join(' ') : 'Nessun dato orario.';
+    if(data.weather_comparison && data.weather_comparison.high_uncertainty){
+        const first = data.weather_comparison.discrepancies && data.weather_comparison.discrepancies.length ? data.weather_comparison.discrepancies[0] : null;
+        const detail = first ? ` Prima differenza: ${first.hour}, ${first.items.join(', ')}.` : '';
+        document.getElementById('scoreNotes').textContent = `Incertezza meteo alta: verifica condizioni prima di uscire.${detail}`;
+    }
 
     document.getElementById('dailyPhases').innerHTML = data.daily.slice(0, 5).map(renderDay).join('');
-    document.getElementById('hourlyCards').innerHTML = data.hourly.slice(0, 18).map(renderHour).join('');
+    document.getElementById('hourlyCards').innerHTML = data.hourly.length ? data.hourly.slice(0, 18).map(renderHour).join('') : '<div class="muted">Meteo orario non disponibile. Le finestre luce restano calcolate localmente.</div>';
 }
 
 function renderDay(day){
@@ -439,6 +712,9 @@ def api_geocode():
     if not query:
         return jsonify({"error": "Query mancante."}), 400
 
+    cached_locations = read_json(LOCATIONS_CACHE_FILE, {})
+    normalized_query = query.casefold()
+
     try:
         response = requests.get(
             GEOCODING_URL,
@@ -447,7 +723,12 @@ def api_geocode():
         )
         response.raise_for_status()
     except requests.RequestException as exc:
-        return jsonify({"error": f"Geocoding non disponibile: {exc}"}), 502
+        cached = cached_locations.get(normalized_query)
+        if cached:
+            cached["source"] = "cache"
+            cached["warning"] = f"Geocoding online non disponibile: uso localita salvata. Dettaglio: {exc}"
+            return jsonify(cached)
+        return jsonify({"error": f"Geocoding non disponibile e nessuna cache locale: {exc}"}), 502
 
     data = response.json()
     results = []
@@ -458,9 +739,19 @@ def api_geocode():
             "admin1": item.get("admin1"),
             "latitude": item.get("latitude"),
             "longitude": item.get("longitude"),
+            "timezone": item.get("timezone"),
         })
 
-    return jsonify({"results": results})
+    payload = {"results": results, "source": "Open-Meteo"}
+    if results:
+        cached_locations[normalized_query] = {
+            "results": results,
+            "source": "cache",
+            "updated": utc_now_label(),
+        }
+        write_json(LOCATIONS_CACHE_FILE, cached_locations)
+
+    return jsonify(payload)
 
 
 @app.route("/api/plan")
@@ -469,6 +760,7 @@ def api_plan():
     lon = request.args.get("lon")
     name = request.args.get("name", "Localita")
     country = request.args.get("country", "")
+    requested_timezone = request.args.get("timezone")
 
     try:
         latitude = float(lat)
@@ -476,56 +768,104 @@ def api_plan():
     except (TypeError, ValueError):
         return jsonify({"error": "Coordinate non valide."}), 400
 
-    params = {
-        "latitude": latitude,
-        "longitude": longitude,
-        "timezone": "auto",
-        "forecast_days": 7,
-        "daily": ",".join([
-            "sunrise",
-            "sunset",
-            "daylight_duration",
-            "sunshine_duration",
-            "weather_code",
-            "precipitation_probability_max",
-        ]),
-        "hourly": ",".join([
-            "temperature_2m",
-            "relative_humidity_2m",
-            "precipitation_probability",
-            "cloud_cover",
-            "wind_speed_10m",
-            "visibility",
-            "weather_code",
-        ]),
+    key = cache_key(latitude, longitude)
+    plan_cache = read_json(PLAN_CACHE_FILE, {})
+    cached_entry = plan_cache.get(key, {})
+    timezone_name = requested_timezone or cached_entry.get("timezone") or DEFAULT_TIMEZONE
+
+    weather_data = None
+    secondary_data = None
+    weather_status = "meteo non disponibile"
+    weather_confidence = "non verificata"
+    weather_comparison = {
+        "enabled": SECONDARY_WEATHER_SOURCE not in {"", "none", "off", "disabled"},
+        "primary": "Open-Meteo",
+        "secondary": "MET Norway" if SECONDARY_WEATHER_SOURCE not in {"", "none", "off", "disabled"} else None,
+        "compared_hours": 0,
+        "uncertainty": "non verificata",
+        "high_uncertainty": False,
+        "discrepancies": [],
+        "thresholds": UNCERTAINTY_THRESHOLDS,
     }
+    warning = None
+    warnings = []
 
     try:
-        response = requests.get(FORECAST_URL, params=params, timeout=REQUEST_TIMEOUT)
-        response.raise_for_status()
+        weather_data = fetch_open_meteo(latitude, longitude)
+        timezone_name = weather_data.get("timezone") or timezone_name
+        weather_status = "meteo live"
     except requests.RequestException as exc:
-        return jsonify({"error": f"Previsioni non disponibili: {exc}"}), 502
+        cached_plan = cached_entry.get("plan")
+        if cached_plan:
+            cached_plan = dict(cached_plan)
+            cached_age = cache_age_hours(cached_entry.get("updated"))
+            cached_plan["weather_status"] = "meteo cache"
+            cached_plan["cache_age_hours"] = round(cached_age, 1) if cached_age is not None else None
+            cached_plan["warning"] = "Meteo online non disponibile: uso ultimo dato salvato."
+            cached_plan["daily"] = build_solar_daily_items(latitude, longitude, timezone_name, cached_entry.get("weather_daily", {}))
+            cached_plan["light_source"] = "calcolo locale"
+            cached_plan["weather_confidence"] = "cache"
+            cached_plan["weather_comparison"] = cached_plan.get("weather_comparison") or weather_comparison
+            return jsonify(cached_plan)
+        weather_status = "solo luce locale"
+        warning = f"Meteo online non disponibile: {exc}"
+        warnings.append(warning)
 
-    data = response.json()
-    daily = build_daily_items(data.get("daily", {}))
-    hourly = build_hourly_items(data.get("hourly", {}))
+    daily = build_solar_daily_items(latitude, longitude, timezone_name, weather_data.get("daily", {}) if weather_data else {})
+    hourly = build_hourly_items(weather_data.get("hourly", {})) if weather_data else []
 
-    return jsonify({
+    if weather_data and weather_comparison["enabled"]:
+        try:
+            secondary_data = fetch_metno(latitude, longitude)
+            secondary_hourly = metno_to_hourly_items(secondary_data) if secondary_data else []
+            weather_comparison = compare_weather_sources(hourly, secondary_hourly, timezone_name)
+            weather_confidence = weather_comparison["uncertainty"]
+            if weather_comparison["high_uncertainty"]:
+                weather_status = "meteo live - incertezza alta"
+                warnings.append("Open-Meteo e MET Norway divergono: considera il meteo incerto.")
+        except requests.RequestException as exc:
+            weather_confidence = "non verificata"
+            weather_comparison["error"] = str(exc)
+            warnings.append("Seconda fonte meteo non disponibile: confronto non eseguito.")
+    elif weather_data:
+        weather_confidence = "non verificata"
+
+    payload = {
         "location": {
             "name": name,
             "country": country,
             "latitude": latitude,
             "longitude": longitude,
-            "timezone": data.get("timezone"),
+            "timezone": timezone_name,
         },
         "daily": daily,
         "hourly": hourly,
-        "source": "Open-Meteo",
+        "source": "Open-Meteo + calcolo solare locale" if weather_data else "calcolo solare locale",
+        "weather_status": weather_status,
+        "weather_confidence": weather_confidence,
+        "weather_comparison": weather_comparison,
+        "light_source": "calcolo locale",
+        "updated": utc_now_label(),
+        "warning": " ".join(warnings) if warnings else warning,
         "notes": [
-            "Blue hour e golden hour sono stime operative basate su alba/tramonto.",
-            "Verifica sempre condizioni reali sul posto.",
+            "Alba e tramonto sono calcolati localmente da coordinate, data e timezone.",
+            "Blue hour e golden hour sono stime operative.",
+            "Meteo e vento restano previsioni e vanno verificati sul posto.",
+            "Se Open-Meteo e MET Norway divergono oltre le soglie, il pannello mostra incertezza alta.",
         ],
-    })
+    }
+
+    if weather_data:
+        plan_cache[key] = {
+            "updated": payload["updated"],
+            "timezone": timezone_name,
+            "weather_daily": weather_data.get("daily", {}),
+            "secondary_weather": secondary_data,
+            "plan": payload,
+        }
+        write_json(PLAN_CACHE_FILE, plan_cache)
+
+    return jsonify(payload)
 
 
 if __name__ == "__main__":

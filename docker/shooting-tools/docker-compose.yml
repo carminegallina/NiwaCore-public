@@ -4,4 +4,9 @@ services:
     container_name: shooting-tools
     ports:
       - "5054:5054"
+    volumes:
+      - /home/niwa/niwa/data:/data
+    dns:
+      - 1.1.1.1
+      - 8.8.8.8
     restart: unless-stopped

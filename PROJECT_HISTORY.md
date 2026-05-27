@@ -110,6 +110,19 @@ Current purpose:
 
 The module uses Open-Meteo from the Raspberry backend when internet is available. The color helper remains usable without weather data.
 
+### NIWA Lights
+
+NIWA Lights has been introduced as a separate Flask/Docker module on port 5055.
+
+Current purpose:
+- provide a tablet-friendly control panel for wireless light pan/tilt modules
+- prepare control of ESP32-CAM based modules with two servomotors
+- work in demo mode before hardware firmware is ready
+- store module configuration and state in local JSON
+- define the initial ESP32 protocol: GET /status, POST /move, POST /center
+
+The first hardware target is an ESP32-CAM used without camera and sensors, controlling only pan and tilt servos.
+
 ### Drone Panel
 
 Drone Panel was developed first as a lightweight useful module.
