@@ -182,6 +182,13 @@ Drone profiles have been moved from hardcoded JavaScript to local JSON data.
 
 Current state:
 - data/drones_library.json is versioned and contains the local drone library
+- the drone library has been expanded into a multi-brand verified batch with DJI, Autel, Parrot, Skydio, Sony, Yuneec, Wingtra, AgEagle, Inspired Flight, Freefly, Quantum Systems, ACSL, Acecore, Watts Innovations and Draganfly entries
+- the current version includes 168 drone profiles across 26 brands
+- the DJI branch has been expanded to 100 active profiles, including Spark, Mavic Pro/Platinum, Mini 5 Pro, Mavic 4 Pro, Phantom 1/2/3/4 variants, P4 Multispectral, Agras MG/T-series models and the DJI Wind industrial series
+- the multi-brand library now includes additional professional/enterprise batches from Autel, JOUAV, DeltaQuad, Ascent AeroSystems, Teledyne FLIR, Teal, Airobotics, Hoverfly, Fotokite, Harris Aerial, Acecore, Microdrones and ideaForge
+- data/dji_library_gaps.md tracks legacy/regional DJI models that still do not have a reliable wind value verified enough for active safety use
+- each library entry now stores source quality, source URL, uncertainty and notes when a value is a range, derived from a wind level, or operational guidance rather than a direct numeric official spec
+- docker/drone-panel/app/drones_library.json is bundled with the app so the Drone Panel can seed or fill missing library entries even when the mounted /data file starts old or empty
 - data/my_drones.example.json is versioned
 - data/my_drones.json is runtime data and is not versioned
 - data/drone_batteries.json remains runtime data and is not versioned
@@ -189,8 +196,8 @@ Current state:
 - custom drones are stored locally and added directly to the user's fleet
 
 Next direction:
-- extend the DJI database carefully with verified official values first
-- then add multi-brand drone support with clear source quality
+- continue extending the library in smaller verified batches
+- prefer official numeric wind resistance values; keep derived or operational values clearly marked
 - prefer official specs for max wind resistance
 - mark non-official or inferred values clearly rather than pretending they are official
 

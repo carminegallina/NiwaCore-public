@@ -160,6 +160,10 @@ Drone library file:
 
 /home/niwa/niwa/data/drones_library.json
 
+Bundled app seed copy:
+
+/home/niwa/niwa/docker/drone-panel/app/drones_library.json
+
 My drones example file:
 
 /home/niwa/niwa/data/my_drones.example.json
@@ -190,6 +194,9 @@ Current behavior:
 - supports place autocomplete through Photon plus Nominatim/OpenStreetMap
 - saves selected place latitude and longitude in browser localStorage
 - keeps server-side drone library, my drones, custom drones, checklist and battery manager
+- current bundled drone library contains 168 profiles across 26 brands, including 100 DJI profiles
+- shows drone source quality and uncertainty on the drone management page
+- seeds missing library entries from the bundled app copy if the mounted data file is old or empty
 - uses NIWA Lights-inspired dark card styling
 
 ## Drone Panel useful commands

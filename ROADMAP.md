@@ -152,12 +152,23 @@ Future cleanup:
 Goal:
 Increase the drone library beyond the initial models while keeping values reliable.
 
+Status:
+- First large verified batch implemented in data/drones_library.json
+- Second verified batch added, bringing the library to 84 profiles across 15 brands
+- DJI completion pass added, bringing the library to 117 profiles total and 71 DJI profiles
+- Additional DJI coverage pass added Spark, Mavic Pro/Platinum, Mini 5 Pro, Mavic 4 Pro, Phantom 3 variants, Phantom 4 RTK, P4 Multispectral and Agras MG/T25P/T70P/T100 models, bringing the library to 135 profiles total and 89 DJI profiles
+- Final DJI tolerance pass added Phantom 1/2/FC40, Phantom 2 Vision/Vision+, Agras T60/T70 and Wind 1/2/4/8, bringing the library to 146 profiles total and 100 DJI profiles
+- Professional multi-brand batch added Autel enterprise variants, JOUAV VTOLs, DeltaQuad Evo, Ascent Spirit, Teledyne FLIR SIRAS, Teal 2, Airobotics Optimus, Hoverfly SENTRY, Fotokite Sigma, Harris Carrier H6 EFI, Acecore variants, Microdrones md4-1000 and ideaForge models, bringing the library to 168 profiles across 26 brands
+- Remaining DJI models without reliable wind values are tracked in data/dji_library_gaps.md instead of being added with invented values
+- Bundled copy added to docker/drone-panel/app/drones_library.json for app fallback and runtime seeding
+- Drone management page now shows source quality, uncertainty and source links
+- Source policy documented in data/drones_library_sources.md
+
 Next task:
-- Build a larger verified drone library in data/drones_library.json
-- Start with DJI, then add Autel, Parrot, Skydio and other professional/relevant brands
-- Keep source quality visible in the data
+- Continue expanding in smaller verified batches
+- Add more enterprise/professional brands only when a reliable wind value exists
+- Keep source quality visible in the data and UI
 - Do not add unknown wind limits as official facts
-- Integrate any new metadata without breaking the current Drone Panel UI
 
 DJI first:
 - DJI Neo

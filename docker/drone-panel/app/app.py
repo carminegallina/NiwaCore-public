@@ -12,6 +12,7 @@ LON = 14.789
 
 DATA_FILE = "/data/drone_batteries.json"
 DRONES_LIBRARY_FILE = "/data/drones_library.json"
+BUNDLED_DRONES_LIBRARY_FILE = os.path.join(os.path.dirname(__file__), "drones_library.json")
 MY_DRONES_FILE = "/data/my_drones.json"
 WEATHER_CACHE_FILE = "/data/drone_weather_cache.json"
 DRONE_LOCATIONS_CACHE_FILE = "/data/drone_locations_cache.json"
@@ -130,6 +131,19 @@ def clone_default(data):
     return copy.deepcopy(data)
 
 
+def get_default_drone_library():
+    try:
+        with open(BUNDLED_DRONES_LIBRARY_FILE, "r", encoding="utf-8") as file:
+            bundled_library = json.load(file)
+
+        if isinstance(bundled_library, dict) and bundled_library:
+            return bundled_library
+    except Exception:
+        pass
+
+    return DEFAULT_DRONE_LIBRARY
+
+
 def save_json_file(path, data):
     os.makedirs(os.path.dirname(path), exist_ok=True)
     with open(path, "w", encoding="utf-8") as f:
@@ -155,14 +169,15 @@ def load_json_file(path, default_data, create_if_missing=False):
 
 
 def load_drone_library():
+    default_library = get_default_drone_library()
     library = load_json_file(
         DRONES_LIBRARY_FILE,
-        DEFAULT_DRONE_LIBRARY,
+        default_library,
         create_if_missing=True
     )
 
     changed = False
-    for drone_id, profile in DEFAULT_DRONE_LIBRARY.items():
+    for drone_id, profile in default_library.items():
         if drone_id not in library:
             library[drone_id] = clone_default(profile)
             changed = True
@@ -952,9 +967,13 @@ function normalizeDroneProfile(id, profile){
         name: profile.name || `${profile.brand || ''} ${profile.model || ''}`.trim() || id,
         brand: profile.brand || '',
         model: profile.model || '',
+        category: profile.category || '',
         maxWind: Number(profile.max_wind_kmh || profile.maxWind || 0),
         maxWindMs: Number(profile.max_wind_ms || 0),
         source: profile.source || '',
+        sourceQuality: profile.source_quality || '',
+        sourceUrl: profile.source_url || '',
+        uncertainty: profile.uncertainty || '',
         notes: profile.notes || ''
     };
 }
@@ -1516,6 +1535,9 @@ button:hover,.topbar a:hover{background:#334155}.primary{background:#0369a1}.dan
 .drone-card{background:rgba(15,23,42,.90);border-radius:10px;padding:14px;border:1px solid rgba(148,163,184,.18)}
 .drone-card.mine{border-color:#3b82f6}.drone-card.owned{border-color:#22c55e}.drone-card h3{margin:0 0 6px 0;font-size:17px}
 .meta{color:var(--muted);font-size:13px;line-height:1.4}.actions{display:flex;gap:8px;margin-top:12px;flex-wrap:wrap}
+.source-link{display:inline-flex;margin-top:8px;color:#7dd3fc;text-decoration:none;font-size:13px}.source-link:hover{text-decoration:underline}
+.quality-pill{display:inline-flex;align-items:center;margin-top:8px;padding:4px 8px;border-radius:999px;background:rgba(14,165,233,.12);border:1px solid rgba(125,211,252,.22);color:#bae6fd;font-size:12px}
+.quality-pill.medium{background:rgba(245,158,11,.12);border-color:rgba(251,191,36,.28);color:#fde68a}
 .owned-label{color:#86efac;font-size:13px;font-weight:bold;margin-top:12px}
 .custom-grid{display:grid;grid-template-columns:1fr;gap:8px}.status{min-height:18px}
 @media(max-width:850px){.layout{grid-template-columns:1fr}.toolbar{grid-template-columns:1fr}.topbar{display:block}.topbar a{display:inline-block;margin-top:10px}}
@@ -1540,6 +1562,7 @@ button:hover,.topbar a:hover{background:#334155}.primary{background:#0369a1}.dan
 </div>
 <div class="label">La lista operativa del Drone Panel mostra solo i droni aggiunti a "I miei droni".</div>
 </div>
+<div class="label" id="libraryStats"></div>
 <div id="droneLibrary" class="drone-grid"></div>
 </div>
 
@@ -1573,15 +1596,29 @@ function normalizeDroneProfile(id, profile){
         name: profile.name || `${profile.brand || ''} ${profile.model || ''}`.trim() || id,
         brand: profile.brand || 'Custom',
         model: profile.model || '',
+        category: profile.category || '',
         maxWind: Number(profile.max_wind_kmh || profile.maxWind || 0),
         maxWindMs: Number(profile.max_wind_ms || 0),
         source: profile.source || '',
+        sourceQuality: profile.source_quality || '',
+        sourceUrl: profile.source_url || '',
+        uncertainty: profile.uncertainty || '',
         notes: profile.notes || ''
     };
 }
 
 function setStatus(message){
     document.getElementById('managerStatus').textContent = message || '';
+}
+
+function readableToken(value){
+    return String(value || '').replaceAll('_', ' ');
+}
+
+function sourceSummary(drone){
+    const quality = readableToken(drone.sourceQuality || drone.source || 'fonte non indicata');
+    const uncertainty = drone.uncertainty ? `incertezza ${readableToken(drone.uncertainty)}` : 'incertezza non indicata';
+    return `${quality} - ${uncertainty}`;
 }
 
 async function loadDrones(){
@@ -1596,6 +1633,7 @@ async function loadDrones(){
     DRONES = loaded;
     MY_DRONES = data.my_drones || MY_DRONES;
     populateBrandFilter();
+    updateLibraryStats();
     renderDroneLibrary();
     renderMyDrones();
 }
@@ -1604,12 +1642,13 @@ function populateBrandFilter(){
     const select = document.getElementById('brandFilter');
     const current = select.value;
     const brands = [...new Set(Object.values(DRONES).map((drone)=>drone.brand || 'Custom'))].sort();
-    if(!brands.includes('Custom')){
-        brands.push('Custom');
-        brands.sort();
-    }
 
     select.innerHTML = '';
+    const allOption = document.createElement('option');
+    allOption.value = '';
+    allOption.textContent = 'Tutte le marche';
+    select.appendChild(allOption);
+
     brands.forEach((brand)=>{
         const option = document.createElement('option');
         option.value = brand;
@@ -1619,11 +1658,15 @@ function populateBrandFilter(){
 
     if(brands.includes(current)){
         select.value = current;
-    }else if(brands.includes('DJI')){
-        select.value = 'DJI';
-    }else if(brands.length){
-        select.value = brands[0];
+    }else{
+        select.value = '';
     }
+}
+
+function updateLibraryStats(){
+    const stats = document.getElementById('libraryStats');
+    const brands = new Set(Object.values(DRONES).map((drone)=>drone.brand || 'Custom'));
+    stats.textContent = `${Object.keys(DRONES).length} modelli in libreria, ${brands.size} marche. Usa il filtro per restringere la lista.`;
 }
 
 function renderDroneLibrary(){
@@ -1639,7 +1682,7 @@ function renderDroneLibrary(){
     if(!drones.length){
         container.innerHTML = brand === 'Custom'
             ? '<div class="label">Nessun drone custom salvato.</div>'
-            : '<div class="label">Nessun drone per questa marca.</div>';
+            : '<div class="label">Nessun drone trovato.</div>';
         return;
     }
 
@@ -1652,7 +1695,9 @@ function renderDroneLibrary(){
             <h3>${drone.name}</h3>
             <div class="meta">${drone.brand} ${drone.model}</div>
             <div class="meta">Vento max: ${drone.maxWind.toFixed(1)} km/h (${drone.maxWindMs.toFixed(1)} m/s)</div>
+            <div class="quality-pill ${drone.uncertainty === 'medium' ? 'medium' : ''}">${sourceSummary(drone)}</div>
             <div class="meta">${drone.notes || ''}</div>
+            ${drone.sourceUrl ? `<a class="source-link" href="${drone.sourceUrl}" target="_blank" rel="noopener">Fonte</a>` : ''}
         `;
 
         if(isMine){
