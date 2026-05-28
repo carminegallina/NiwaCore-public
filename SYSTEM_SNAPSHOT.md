@@ -127,6 +127,8 @@ niwahub.tailnet.ts.net:3000
 
 Homepage custom.js on the Raspberry rewrites NIWA service links in the browser so they keep the current access host and only change port. This allows dashboard links to work from hotspot, wired LAN and Tailscale without maintaining separate link sets.
 
+Homepage custom.css on the Raspberry applies the logo-inspired dark copper/rose palette while keeping Homepage as a launcher/dashboard.
+
 Tailscale command checks:
 
 tailscale status
@@ -197,7 +199,7 @@ Current behavior:
 - current bundled drone library contains 168 profiles across 26 brands, including 100 DJI profiles
 - shows drone source quality and uncertainty on the drone management page
 - seeds missing library entries from the bundled app copy if the mounted data file is old or empty
-- uses NIWA Lights-inspired dark card styling
+- uses logo-inspired dark card styling with copper/rose accents
 
 ## Drone Panel useful commands
 
@@ -262,7 +264,7 @@ Current behavior:
 - shows GoPro JPG/video files from gopro
 - supports GoPro all/photo/video filter
 - avoids stale async tab responses updating the wrong tab
-- uses NIWA Lights-inspired dark card styling
+- uses logo-inspired dark card styling with copper/rose accents
 
 Useful commands:
 
@@ -306,7 +308,7 @@ Current behavior:
 - scans configured media folders
 - reports file counts, matched media counts and extension counts
 - includes photo, video, GoPro, backstage, exports, backup and events
-- uses NIWA Lights-inspired dark card styling
+- uses logo-inspired dark card styling with copper/rose accents
 
 Useful commands:
 
@@ -360,7 +362,7 @@ Current behavior:
 - use cached weather/plan data when available
 - show a simple shooting score
 - provide color harmony helper
-- use NIWA Lights-inspired dark card styling
+- use logo-inspired dark card styling with copper/rose accents
 
 Useful commands:
 
@@ -412,6 +414,7 @@ Current behavior:
 - supports step buttons and center
 - stores device state/config in server-side JSON
 - prepares HTTP protocol for ESP32-CAM endpoints: GET /status, POST /move, POST /center
+- uses logo-inspired dark card styling with copper/rose accents
 
 Useful commands:
 

@@ -169,14 +169,25 @@ h1{margin:0 0 6px 0;font-size:32px;letter-spacing:0}.subtitle{color:var(--muted)
 .bar-fill{height:100%;background:#38bdf8;width:0%}.group{display:grid;grid-template-columns:1fr auto;gap:8px;align-items:center}
 .group-name{font-weight:bold}.pill{display:inline-block;background:rgba(15,23,42,.92);border:1px solid rgba(148,163,184,.20);border-radius:999px;padding:4px 8px;margin:6px 4px 0 0;color:#dbeafe;font-size:12px}
 .missing{border-color:rgba(239,68,68,.58)}.status{color:var(--muted);margin:12px 0;font-size:14px}
-@media(max-width:700px){.topbar{display:block}.topbar .button{margin-top:10px}.group{grid-template-columns:1fr}}
+:root{--bg:#0f0d0d;--panel:#211918;--panel2:#151112;--line:rgba(203,144,124,.28);--text:#fff7f0;--muted:#c8afa4;--soft:#eadbd4;--blue:#d59a84;--accent:#d59a84;--accent-strong:#f0b8a2}
+body{background:radial-gradient(circle at 18% -5%,rgba(213,154,132,.22),transparent 34%),radial-gradient(circle at 84% 8%,rgba(246,226,209,.08),transparent 28%),linear-gradient(180deg,#0e0c0c,#171211 46%,#0e0c0c)}
+.brand-heading{display:flex;align-items:center;gap:12px;min-width:0}.brand-logo{width:52px;height:52px;border-radius:50%;border:1px solid rgba(213,154,132,.42);background:#f2dfcf;box-shadow:0 16px 34px rgba(0,0,0,.28);flex:0 0 auto}.brand-copy{min-width:0}
+h1{color:#fff4ec}.subtitle{color:var(--muted)}
+.button{background:rgba(64,45,42,.92);border-color:var(--line)}.button:hover{background:rgba(87,61,56,.96);border-color:rgba(213,154,132,.42)}
+.card{background:linear-gradient(180deg,rgba(42,31,29,.94),rgba(18,14,14,.96));border-color:var(--line);box-shadow:0 18px 34px rgba(0,0,0,.25)}
+.bar{background:#151112;border-color:rgba(203,144,124,.18)}.bar-fill{background:linear-gradient(90deg,#d59a84,#f0b8a2)}
+.pill{background:rgba(64,45,42,.92);border-color:var(--line);color:#ffe0d1}
+@media(max-width:700px){.topbar{display:block}.brand-logo{width:44px;height:44px}.topbar .button{margin-top:10px}.group{grid-template-columns:1fr}}
 </style>
 </head>
 <body>
 <div class="topbar">
-<div>
+<div class="brand-heading">
+<img class="brand-logo" src="/static/niwa-logo.png" alt="">
+<div class="brand-copy">
 <h1>NIWA Storage</h1>
 <div class="subtitle">Spazio SSD e riepilogo cartelle media.</div>
+</div>
 </div>
 <a class="button" id="dashboardLink" href="/">Dashboard</a>
 </div>

@@ -141,8 +141,11 @@ Status:
 - Implemented on NIWA Review
 - Implemented on NIWA Storage
 - NIWA Lights is the reference style
+- Logo-inspired copper/rose accent pass applied to the versioned panels while preserving dark mode and tablet-friendly cards
+- Homepage dashboard custom.css prepared with the same palette and deployed to the Raspberry external Homepage config
 
 Future cleanup:
+- Consider adding the logo mark directly to Homepage once the cleanest asset path is chosen
 - Consider extracting a small shared CSS reference later
 - Do not merge panels into one app
 - Keep dashboard as launcher, not a giant application

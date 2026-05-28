@@ -1,0 +1,64 @@
+/* NIWA Homepage identity pass.
+   The Homepage container uses generated markup, so this file keeps selectors broad
+   and conservative: warm NIWA accents, dark background, no workflow changes. */
+
+:root {
+  --niwa-bg: #0f0d0d;
+  --niwa-panel: rgba(42, 31, 29, 0.88);
+  --niwa-panel-strong: rgba(18, 14, 14, 0.94);
+  --niwa-line: rgba(203, 144, 124, 0.28);
+  --niwa-text: #fff7f0;
+  --niwa-muted: #c8afa4;
+  --niwa-accent: #d59a84;
+  --niwa-accent-strong: #f0b8a2;
+}
+
+html,
+body {
+  background:
+    radial-gradient(circle at 18% -5%, rgba(213, 154, 132, 0.22), transparent 34%),
+    radial-gradient(circle at 84% 8%, rgba(246, 226, 209, 0.08), transparent 28%),
+    linear-gradient(180deg, #0e0c0c, #171211 46%, #0e0c0c) !important;
+  color: var(--niwa-text) !important;
+}
+
+main,
+#page_container {
+  background: transparent !important;
+}
+
+a[href],
+button,
+input,
+select {
+  border-color: var(--niwa-line) !important;
+}
+
+a[href*=":505"],
+a[href*=":8080"],
+a[href*=":61208"],
+a[href*=":9443"],
+[class*="service"],
+[class*="card"],
+[class*="widget"] {
+  background:
+    linear-gradient(180deg, var(--niwa-panel), var(--niwa-panel-strong)) !important;
+  border-color: var(--niwa-line) !important;
+  box-shadow: 0 18px 34px rgba(0, 0, 0, 0.24) !important;
+}
+
+a[href]:hover,
+button:hover {
+  border-color: rgba(213, 154, 132, 0.46) !important;
+}
+
+svg,
+img {
+  filter: saturate(0.96);
+}
+
+.text-theme-500,
+.text-theme-600,
+[class*="text-theme"] {
+  color: var(--niwa-accent-strong) !important;
+}

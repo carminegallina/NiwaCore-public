@@ -819,12 +819,30 @@ button{width:100%;padding:10px;border-radius:10px;border:1px solid rgba(148,163,
 
 .percent{min-width:52px;text-align:right;font-weight:bold}
 
+:root{--bg:#0f0d0d;--panel:#211918;--panel2:#151112;--line:rgba(203,144,124,.28);--text:#fff7f0;--muted:#c8afa4;--soft:#eadbd4;--blue:#d59a84;--accent:#d59a84;--accent-strong:#f0b8a2}
+body{background:radial-gradient(circle at 18% -5%,rgba(213,154,132,.22),transparent 34%),radial-gradient(circle at 84% 8%,rgba(246,226,209,.08),transparent 28%),linear-gradient(180deg,#0e0c0c,#171211 46%,#0e0c0c)}
+.brand-heading{display:flex;align-items:center;gap:12px;min-width:0}
+.brand-logo{width:52px;height:52px;border-radius:50%;border:1px solid rgba(213,154,132,.42);background:#f2dfcf;box-shadow:0 16px 34px rgba(0,0,0,.28);flex:0 0 auto}
+.brand-copy{min-width:0}
+h1{color:#fff4ec}.subtitle{color:var(--muted)}
+.topbar a,.button,button{background:rgba(64,45,42,.92);border-color:var(--line)}
+.topbar a:hover,.button:hover,button:hover{background:rgba(87,61,56,.96);border-color:rgba(213,154,132,.42)}
+.card,.battery-section{background:linear-gradient(180deg,rgba(42,31,29,.94),rgba(18,14,14,.96));border-color:var(--line);box-shadow:0 18px 34px rgba(0,0,0,.25)}
+input,select,.suggestions{background:#151112;border-color:var(--line)}
+.suggestion{border-top-color:rgba(203,144,124,.18)}.suggestion:hover{background:#241a18}
+.drone-pill,.battery{background:rgba(21,17,18,.92);border:1px solid rgba(203,144,124,.20)}
+.drone-pill.active{border-color:var(--accent)}
+.drone-meta{color:var(--muted)}
+.battery-slider::-webkit-slider-runnable-track{background:linear-gradient(to right,var(--accent) 0%,var(--accent) var(--battery-level),rgba(99,74,70,.95) var(--battery-level),rgba(99,74,70,.95) 100%)}
+.battery-slider::-moz-range-progress{background:var(--accent)}
+
 @media(max-width:700px){
     .battery-header{grid-template-columns:1fr}
     .drone-row{display:block}
     .drone-row button{width:100%}
     .custom-grid{grid-template-columns:1fr}
     .topbar{display:block}
+    .brand-logo{width:44px;height:44px}
     .topbar a{display:inline-block;margin-top:10px}
 }
 </style>
@@ -833,9 +851,12 @@ button{width:100%;padding:10px;border-radius:10px;border:1px solid rgba(148,163,
 <body>
 
 <div class="topbar">
-<div>
+<div class="brand-heading">
+<img class="brand-logo" src="/static/niwa-logo.png" alt="">
+<div class="brand-copy">
 <h1>🚁 NIWA Drone Panel</h1>
 <div class="subtitle">Meteo operativo, batterie, checklist e sicurezza drone.</div>
+</div>
 </div>
 <a id="dashboardLink" href="/">Dashboard</a>
 </div>
@@ -1540,14 +1561,28 @@ button:hover,.topbar a:hover{background:#334155}.primary{background:#0369a1}.dan
 .quality-pill.medium{background:rgba(245,158,11,.12);border-color:rgba(251,191,36,.28);color:#fde68a}
 .owned-label{color:#86efac;font-size:13px;font-weight:bold;margin-top:12px}
 .custom-grid{display:grid;grid-template-columns:1fr;gap:8px}.status{min-height:18px}
-@media(max-width:850px){.layout{grid-template-columns:1fr}.toolbar{grid-template-columns:1fr}.topbar{display:block}.topbar a{display:inline-block;margin-top:10px}}
+:root{--bg:#0f0d0d;--panel:#211918;--panel2:#151112;--line:rgba(203,144,124,.28);--text:#fff7f0;--muted:#c8afa4;--soft:#eadbd4;--blue:#d59a84;--accent:#d59a84;--accent-strong:#f0b8a2}
+body{background:radial-gradient(circle at 18% -5%,rgba(213,154,132,.22),transparent 34%),radial-gradient(circle at 84% 8%,rgba(246,226,209,.08),transparent 28%),linear-gradient(180deg,#0e0c0c,#171211 46%,#0e0c0c)}
+.brand-heading{display:flex;align-items:center;gap:12px;min-width:0}.brand-logo{width:52px;height:52px;border-radius:50%;border:1px solid rgba(213,154,132,.42);background:#f2dfcf;box-shadow:0 16px 34px rgba(0,0,0,.28);flex:0 0 auto}.brand-copy{min-width:0}
+h1{color:#fff4ec}.subtitle{color:var(--muted)}
+.topbar a,button{background:rgba(64,45,42,.92);border-color:var(--line)}
+.topbar a:hover,button:hover{background:rgba(87,61,56,.96);border-color:rgba(213,154,132,.42)}
+.primary{background:linear-gradient(180deg,#d59a84,#9f6f63);border-color:rgba(240,184,162,.45)}
+.card{background:linear-gradient(180deg,rgba(42,31,29,.94),rgba(18,14,14,.96));border-color:var(--line);box-shadow:0 18px 34px rgba(0,0,0,.25)}
+input,select,.drone-card{background:#151112;border-color:var(--line)}
+.source-link{color:#f0b8a2}.quality-pill{background:rgba(213,154,132,.13);border-color:rgba(213,154,132,.30);color:#ffe0d1}
+.drone-card.mine{border-color:var(--accent)}.drone-card.owned{border-color:#86efac}
+@media(max-width:850px){.layout{grid-template-columns:1fr}.toolbar{grid-template-columns:1fr}.topbar{display:block}.brand-logo{width:44px;height:44px}.topbar a{display:inline-block;margin-top:10px}}
 </style>
 </head>
 <body>
 <div class="topbar">
-<div>
+<div class="brand-heading">
+<img class="brand-logo" src="/static/niwa-logo.png" alt="">
+<div class="brand-copy">
 <h1>Gestione Droni</h1>
 <div class="subtitle">Libreria locale, droni posseduti e profili custom.</div>
+</div>
 </div>
 <a href="/">Torna al Drone Panel</a>
 </div>

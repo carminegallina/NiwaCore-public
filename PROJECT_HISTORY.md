@@ -214,6 +214,10 @@ The main NIWA panels have been visually aligned around the newer NIWA Lights dir
 
 The styling pass intentionally did not merge panels or change core workflows.
 
+A later visual identity pass added the user's logo as a local static asset across Drone Panel, Drone management, NIWA Review, NIWA Storage, NIWA Shooting Tools and NIWA Lights. The panels now keep a dark tablet-friendly UI but use a warmer copper/rose accent palette derived from the logo instead of the earlier blue-first accent.
+
+The external Homepage dashboard configuration on the Raspberry now also has a conservative `custom.css` identity pass with the same warm dark palette. Homepage remains a launcher/dashboard and was not merged with the panels.
+
 ### Version checkpoints
 
 Recent stable commits:

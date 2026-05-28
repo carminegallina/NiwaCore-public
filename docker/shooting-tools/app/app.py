@@ -634,14 +634,27 @@ h1{margin:0 0 6px 0;font-size:32px;letter-spacing:0}.subtitle{color:var(--muted)
 .form-row{display:grid;grid-template-columns:1fr 1fr;gap:10px}.field label{display:block;color:#d1d5db;font-size:13px;margin-bottom:6px}.field input,.field select{width:100%;background:#101827;border:1px solid rgba(148,163,184,.20);border-radius:10px;color:white;padding:10px}
 .result{font-size:24px;font-weight:bold;margin-top:10px}.list{margin:0;padding-left:18px;color:#d1d5db;line-height:1.5}.checklist{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:8px}.check{display:flex;gap:8px;align-items:flex-start;background:rgba(15,23,42,.90);border:1px solid rgba(148,163,184,.18);border-radius:10px;padding:10px;color:#d1d5db;font-size:14px}
 .check input{margin-top:2px}.offline{border:1px solid #7f1d1d;background:#2a1720}
-@media(max-width:760px){body{padding:14px}.topbar{display:block}.topbar .button{margin-top:10px}.toolbar{grid-template-columns:1fr}.form-row{grid-template-columns:1fr}.swatches{grid-template-columns:repeat(3,1fr)}}
+:root{--bg:#0f0d0d;--panel:#211918;--panel2:#151112;--line:rgba(203,144,124,.28);--text:#fff7f0;--muted:#c8afa4;--soft:#eadbd4;--blue:#d59a84;--accent:#d59a84;--accent-strong:#f0b8a2}
+body{background:radial-gradient(circle at 18% -5%,rgba(213,154,132,.22),transparent 34%),radial-gradient(circle at 84% 8%,rgba(246,226,209,.08),transparent 28%),linear-gradient(180deg,#0e0c0c,#171211 46%,#0e0c0c)}
+.brand-heading{display:flex;align-items:center;gap:12px;min-width:0}.brand-logo{width:52px;height:52px;border-radius:50%;border:1px solid rgba(213,154,132,.42);background:#f2dfcf;box-shadow:0 16px 34px rgba(0,0,0,.28);flex:0 0 auto}.brand-copy{min-width:0}
+h1{color:#fff4ec}.subtitle{color:var(--muted)}
+.button,.tab{background:rgba(64,45,42,.92);border-color:var(--line)}.button:hover,.tab:hover{background:rgba(87,61,56,.96);border-color:rgba(213,154,132,.42)}
+.tab.active{background:linear-gradient(180deg,#d59a84,#9f6f63);border-color:rgba(240,184,162,.45);color:#fffaf5}
+.card{background:linear-gradient(180deg,rgba(42,31,29,.94),rgba(18,14,14,.96));border-color:var(--line);box-shadow:0 18px 34px rgba(0,0,0,.25)}
+.toolbar input,.suggestions,.field input,.field select{background:#151112;border-color:var(--line)}
+.suggestion{border-top-color:rgba(203,144,124,.18)}.suggestion:hover{background:#241a18}
+.pill,.hour,.check{background:rgba(21,17,18,.92);border-color:rgba(203,144,124,.20);color:#ffe0d1}
+@media(max-width:760px){body{padding:14px}.topbar{display:block}.brand-logo{width:44px;height:44px}.topbar .button{margin-top:10px}.toolbar{grid-template-columns:1fr}.form-row{grid-template-columns:1fr}.swatches{grid-template-columns:repeat(3,1fr)}}
 </style>
 </head>
 <body>
 <div class="topbar">
-<div>
+<div class="brand-heading">
+<img class="brand-logo" src="/static/niwa-logo.png" alt="">
+<div class="brand-copy">
 <h1>NIWA Shooting Tools</h1>
 <div class="subtitle">Luce, meteo creativo, colore, esposizione e micro-checklist per foto e video.</div>
+</div>
 </div>
 <a class="button" id="dashboardLink" href="/">Dashboard</a>
 </div>

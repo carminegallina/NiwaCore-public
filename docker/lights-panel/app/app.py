@@ -211,15 +211,28 @@ svg{width:100%;height:100%;min-height:440px;display:block}.zone{fill:#111827}.su
 .details-band{grid-column:2/-1;display:grid;grid-template-columns:minmax(0,1.4fr) minmax(260px,.8fr);gap:14px}.light-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:10px}.light-card{background:rgba(15,23,42,.90);border:1px solid rgba(148,163,184,.20);border-radius:10px;padding:12px}.light-title{display:flex;justify-content:space-between;gap:8px;font-weight:bold;margin-bottom:10px}.light-heading{display:flex;align-items:center;gap:8px}.kv{display:grid;grid-template-columns:82px 1fr;gap:6px;font-size:13px;color:#dbeafe}.kv span:nth-child(odd){color:var(--muted)}
 .notes{color:#cbd5e1;line-height:1.45;font-size:14px}.notes ul{margin:8px 0 0 18px;padding:0}.notes li{margin:6px 0}.preview-card{background:linear-gradient(180deg,rgba(17,24,39,.96),rgba(15,23,42,.96))}.photo-preview{width:100%;aspect-ratio:4/5;background:#050816;border:1px solid rgba(148,163,184,.20);border-radius:10px;overflow:hidden;box-shadow:0 18px 30px rgba(0,0,0,.28)}.photo-preview img{display:block;width:100%;height:100%;object-fit:cover}.preview-note{color:var(--muted);font-size:13px;line-height:1.4;margin-top:12px}
 .hardware{margin-top:12px}.hardware summary{cursor:pointer;color:#cbd5e1}.status{color:var(--muted);font-size:13px;margin:8px 0}.device-list{display:grid;gap:8px;margin-top:8px}.device{background:#0f172a;border:1px solid var(--line);border-radius:10px;padding:10px;color:white;text-align:left}.device.active{border-color:#38bdf8}.field label{display:block;color:#cbd5e1;font-size:13px;margin:10px 0 5px}.field input{width:100%;background:#0f172a;border:1px solid var(--line);border-radius:10px;color:white;padding:10px}.axis{margin-top:12px}.axis-head{display:flex;justify-content:space-between;color:#dbeafe;margin-bottom:6px}input[type=range]{width:100%;accent-color:#38bdf8}.row{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}
+:root{--bg:#0f0d0d;--panel:#211918;--panel2:#151112;--line:rgba(203,144,124,.28);--text:#fff7f0;--muted:#c8afa4;--soft:#eadbd4;--blue:#d59a84;--accent:#d59a84;--accent-strong:#f0b8a2}
+body{background:radial-gradient(circle at 18% -5%,rgba(213,154,132,.22),transparent 34%),radial-gradient(circle at 84% 8%,rgba(246,226,209,.08),transparent 28%),linear-gradient(180deg,#0e0c0c,#171211 46%,#0e0c0c)}
+.brand-heading{display:flex;align-items:center;gap:12px;min-width:0}.brand-logo{width:52px;height:52px;border-radius:50%;border:1px solid rgba(213,154,132,.42);background:#f2dfcf;box-shadow:0 16px 34px rgba(0,0,0,.28);flex:0 0 auto}.brand-copy{min-width:0}
+h1{color:#fff4ec}.subtitle{color:var(--muted)}
+.button{background:rgba(64,45,42,.92);border-color:var(--line)}.button:hover{background:rgba(87,61,56,.96);border-color:rgba(213,154,132,.42)}.button.primary{background:linear-gradient(180deg,#d59a84,#9f6f63);border-color:rgba(240,184,162,.45)}
+.card,.preview-card{background:linear-gradient(180deg,rgba(42,31,29,.94),rgba(18,14,14,.96));border-color:var(--line);box-shadow:0 18px 34px rgba(0,0,0,.25)}
+.preset,.pill,.legend-item,.light-card,.device{background:rgba(21,17,18,.92);border-color:rgba(203,144,124,.20);color:#ffe0d1}
+.preset:hover{background:#241a18;border-color:rgba(213,154,132,.42)}.preset.active{border-color:var(--accent);background:linear-gradient(90deg,rgba(213,154,132,.24),rgba(18,14,14,.96));box-shadow:0 0 0 1px rgba(213,154,132,.22)}
+.diagram-wrap{background:radial-gradient(circle at 50% 42%,rgba(70,48,44,.72),#0e0c0c 62%);border-color:var(--line)}
+.device.active{border-color:var(--accent)}.field input{background:#151112;border-color:var(--line)}input[type=range]{accent-color:var(--accent)}
 @media(max-width:1100px){.layout{grid-template-columns:260px minmax(0,1fr)}.preview-card{grid-column:1/-1}.details-band{grid-column:1/-1}.stage{min-height:auto}}
-@media(max-width:760px){body{padding:12px}.topbar{display:block}.topbar .button{margin-top:10px}.layout{grid-template-columns:1fr}.details-band{grid-template-columns:1fr}.schema-head{display:block}h1{font-size:26px}.diagram-wrap,svg{min-height:390px}.kv{grid-template-columns:84px 1fr}}
+@media(max-width:760px){body{padding:12px}.topbar{display:block}.brand-logo{width:44px;height:44px}.topbar .button{margin-top:10px}.layout{grid-template-columns:1fr}.details-band{grid-template-columns:1fr}.schema-head{display:block}h1{font-size:26px}.diagram-wrap,svg{min-height:390px}.kv{grid-template-columns:84px 1fr}}
 </style>
 </head>
 <body>
 <div class="topbar">
-  <div>
+  <div class="brand-heading">
+    <img class="brand-logo" src="/static/niwa-logo.png" alt="">
+    <div class="brand-copy">
     <h1>NIWA Lighting</h1>
     <div class="subtitle">Schemi luce pratici per posizionare soggetto, camera, stativi e modificatori. Il controllo ESP32 resta disponibile come modulo sperimentale.</div>
+    </div>
   </div>
   <a class="button" id="dashboardLink" href="/">Dashboard</a>
 </div>
