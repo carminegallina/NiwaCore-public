@@ -83,6 +83,8 @@ Current status:
 - Presets
 - Server-side JSON device configuration
 - Prepared ESP32-CAM HTTP protocol
+- Logo-inspired dark UI with warmer copper/rose accents
+- Details section aligned from the left below the preset selector
 
 ## Immediate next steps
 
@@ -143,6 +145,8 @@ Status:
 - NIWA Lights is the reference style
 - Logo-inspired copper/rose accent pass applied to the versioned panels while preserving dark mode and tablet-friendly cards
 - Homepage dashboard custom.css prepared with the same palette and deployed to the Raspberry external Homepage config
+- Homepage background corrected to remove the remaining blue theme color from the launcher surface
+- NIWA Lights detail/card layout polished after visual review
 
 Future cleanup:
 - Consider adding the logo mark directly to Homepage once the cleanest asset path is chosen

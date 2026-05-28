@@ -217,6 +217,7 @@ body{background:radial-gradient(circle at 18% -5%,rgba(213,154,132,.22),transpar
 h1{color:#fff4ec}.subtitle{color:var(--muted)}
 .button{background:rgba(64,45,42,.92);border-color:var(--line)}.button:hover{background:rgba(87,61,56,.96);border-color:rgba(213,154,132,.42)}.button.primary{background:linear-gradient(180deg,#d59a84,#9f6f63);border-color:rgba(240,184,162,.45)}
 .card,.preview-card{background:linear-gradient(180deg,rgba(42,31,29,.94),rgba(18,14,14,.96));border-color:var(--line);box-shadow:0 18px 34px rgba(0,0,0,.25)}
+.layout{align-items:stretch}.layout>.card{height:100%}.preview-card{display:flex;flex-direction:column}.details-band{grid-column:1/-1;align-items:stretch}.details-band>.card{height:100%;display:flex;flex-direction:column}.details-band .light-grid{flex:1;align-items:stretch}.light-card{display:flex;flex-direction:column;min-height:132px}
 .preset,.pill,.legend-item,.light-card,.device{background:rgba(21,17,18,.92);border-color:rgba(203,144,124,.20);color:#ffe0d1}
 .preset:hover{background:#241a18;border-color:rgba(213,154,132,.42)}.preset.active{border-color:var(--accent);background:linear-gradient(90deg,rgba(213,154,132,.24),rgba(18,14,14,.96));box-shadow:0 0 0 1px rgba(213,154,132,.22)}
 .diagram-wrap{background:radial-gradient(circle at 50% 42%,rgba(70,48,44,.72),#0e0c0c 62%);border-color:var(--line)}

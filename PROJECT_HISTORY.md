@@ -218,6 +218,8 @@ A later visual identity pass added the user's logo as a local static asset acros
 
 The external Homepage dashboard configuration on the Raspberry now also has a conservative `custom.css` identity pass with the same warm dark palette. Homepage remains a launcher/dashboard and was not merged with the panels.
 
+Follow-up visual polish aligned the external Homepage dashboard background with the same logo-inspired warm dark palette by overriding Homepage theme variables and blue utility backgrounds more directly. NIWA Lights was also adjusted so the light detail cards start from the left below the preset selector instead of sitting under the preview column, with more consistent card heights across the lights section.
+
 ### Version checkpoints
 
 Recent stable commits:
