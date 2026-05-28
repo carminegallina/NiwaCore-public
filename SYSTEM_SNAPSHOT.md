@@ -168,9 +168,29 @@ Runtime my drones file:
 
 /home/niwa/niwa/data/my_drones.json
 
+Runtime weather cache:
+
+/home/niwa/niwa/data/drone_weather_cache.json
+
+Runtime place suggestion cache:
+
+/home/niwa/niwa/data/drone_locations_cache.json
+
 Expected Docker volume:
 
 /home/niwa/niwa/data:/data
+
+Current behavior:
+- shows drone weather, wind and rain through the Raspberry backend
+- uses Open-Meteo as primary weather source
+- compares with MET Norway when available
+- shows weather uncertainty when sources diverge
+- caches weather runtime data in /data
+- supports manual location entry
+- supports place autocomplete through Photon plus Nominatim/OpenStreetMap
+- saves selected place latitude and longitude in browser localStorage
+- keeps server-side drone library, my drones, custom drones, checklist and battery manager
+- uses NIWA Lights-inspired dark card styling
 
 ## Drone Panel useful commands
 
@@ -183,6 +203,7 @@ docker logs drone-panel --tail=80
 ## Drone Panel API tests
 
 curl http://localhost:5051/api/weather
+curl 'http://localhost:5051/api/places?q=Mostra%20d%27Oltremare'
 curl http://localhost:5051/api/batteries?drone=dji_neo
 curl http://localhost:5051/api/batteries?drone=dji_avata_2
 curl http://localhost:5051/api/drones
@@ -234,6 +255,7 @@ Current behavior:
 - shows GoPro JPG/video files from gopro
 - supports GoPro all/photo/video filter
 - avoids stale async tab responses updating the wrong tab
+- uses NIWA Lights-inspired dark card styling
 
 Useful commands:
 
@@ -277,6 +299,7 @@ Current behavior:
 - scans configured media folders
 - reports file counts, matched media counts and extension counts
 - includes photo, video, GoPro, backstage, exports, backup and events
+- uses NIWA Lights-inspired dark card styling
 
 Useful commands:
 
@@ -307,12 +330,30 @@ Port:
 
 5054
 
+Expected Docker volume:
+
+/home/niwa/niwa/data:/data
+
+Runtime place/geocoding cache:
+
+/home/niwa/niwa/data/shooting_locations_cache.json
+
+Runtime weather/plan cache:
+
+/home/niwa/niwa/data/shooting_plan_cache.json
+
 Current behavior:
-- search location by place name
-- load sunrise, sunset, daily weather and hourly conditions through Open-Meteo
+- search location by city, place, venue or point of interest
+- autocomplete location search through Photon plus Nominatim/OpenStreetMap
+- calculate sunrise and sunset locally from coordinates, date and timezone
 - show estimated blue hour and golden hour windows
+- load daily weather and hourly conditions through Open-Meteo when internet is available
+- compare Open-Meteo with MET Norway when available
+- show weather uncertainty when sources diverge
+- use cached weather/plan data when available
 - show a simple shooting score
 - provide color harmony helper
+- use NIWA Lights-inspired dark card styling
 
 Useful commands:
 
@@ -324,6 +365,7 @@ docker logs shooting-tools --tail=80
 API tests:
 
 curl 'http://localhost:5054/api/geocode?q=Torino'
+curl 'http://localhost:5054/api/places?q=Mostra%20d%27Oltremare'
 curl 'http://localhost:5054/api/plan?lat=45.0703&lon=7.6869&name=Torino&country=Italia'
 
 ## NIWA Lights

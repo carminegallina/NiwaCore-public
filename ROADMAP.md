@@ -9,7 +9,10 @@ Current status:
 - Docker container
 - Weather API
 - Manual location
-- Location autocomplete with Nominatim/OpenStreetMap suggestions
+- Location autocomplete with Photon plus Nominatim/OpenStreetMap suggestions
+- Open-Meteo primary weather source
+- MET Norway secondary weather comparison
+- Weather cache and uncertainty status
 - Reverse geocoding
 - Drone safety indicator
 - Server-side drone library
@@ -56,9 +59,13 @@ Current status:
 - Docker container
 - Port 5054
 - Location search
-- Google Maps style place autocomplete through Nominatim/OpenStreetMap
+- Google Maps style place autocomplete through Photon plus Nominatim/OpenStreetMap
 - Sunrise/sunset planning
+- Local sunrise/sunset calculation
 - Estimated golden hour and blue hour windows
+- Open-Meteo primary weather source
+- MET Norway secondary weather comparison
+- Weather cache and uncertainty status
 - Weather-based shooting score
 - Color harmony helper
 
@@ -116,7 +123,7 @@ Make location selection feel like a map search bar without requiring browser GPS
 Status:
 - Implemented in NIWA Shooting Tools
 - Implemented in Drone Panel
-- Uses Nominatim/OpenStreetMap for places, venues, stations, parks and points of interest
+- Uses Photon plus Nominatim/OpenStreetMap for places, venues, stations, parks and points of interest
 - Caches searched places in /home/niwa/niwa/data
 - Uses debounce and minimum 3 typed characters
 - Supports places such as Mostra d'Oltremare rather than only city names like Napoli
@@ -127,18 +134,30 @@ Status:
 Goal:
 Unify all NIWA panels visually around the newer NIWA Lights look and feel.
 
-Tasks:
-- Reuse the NIWA Lights visual direction for cards, spacing, buttons, labels and responsive layout
-- Keep the dark tablet-friendly interface
-- Avoid changing feature logic while styling
-- Apply the style module by module: Drone Panel, Shooting Tools, Review, Storage, then dashboard cards if needed
-- Preserve each panel's workflow and layout density
-- Consider extracting a small shared CSS reference later, but do not merge panels into one app
+Status:
+- Implemented on Drone Panel
+- Implemented on Drone management page
+- Implemented on NIWA Shooting Tools
+- Implemented on NIWA Review
+- Implemented on NIWA Storage
+- NIWA Lights is the reference style
+
+Future cleanup:
+- Consider extracting a small shared CSS reference later
+- Do not merge panels into one app
+- Keep dashboard as launcher, not a giant application
 
 ### 5. Drone database expansion
 
 Goal:
 Increase the drone library beyond the initial models while keeping values reliable.
+
+Next task:
+- Build a larger verified drone library in data/drones_library.json
+- Start with DJI, then add Autel, Parrot, Skydio and other professional/relevant brands
+- Keep source quality visible in the data
+- Do not add unknown wind limits as official facts
+- Integrate any new metadata without breaking the current Drone Panel UI
 
 DJI first:
 - DJI Neo
@@ -167,6 +186,8 @@ Rules:
 - only add values when verified from reliable or official sources
 - keep brand/model/name/max wind fields consistent
 - keep custom drone support separate from official library drones
+- if a source is not official, mark source quality clearly
+- prefer smaller accurate batches over a huge unreliable dump
 
 ### 6. Media import assistant
 

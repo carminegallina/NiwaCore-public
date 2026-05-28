@@ -147,7 +147,12 @@ The Drone Panel is a Flask app in:
 It currently provides:
 
 - Weather data from Open-Meteo through the Raspberry backend
+- Secondary weather comparison through MET Norway
+- Local weather cache in /home/niwa/niwa/data/drone_weather_cache.json
+- Weather uncertainty status when sources diverge too much
 - Manual location entry by city/place name
+- Google Maps style location autocomplete through Photon plus Nominatim/OpenStreetMap
+- Place suggestion cache in /home/niwa/niwa/data/drone_locations_cache.json
 - Reverse geocoding through Nominatim/OpenStreetMap
 - Drone Safety Indicator
 - Server-side drone library
@@ -165,6 +170,11 @@ It currently provides:
 The Drone Panel docker-compose.yml must mount:
 
 /home/niwa/niwa/data:/data
+
+The Drone Panel docker-compose.yml currently also pins DNS servers:
+
+- 1.1.1.1
+- 8.8.8.8
 
 ## Current drone profiles
 
@@ -212,6 +222,7 @@ docker logs drone-panel --tail=80
 Test API:
 
 curl http://localhost:5051/api/weather
+curl 'http://localhost:5051/api/places?q=Mostra%20d%27Oltremare'
 curl http://localhost:5051/api/batteries?drone=dji_neo
 curl http://localhost:5051/api/drones
 
@@ -257,6 +268,7 @@ docker logs shooting-tools --tail=80
 Test API:
 
 curl 'http://localhost:5054/api/geocode?q=Torino'
+curl 'http://localhost:5054/api/places?q=Mostra%20d%27Oltremare'
 curl 'http://localhost:5054/api/plan?lat=45.0703&lon=7.6869&name=Torino&country=Italia'
 
 ## NIWA Lights commands
@@ -296,7 +308,6 @@ High priority:
 - Persistent hotspot at boot
 - Hardening reboot behavior
 - Clean dashboard links
-- Golden hour / sunrise / sunset module
 - DJI database extension
 - Multi-brand drone database expansion
 - Battery manager per drone
@@ -323,3 +334,13 @@ Advanced:
 - ESP32 lighting controls
 - Weather cache offline
 - Optional maps
+
+## Current stable checkpoint
+
+Latest committed stable checkpoint before the next large task:
+
+bda870f Add place autocomplete and unified panel styling
+
+Useful next-thread prompt:
+
+Continue NIWA in C:\Users\utente\Projects\niwa. Read AGENTS.md, PROJECT_HISTORY.md, ROADMAP.md and SYSTEM_SNAPSHOT.md. Latest stable commit is bda870f. Next task: extend data/drones_library.json with a large verified multi-brand drone library, integrating it into Drone Panel without breaking existing features. Use official or reliable sources for max wind values and document uncertainty when a value is not official.

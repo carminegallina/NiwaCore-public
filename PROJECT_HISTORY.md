@@ -103,12 +103,15 @@ NIWA Shooting Tools has been implemented as a separate Flask/Docker module on po
 
 Current purpose:
 - plan photo/video sessions by location
-- show sunrise and sunset
-- estimate golden hour and blue hour windows
+- find cities, venues and points of interest through Google Maps style autocomplete
+- show sunrise and sunset with server-side local calculation
+- estimate golden hour and blue hour windows without depending on external sunrise APIs
 - combine weather data with a simple shooting score
+- compare Open-Meteo with MET Norway and show uncertainty when models diverge
+- cache geocoding/place searches and weather plans in /data
 - provide a color harmony helper
 
-The module uses Open-Meteo from the Raspberry backend when internet is available. The color helper remains usable without weather data.
+The module uses Open-Meteo as primary weather source from the Raspberry backend when internet is available. MET Norway is used as a secondary comparison source. If weather is unavailable, the light windows still work through local solar calculation and cached weather is used when available. The color helper remains usable without weather data.
 
 ### NIWA Lights
 
@@ -129,7 +132,11 @@ Drone Panel was developed first as a lightweight useful module.
 
 Current implemented functionality:
 - weather through Open-Meteo
+- secondary weather comparison through MET Norway
+- local weather cache
+- weather uncertainty indicator
 - location by typed city/place
+- Google Maps style autocomplete through Photon plus Nominatim/OpenStreetMap
 - reverse geocoding
 - safety indicator
 - local server-side drone library
@@ -182,10 +189,23 @@ Current state:
 - custom drones are stored locally and added directly to the user's fleet
 
 Next direction:
-- extend the DJI database carefully with verified official values
-- eventually add multi-brand drone support
+- extend the DJI database carefully with verified official values first
+- then add multi-brand drone support with clear source quality
+- prefer official specs for max wind resistance
+- mark non-official or inferred values clearly rather than pretending they are official
 
 Avoid trying to create "all drones ever made" immediately. It is a maintenance problem.
+
+### Visual style
+
+The main NIWA panels have been visually aligned around the newer NIWA Lights direction:
+- dark blue/black background
+- subtle radial highlight
+- bordered gradient cards
+- consistent buttons, input fields and small status pills
+- tablet-friendly spacing
+
+The styling pass intentionally did not merge panels or change core workflows.
 
 ### Version checkpoints
 
@@ -195,6 +215,8 @@ Recent stable commits:
 - b995a3b Add dashboard link to drone panel
 - 4c46bcf Add NIWA Review panel
 - e19e816 Add drone fleet management
+- da1d984 Add NIWA Lights and robust weather fallbacks
+- bda870f Add place autocomplete and unified panel styling
 
 ## Current philosophy
 
