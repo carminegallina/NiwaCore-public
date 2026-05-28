@@ -156,17 +156,19 @@ def index():
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>NIWA Storage</title>
 <style>
-body{margin:0;font-family:Arial,sans-serif;background:#111827;color:white;padding:20px}
-h1{margin:0 0 8px 0}.subtitle{color:#9ca3af;margin-bottom:18px}
-.topbar{display:flex;justify-content:space-between;gap:12px;align-items:flex-start;margin-bottom:14px}
-.button{display:inline-block;background:#374151;color:white;text-decoration:none;padding:10px 12px;border-radius:10px;border:none}
-.button:hover{background:#4b5563}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px}
-.card{background:#1f2937;border-radius:12px;padding:16px;box-shadow:0 8px 20px rgba(0,0,0,.25)}
-.value{font-size:28px;font-weight:bold;margin:8px 0}.label{color:#9ca3af;font-size:14px}.small{color:#9ca3af;font-size:12px}
-.bar{height:12px;background:#374151;border-radius:999px;overflow:hidden;margin-top:10px}
-.bar-fill{height:100%;background:#3b82f6;width:0%}.group{display:grid;grid-template-columns:1fr auto;gap:8px;align-items:center}
-.group-name{font-weight:bold}.pill{display:inline-block;background:#111827;border-radius:999px;padding:4px 8px;margin:6px 4px 0 0;color:#d1d5db;font-size:12px}
-.missing{border:1px solid #7f1d1d}.status{color:#9ca3af;margin:12px 0;font-size:14px}
+:root{color-scheme:dark;--bg:#0b1220;--panel:#172033;--panel2:#101827;--line:#334155;--text:#f8fafc;--muted:#94a3b8;--soft:#cbd5e1;--blue:#38bdf8;--green:#22c55e;--yellow:#facc15;--red:#ef4444}
+*{box-sizing:border-box}
+body{margin:0;font-family:Arial,sans-serif;background:radial-gradient(circle at 24% 0%,rgba(56,189,248,.10),transparent 32%),linear-gradient(180deg,#0b1220,#0f172a 42%,#0b1220);color:var(--text);padding:20px}
+h1{margin:0 0 6px 0;font-size:32px;letter-spacing:0}.subtitle{color:var(--muted);margin-bottom:18px;line-height:1.45}
+.topbar{display:flex;justify-content:space-between;gap:14px;align-items:flex-start;margin-bottom:18px}
+.button{display:inline-flex;align-items:center;justify-content:center;background:#263244;color:white;text-decoration:none;padding:10px 12px;border-radius:10px;border:1px solid rgba(148,163,184,.22);min-height:40px;box-shadow:inset 0 1px 0 rgba(255,255,255,.04)}
+.button:hover{background:#334155}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px}
+.card{background:linear-gradient(180deg,rgba(30,41,59,.92),rgba(15,23,42,.94));border:1px solid rgba(148,163,184,.18);border-radius:12px;padding:16px;box-shadow:0 18px 34px rgba(0,0,0,.22)}
+.value{font-size:28px;font-weight:bold;margin:8px 0}.label{color:var(--muted);font-size:14px;line-height:1.4}.small{color:var(--muted);font-size:12px}
+.bar{height:12px;background:#101827;border:1px solid rgba(148,163,184,.14);border-radius:999px;overflow:hidden;margin-top:10px}
+.bar-fill{height:100%;background:#38bdf8;width:0%}.group{display:grid;grid-template-columns:1fr auto;gap:8px;align-items:center}
+.group-name{font-weight:bold}.pill{display:inline-block;background:rgba(15,23,42,.92);border:1px solid rgba(148,163,184,.20);border-radius:999px;padding:4px 8px;margin:6px 4px 0 0;color:#dbeafe;font-size:12px}
+.missing{border-color:rgba(239,68,68,.58)}.status{color:var(--muted);margin:12px 0;font-size:14px}
 @media(max-width:700px){.topbar{display:block}.topbar .button{margin-top:10px}.group{grid-template-columns:1fr}}
 </style>
 </head>

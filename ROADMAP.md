@@ -9,6 +9,7 @@ Current status:
 - Docker container
 - Weather API
 - Manual location
+- Location autocomplete with Nominatim/OpenStreetMap suggestions
 - Reverse geocoding
 - Drone safety indicator
 - Server-side drone library
@@ -55,6 +56,7 @@ Current status:
 - Docker container
 - Port 5054
 - Location search
+- Google Maps style place autocomplete through Nominatim/OpenStreetMap
 - Sunrise/sunset planning
 - Estimated golden hour and blue hour windows
 - Weather-based shooting score
@@ -111,16 +113,14 @@ Tasks:
 Goal:
 Make location selection feel like a map search bar without requiring browser GPS or HTTPS.
 
-Tasks:
-- Add Google Maps style search suggestions while typing
-- Use Nominatim/OpenStreetMap for places, venues, stations, parks and points of interest
-- Keep Open-Meteo geocoding only where it is useful for city-level fallback
-- Cache searched places in /home/niwa/niwa/data so common locations remain available later
-- Require at least 3 typed characters and debounce requests to avoid hammering external services
-- Let the user tap a suggestion and save exact name, display address, latitude, longitude and timezone
-- Implement first in NIWA Shooting Tools, then replicate in Drone Panel
-- Support places such as Mostra d'Oltremare rather than only city names like Napoli
-- Fail gracefully when internet is missing and show cached suggestions if available
+Status:
+- Implemented in NIWA Shooting Tools
+- Implemented in Drone Panel
+- Uses Nominatim/OpenStreetMap for places, venues, stations, parks and points of interest
+- Caches searched places in /home/niwa/niwa/data
+- Uses debounce and minimum 3 typed characters
+- Supports places such as Mostra d'Oltremare rather than only city names like Napoli
+- Falls back to cached suggestions when available
 
 ### 4. Visual style unification
 

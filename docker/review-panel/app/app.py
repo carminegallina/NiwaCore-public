@@ -517,24 +517,26 @@ def index():
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>NIWA Review</title>
 <style>
-body{margin:0;font-family:Arial,sans-serif;background:#111827;color:white;padding:20px}
-h1{margin:0 0 8px 0}.subtitle{color:#9ca3af;margin-bottom:18px}
-.topbar{display:flex;justify-content:space-between;gap:12px;align-items:flex-start;margin-bottom:14px}
-.button{display:inline-block;background:#374151;color:white;text-decoration:none;padding:10px 12px;border-radius:10px;border:none}
-.button:hover{background:#4b5563}.status{color:#9ca3af;font-size:14px;margin:12px 0}
-.worker{background:#1f2937;border-radius:12px;padding:12px;margin:12px 0;color:#d1d5db;font-size:14px}
+:root{color-scheme:dark;--bg:#0b1220;--panel:#172033;--panel2:#101827;--line:#334155;--text:#f8fafc;--muted:#94a3b8;--soft:#cbd5e1;--blue:#38bdf8}
+*{box-sizing:border-box}
+body{margin:0;font-family:Arial,sans-serif;background:radial-gradient(circle at 24% 0%,rgba(56,189,248,.10),transparent 32%),linear-gradient(180deg,#0b1220,#0f172a 42%,#0b1220);color:var(--text);padding:20px}
+h1{margin:0 0 6px 0;font-size:32px;letter-spacing:0}.subtitle{color:var(--muted);margin-bottom:18px;line-height:1.45}
+.topbar{display:flex;justify-content:space-between;gap:14px;align-items:flex-start;margin-bottom:18px}
+.button{display:inline-flex;align-items:center;justify-content:center;background:#263244;color:white;text-decoration:none;padding:10px 12px;border-radius:10px;border:1px solid rgba(148,163,184,.22);min-height:40px;box-shadow:inset 0 1px 0 rgba(255,255,255,.04)}
+.button:hover{background:#334155}.status{color:var(--muted);font-size:14px;margin:12px 0}
+.worker{background:linear-gradient(180deg,rgba(30,41,59,.92),rgba(15,23,42,.94));border:1px solid rgba(148,163,184,.18);border-radius:12px;padding:12px;margin:12px 0;color:#d1d5db;font-size:14px}
 .worker strong{color:#e5e7eb}
 .tabs,.filters{display:flex;gap:8px;margin:16px 0;flex-wrap:wrap}
 .filter-row{display:none}.filter-row.visible{display:flex}
-.tab,.filter-button{background:#1f2937;color:#e5e7eb;border:none;border-radius:10px;padding:10px 12px}
-.tab.active,.filter-button.active{background:#2563eb;color:white}
+.tab,.filter-button{background:#101827;color:#e5e7eb;border:1px solid rgba(148,163,184,.20);border-radius:10px;padding:10px 12px}
+.tab.active,.filter-button.active{background:#0369a1;border-color:#38bdf8;color:white}
 .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(170px,1fr));gap:12px}
-.card{background:#1f2937;border-radius:12px;overflow:hidden;box-shadow:0 8px 20px rgba(0,0,0,.25);position:relative}
-.thumb{width:100%;aspect-ratio:3/2;object-fit:cover;background:#111827;display:block}
+.card{background:linear-gradient(180deg,rgba(30,41,59,.92),rgba(15,23,42,.94));border:1px solid rgba(148,163,184,.18);border-radius:12px;overflow:hidden;box-shadow:0 18px 34px rgba(0,0,0,.22);position:relative}
+.thumb{width:100%;aspect-ratio:3/2;object-fit:cover;background:#101827;display:block}
 .video-thumb{filter:saturate(.9)}.play-badge{position:absolute;top:10px;right:10px;background:rgba(17,24,39,.74);border-radius:999px;padding:6px 9px;color:#e5e7eb;font-size:13px}
 .info{padding:10px}.name{font-weight:bold;font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.meta{color:#9ca3af;font-size:12px;margin-top:4px}.badge{display:inline-block;background:#374151;color:#e5e7eb;border-radius:999px;padding:3px 7px;font-size:11px;margin-top:8px}
-.empty{background:#1f2937;border-radius:12px;padding:18px;color:#9ca3af}
+.meta{color:var(--muted);font-size:12px;margin-top:4px}.badge{display:inline-block;background:#263244;border:1px solid rgba(148,163,184,.18);color:#e5e7eb;border-radius:999px;padding:3px 7px;font-size:11px;margin-top:8px}
+.empty{background:linear-gradient(180deg,rgba(30,41,59,.92),rgba(15,23,42,.94));border:1px solid rgba(148,163,184,.18);border-radius:12px;padding:18px;color:var(--muted)}
 .modal{position:fixed;inset:0;background:rgba(0,0,0,.9);display:none;align-items:center;justify-content:center;padding:12px;z-index:10}
 .modal.open{display:flex}.modal-inner{position:relative;width:100%;height:100%;display:flex;align-items:center;justify-content:center}
 .modal img,.modal video{max-width:100%;max-height:100%;object-fit:contain}

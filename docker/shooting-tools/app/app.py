@@ -12,11 +12,15 @@ app = Flask(__name__)
 GEOCODING_URL = "https://geocoding-api.open-meteo.com/v1/search"
 FORECAST_URL = "https://api.open-meteo.com/v1/forecast"
 METNO_FORECAST_URL = "https://api.met.no/weatherapi/locationforecast/2.0/compact"
+NOMINATIM_SEARCH_URL = "https://nominatim.openstreetmap.org/search"
+PHOTON_SEARCH_URL = "https://photon.komoot.io/api/"
 REQUEST_TIMEOUT = 10
 DATA_DIR = Path("/data")
 LOCATIONS_CACHE_FILE = DATA_DIR / "shooting_locations_cache.json"
 PLAN_CACHE_FILE = DATA_DIR / "shooting_plan_cache.json"
 DEFAULT_TIMEZONE = "Europe/Rome"
+NOMINATIM_USER_AGENT = os.environ.get("NIWA_NOMINATIM_USER_AGENT", "NIWA-AP/0.1")
+PLACE_SEARCH_COUNTRY = os.environ.get("NIWA_PLACE_SEARCH_COUNTRY", "it").strip().lower()
 SECONDARY_WEATHER_SOURCE = os.environ.get("NIWA_SECONDARY_WEATHER_SOURCE", "metno").strip().lower()
 METNO_USER_AGENT = os.environ.get("NIWA_METNO_USER_AGENT", "NIWA-AP/0.1")
 UNCERTAINTY_THRESHOLDS = {
@@ -333,6 +337,162 @@ def fetch_open_meteo(latitude, longitude):
     return response.json()
 
 
+def clean_nominatim_place(item):
+    address = item.get("address", {}) if isinstance(item.get("address"), dict) else {}
+    name = (
+        item.get("name")
+        or address.get("amenity")
+        or address.get("building")
+        or address.get("tourism")
+        or address.get("leisure")
+        or address.get("road")
+        or item.get("display_name", "").split(",")[0]
+    )
+    city = (
+        address.get("city")
+        or address.get("town")
+        or address.get("village")
+        or address.get("municipality")
+        or address.get("county")
+    )
+    country = address.get("country") or ""
+
+    return {
+        "name": name or "Luogo",
+        "display_name": item.get("display_name") or name or "Luogo",
+        "country": country,
+        "admin1": address.get("state") or address.get("region") or "",
+        "city": city or "",
+        "latitude": float(item.get("lat")),
+        "longitude": float(item.get("lon")),
+        "timezone": DEFAULT_TIMEZONE,
+        "source": "Nominatim",
+    }
+
+
+def clean_photon_place(feature):
+    properties = feature.get("properties", {}) if isinstance(feature.get("properties"), dict) else {}
+    geometry = feature.get("geometry", {}) if isinstance(feature.get("geometry"), dict) else {}
+    coordinates = geometry.get("coordinates", [])
+    if len(coordinates) < 2:
+        raise ValueError("Coordinate Photon mancanti")
+
+    name = properties.get("name") or properties.get("street") or properties.get("city") or "Luogo"
+    city = properties.get("city") or properties.get("county") or ""
+    state = properties.get("state") or ""
+    country = properties.get("country") or ""
+    parts = [name, city, state, country]
+
+    return {
+        "name": name,
+        "display_name": ", ".join(part for part in parts if part),
+        "country": country,
+        "admin1": state,
+        "city": city,
+        "latitude": float(coordinates[1]),
+        "longitude": float(coordinates[0]),
+        "timezone": DEFAULT_TIMEZONE,
+        "source": "Photon",
+    }
+
+
+def place_rank(place, query):
+    query_terms = [term for term in query.casefold().replace("'", " ").split() if len(term) > 1]
+    haystack = f"{place.get('name', '')} {place.get('display_name', '')}".casefold()
+    score = 0
+    if place.get("name", "").casefold().startswith(query.casefold()):
+        score += 40
+    score += sum(12 for term in query_terms if term in haystack)
+    if place.get("city"):
+        score += 4
+    if place.get("country", "").casefold() in {"italia", "italy"}:
+        score += 4
+    return score
+
+
+def dedupe_and_rank_places(places, query, limit=6):
+    seen = set()
+    unique = []
+    for place in places:
+        coord_key = (round(float(place["latitude"]), 4), round(float(place["longitude"]), 4))
+        text_key = (place.get("name", "").casefold(), place.get("city", "").casefold())
+        display_key = place.get("display_name", "").casefold()[:90]
+        keys = {coord_key, text_key, display_key}
+        if any(key in seen for key in keys):
+            continue
+        seen.update(keys)
+        unique.append(place)
+    unique.sort(key=lambda place: place_rank(place, query), reverse=True)
+    return unique[:limit]
+
+
+def search_photon_places(query, limit=8):
+    params = {
+        "q": query,
+        "limit": limit,
+        "lang": "it",
+    }
+    response = requests.get(
+        PHOTON_SEARCH_URL,
+        params=params,
+        headers={"User-Agent": NOMINATIM_USER_AGENT},
+        timeout=REQUEST_TIMEOUT,
+    )
+    response.raise_for_status()
+    places = []
+    for feature in response.json().get("features", []):
+        try:
+            place = clean_photon_place(feature)
+            if PLACE_SEARCH_COUNTRY == "it" and place.get("country", "").casefold() not in {"italia", "italy"}:
+                continue
+            places.append(place)
+        except (TypeError, ValueError):
+            continue
+    return places
+
+
+def search_nominatim_places(query, limit=6):
+    response = requests.get(
+        NOMINATIM_SEARCH_URL,
+        params={
+            "q": query,
+            "format": "jsonv2",
+            "addressdetails": 1,
+            "namedetails": 1,
+            "limit": limit,
+            "countrycodes": PLACE_SEARCH_COUNTRY,
+            "accept-language": "it",
+        },
+        headers={"User-Agent": NOMINATIM_USER_AGENT},
+        timeout=REQUEST_TIMEOUT,
+    )
+    response.raise_for_status()
+    places = []
+    for item in response.json():
+        try:
+            places.append(clean_nominatim_place(item))
+        except (TypeError, ValueError):
+            continue
+    return places
+
+
+def search_places(query, limit=6):
+    places = []
+    photon_error = None
+    try:
+        places.extend(search_photon_places(query, limit=limit + 2))
+    except requests.RequestException as exc:
+        photon_error = exc
+
+    try:
+        places.extend(search_nominatim_places(query, limit=limit))
+    except requests.RequestException:
+        if not places and photon_error:
+            raise photon_error
+
+    return dedupe_and_rank_places(places, query, limit=limit)
+
+
 def fetch_metno(latitude, longitude):
     if SECONDARY_WEATHER_SOURCE not in {"metno", "met.no", "met_norway"}:
         return None
@@ -458,20 +618,21 @@ def index():
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>NIWA Shooting Tools</title>
 <style>
-:root{color-scheme:dark;--bg:#111827;--panel:#1f2937;--muted:#9ca3af;--text:#f9fafb;--line:#374151;--blue:#3b82f6;--green:#22c55e;--yellow:#facc15;--red:#ef4444}
-*{box-sizing:border-box}body{margin:0;font-family:Arial,sans-serif;background:var(--bg);color:var(--text);padding:20px}
-h1{margin:0 0 8px 0}.subtitle{color:var(--muted);margin-bottom:18px;line-height:1.45}
-.topbar{display:flex;justify-content:space-between;gap:12px;align-items:flex-start;margin-bottom:14px}.button{display:inline-block;background:#374151;color:white;text-decoration:none;padding:10px 12px;border-radius:10px;border:none;cursor:pointer}.button:hover{background:#4b5563}
-.toolbar{display:grid;grid-template-columns:1.3fr auto auto;gap:10px;margin:12px 0 16px}.toolbar input{width:100%;background:#0f172a;border:1px solid var(--line);border-radius:10px;color:white;padding:12px;font-size:16px}
+:root{color-scheme:dark;--bg:#0b1220;--panel:#172033;--panel2:#101827;--muted:#94a3b8;--text:#f8fafc;--line:#334155;--blue:#38bdf8;--green:#22c55e;--yellow:#facc15;--red:#ef4444;--soft:#cbd5e1}
+*{box-sizing:border-box}body{margin:0;font-family:Arial,sans-serif;background:radial-gradient(circle at 24% 0%,rgba(56,189,248,.10),transparent 32%),linear-gradient(180deg,#0b1220,#0f172a 42%,#0b1220);color:var(--text);padding:20px}
+h1{margin:0 0 6px 0;font-size:32px;letter-spacing:0}.subtitle{color:var(--muted);margin-bottom:18px;line-height:1.45}
+.topbar{display:flex;justify-content:space-between;gap:14px;align-items:flex-start;margin-bottom:18px}.button{display:inline-flex;align-items:center;justify-content:center;background:#263244;color:white;text-decoration:none;padding:10px 12px;border-radius:10px;border:1px solid rgba(148,163,184,.22);cursor:pointer;min-height:40px;box-shadow:inset 0 1px 0 rgba(255,255,255,.04)}.button:hover{background:#334155}
+.toolbar{display:grid;grid-template-columns:1.3fr auto auto;gap:10px;margin:12px 0 16px}.toolbar input{width:100%;background:#101827;border:1px solid rgba(148,163,184,.20);border-radius:10px;color:white;padding:12px;font-size:16px}
+.search-wrap{position:relative}.suggestions{display:none;position:absolute;left:0;right:0;top:calc(100% + 6px);z-index:6;background:#101827;border:1px solid rgba(148,163,184,.24);border-radius:12px;overflow:hidden;box-shadow:0 18px 34px rgba(0,0,0,.35)}.suggestions.visible{display:block}.suggestion{padding:11px 12px;border-top:1px solid rgba(148,163,184,.14);cursor:pointer}.suggestion:first-child{border-top:0}.suggestion:hover{background:#162338}.suggestion strong{display:block;font-size:14px}.suggestion span{display:block;color:var(--muted);font-size:12px;margin-top:3px;line-height:1.35}
 .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:12px}.wide{grid-column:1/-1}
-.card{background:var(--panel);border-radius:12px;padding:16px;box-shadow:0 8px 20px rgba(0,0,0,.25)}.card h2,.card h3{margin:0 0 10px 0}.card h2{font-size:20px}.card h3{font-size:17px}.muted{color:var(--muted);font-size:14px;line-height:1.45}.status{color:var(--muted);font-size:14px;margin:8px 0 14px}
-.pill{display:inline-flex;align-items:center;gap:6px;background:#111827;border:1px solid var(--line);border-radius:999px;padding:5px 9px;margin:4px 4px 0 0;color:#d1d5db;font-size:12px}.score{font-size:34px;font-weight:bold}.score.good{color:var(--green)}.score.mid{color:var(--yellow)}.score.bad{color:var(--red)}
+.card{background:linear-gradient(180deg,rgba(30,41,59,.92),rgba(15,23,42,.94));border:1px solid rgba(148,163,184,.18);border-radius:12px;padding:16px;box-shadow:0 18px 34px rgba(0,0,0,.22)}.card h2,.card h3{margin:0 0 10px 0}.card h2{font-size:18px}.card h3{font-size:16px}.muted{color:var(--muted);font-size:14px;line-height:1.45}.status{color:var(--muted);font-size:14px;margin:8px 0 14px}
+.pill{display:inline-flex;align-items:center;gap:6px;background:rgba(15,23,42,.92);border:1px solid rgba(148,163,184,.20);border-radius:999px;padding:5px 9px;margin:4px 4px 0 0;color:#dbeafe;font-size:12px}.score{font-size:34px;font-weight:bold}.score.good{color:var(--green)}.score.mid{color:var(--yellow)}.score.bad{color:var(--red)}
 .phase{display:grid;grid-template-columns:1fr auto;gap:6px;border-top:1px solid var(--line);padding:9px 0}.phase:first-child{border-top:0}.phase strong{font-size:14px}.phase span{color:#d1d5db;font-size:14px}
-.hours{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:8px}.hour{background:#111827;border:1px solid var(--line);border-radius:10px;padding:10px}.hour .time{font-weight:bold}.hour .small{color:var(--muted);font-size:12px;margin-top:4px;line-height:1.35}
-.tabs{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px}.tab{background:#111827;color:#e5e7eb;border:1px solid var(--line);border-radius:999px;padding:8px 10px;cursor:pointer}.tab.active{background:#2563eb;border-color:#2563eb;color:white}
+.hours{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:8px}.hour{background:rgba(15,23,42,.90);border:1px solid rgba(148,163,184,.18);border-radius:10px;padding:10px}.hour .time{font-weight:bold}.hour .small{color:var(--muted);font-size:12px;margin-top:4px;line-height:1.35}
+.tabs{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px}.tab{background:#101827;color:#e5e7eb;border:1px solid rgba(148,163,184,.20);border-radius:999px;padding:8px 10px;cursor:pointer}.tab.active{background:#0369a1;border-color:#38bdf8;color:white}
 .swatches{display:grid;grid-template-columns:repeat(5,1fr);gap:8px;margin-top:12px}.swatch{height:58px;border-radius:10px;border:1px solid rgba(255,255,255,.2)}
-.form-row{display:grid;grid-template-columns:1fr 1fr;gap:10px}.field label{display:block;color:#d1d5db;font-size:13px;margin-bottom:6px}.field input,.field select{width:100%;background:#111827;border:1px solid var(--line);border-radius:10px;color:white;padding:10px}
-.result{font-size:24px;font-weight:bold;margin-top:10px}.list{margin:0;padding-left:18px;color:#d1d5db;line-height:1.5}.checklist{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:8px}.check{display:flex;gap:8px;align-items:flex-start;background:#111827;border:1px solid var(--line);border-radius:10px;padding:10px;color:#d1d5db;font-size:14px}
+.form-row{display:grid;grid-template-columns:1fr 1fr;gap:10px}.field label{display:block;color:#d1d5db;font-size:13px;margin-bottom:6px}.field input,.field select{width:100%;background:#101827;border:1px solid rgba(148,163,184,.20);border-radius:10px;color:white;padding:10px}
+.result{font-size:24px;font-weight:bold;margin-top:10px}.list{margin:0;padding-left:18px;color:#d1d5db;line-height:1.5}.checklist{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:8px}.check{display:flex;gap:8px;align-items:flex-start;background:rgba(15,23,42,.90);border:1px solid rgba(148,163,184,.18);border-radius:10px;padding:10px;color:#d1d5db;font-size:14px}
 .check input{margin-top:2px}.offline{border:1px solid #7f1d1d;background:#2a1720}
 @media(max-width:760px){body{padding:14px}.topbar{display:block}.topbar .button{margin-top:10px}.toolbar{grid-template-columns:1fr}.form-row{grid-template-columns:1fr}.swatches{grid-template-columns:repeat(3,1fr)}}
 </style>
@@ -486,7 +647,10 @@ h1{margin:0 0 8px 0}.subtitle{color:var(--muted);margin-bottom:18px;line-height:
 </div>
 
 <div class="toolbar">
-<input id="locationInput" placeholder="Citta o luogo, es. Torino, Milano, Rimini">
+<div class="search-wrap">
+<input id="locationInput" placeholder="Citta o luogo, es. Mostra d'Oltremare">
+<div id="placeSuggestions" class="suggestions"></div>
+</div>
 <button class="button" onclick="searchLocation()">Cerca</button>
 <button class="button" onclick="useDeviceLocation()">GPS</button>
 </div>
@@ -534,6 +698,9 @@ function serviceUrl(port, path=''){
 document.getElementById('dashboardLink').href = serviceUrl(3000);
 
 let CURRENT_PLAN = null;
+let SELECTED_PLACE = null;
+let suggestTimer = null;
+let latestSuggestQuery = '';
 
 function status(text, danger=false){
     const el = document.getElementById('status');
@@ -550,15 +717,82 @@ async function searchLocation(){
 
     status('Cerco localita...');
     try{
-        const res = await fetch(`/api/geocode?q=${encodeURIComponent(query)}`);
-        const data = await res.json();
-        if(data.error){ throw new Error(data.error); }
-        if(!data.results || !data.results.length){ throw new Error('Localita non trovata.'); }
-        const place = data.results[0];
-        loadPlan(place.latitude, place.longitude, place.name, place.country, place.timezone || '');
+        if(SELECTED_PLACE && SELECTED_PLACE.display_name === query){
+            loadPlan(SELECTED_PLACE.latitude, SELECTED_PLACE.longitude, SELECTED_PLACE.name, SELECTED_PLACE.country, SELECTED_PLACE.timezone || '');
+            return;
+        }
+
+        const places = await fetchPlaceSuggestions(query);
+        if(!places.length){ throw new Error('Localita non trovata.'); }
+        selectPlace(places[0]);
     }catch(e){
         status('Errore geocoding: ' + e.message, true);
     }
+}
+
+async function fetchPlaceSuggestions(query){
+    const res = await fetch(`/api/places?q=${encodeURIComponent(query)}&_=${Date.now()}`, {cache:'no-store'});
+    const data = await res.json();
+    if(data.error){ throw new Error(data.error); }
+    return data.results || [];
+}
+
+function renderPlaceSuggestions(places){
+    const box = document.getElementById('placeSuggestions');
+    if(!places.length){
+        box.classList.remove('visible');
+        box.innerHTML = '';
+        return;
+    }
+
+    box.innerHTML = places.map((place, index)=>`
+        <div class="suggestion" onclick="selectPlaceFromSuggestions(${index})">
+            <strong>${escapeHtml(place.name)}</strong>
+            <span>${escapeHtml(place.display_name)}</span>
+        </div>
+    `).join('');
+    box._places = places;
+    box.classList.add('visible');
+}
+
+function selectPlaceFromSuggestions(index){
+    const box = document.getElementById('placeSuggestions');
+    const place = (box._places || [])[index];
+    if(place){
+        selectPlace(place);
+    }
+}
+
+function selectPlace(place){
+    SELECTED_PLACE = place;
+    document.getElementById('locationInput').value = place.display_name;
+    document.getElementById('placeSuggestions').classList.remove('visible');
+    loadPlan(place.latitude, place.longitude, place.name, place.country, place.timezone || '');
+}
+
+function queuePlaceSuggestions(){
+    const query = document.getElementById('locationInput').value.trim();
+    SELECTED_PLACE = null;
+    clearTimeout(suggestTimer);
+
+    if(query.length < 3){
+        renderPlaceSuggestions([]);
+        return;
+    }
+
+    suggestTimer = setTimeout(async ()=>{
+        latestSuggestQuery = query;
+        try{
+            const places = await fetchPlaceSuggestions(query);
+            if(document.getElementById('locationInput').value.trim() === latestSuggestQuery){
+                renderPlaceSuggestions(places);
+            }
+        }catch(e){
+            if(document.getElementById('locationInput').value.trim() === latestSuggestQuery){
+                renderPlaceSuggestions([]);
+            }
+        }
+    }, 300);
 }
 
 function useDeviceLocation(){
@@ -700,6 +934,12 @@ function escapeHtml(value){
 }
 
 updatePalette();
+document.getElementById('locationInput').addEventListener('input', queuePlaceSuggestions);
+document.addEventListener('click', (event)=>{
+    if(!event.target.closest('.search-wrap')){
+        document.getElementById('placeSuggestions').classList.remove('visible');
+    }
+});
 </script>
 </body>
 </html>
@@ -752,6 +992,39 @@ def api_geocode():
         write_json(LOCATIONS_CACHE_FILE, cached_locations)
 
     return jsonify(payload)
+
+
+@app.route("/api/places")
+def api_places():
+    query = request.args.get("q", "").strip()
+    if len(query) < 3:
+        return jsonify({"results": [], "source": "cache"})
+
+    cached_locations = read_json(LOCATIONS_CACHE_FILE, {})
+    cache_id = f"places:{query.casefold()}"
+
+    try:
+        places = search_places(query)
+        payload = {
+            "results": places,
+            "source": "Photon + Nominatim",
+            "updated": utc_now_label(),
+        }
+        if places:
+            cached_locations[cache_id] = {
+                "results": places,
+                "source": "cache",
+                "updated": payload["updated"],
+            }
+            write_json(LOCATIONS_CACHE_FILE, cached_locations)
+        return jsonify(payload)
+    except requests.RequestException as exc:
+        cached = cached_locations.get(cache_id)
+        if cached:
+            cached = dict(cached)
+            cached["warning"] = f"Ricerca luoghi online non disponibile: uso cache locale. Dettaglio: {exc}"
+            return jsonify(cached)
+        return jsonify({"error": f"Ricerca luoghi non disponibile e nessuna cache locale: {exc}"}), 502
 
 
 @app.route("/api/plan")
