@@ -104,18 +104,20 @@ Tasks:
 Goal:
 Make the system reliable after reboot and during real events.
 
-Tasks:
-- Verify hotspot starts automatically at boot after NetworkManager autoconnect configuration
-- Ensure SSD mounts automatically at boot
-- Ensure all Docker services start automatically at boot
-- Verify reboot recovery
-- Verify FileBrowser
-- Verify Homepage
-- Verify Drone Panel
-- Verify Review Panel
-- Verify Storage Panel
-- Verify Samba share
-- Commit stable version
+Status:
+- Verified after an unplanned power loss and reboot on 2026-05-29
+- Hotspot starts automatically and `wlan0` reconnects to `Hotspot`
+- SSD mounts automatically at `/mnt/niwa-storage`
+- Docker starts automatically
+- Homepage, FileBrowser, Glances, Drone Panel, Review Panel, Storage Panel, Shooting Tools and Lights Panel start automatically
+- Samba is active and reachable from the Windows PC
+- Tailscale is active and remote dashboard links were tested successfully by the user
+- Portainer is reachable on HTTPS 9443; browser warning is expected because the local certificate is not trusted by a public authority
+
+Future checks:
+- Repeat reboot verification after OS/network changes
+- Repeat storage verification after changing SSD, mount rules or Samba config
+- Consider documenting a cleaner local/Tailscale certificate flow later, if Portainer warning becomes annoying
 
 ### 3. Location search autocomplete
 

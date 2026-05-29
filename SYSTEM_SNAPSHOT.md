@@ -487,17 +487,22 @@ Tailscale is configured as private remote access. It should not replace the loca
 
 ## Reboot/hardening status
 
-Known area to verify:
-- hotspot persistence after next real reboot
-- SSD automount after reboot
-- Docker services autostart after reboot
-- FileBrowser access after reboot
-- Drone Panel access after reboot
-- Review Panel access after reboot
-- Storage Panel access after reboot
-- Shooting Tools access after reboot
-- Lights Panel access after reboot
-- Homepage access after reboot
+Verified after an unplanned power loss and reboot on 2026-05-29.
+
+Observed after restart:
+- Raspberry reachable on wired LAN at 192.168.1.100
+- hotspot active on 10.42.0.1 through the `Hotspot` NetworkManager connection
+- Tailscale active on 100.64.0.1
+- `/mnt/niwa-storage` mounted from `/dev/sda1` as ext4
+- Docker service enabled and active
+- Samba services active and enabled
+- Homepage, FileBrowser, Glances, Portainer, Drone Panel, Review Panel, Storage Panel, Shooting Tools and Lights Panel containers running
+- Homepage, FileBrowser, Glances, Drone Panel, Review Panel, Storage Panel, Shooting Tools and Lights Panel returned HTTP 200 from the wired LAN test
+- Samba port 445 reachable from the Windows PC
+- User confirmed dashboard pages work remotely
+
+Known note:
+Portainer on `https://192.168.1.100:9443` uses a local/self-signed HTTPS certificate, so browsers may show `ERR_CERT_AUTHORITY_INVALID`. This is expected for the current private LAN/Tailscale setup.
 
 ## Safety note
 

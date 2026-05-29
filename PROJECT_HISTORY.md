@@ -30,7 +30,7 @@ Hotspot
 
 It has been configured in NetworkManager to autoconnect at boot with priority 100. The old `netplan-wlan0-ReteHospot` connection has autoconnect disabled so it should not take over `wlan0`.
 
-This still needs verification after a real Raspberry reboot.
+This was verified after a real unplanned power loss and reboot on 2026-05-29. The Raspberry came back with Ethernet, hotspot, Tailscale, Docker, Samba, SSD mount and NIWA containers available again.
 
 ### Mini router
 
@@ -219,6 +219,16 @@ A later visual identity pass added the user's logo as a local static asset acros
 The external Homepage dashboard configuration on the Raspberry now also has a conservative `custom.css` identity pass with the same warm dark palette. Homepage remains a launcher/dashboard and was not merged with the panels.
 
 Follow-up visual polish aligned the external Homepage dashboard background with the same logo-inspired warm dark palette by overriding Homepage theme variables and blue utility backgrounds more directly. NIWA Lights was also adjusted so the light detail cards start from the left below the preset selector instead of sitting under the preview column, with more consistent card heights across the lights section.
+
+### Reboot and hardening check
+
+An unplanned power loss on 2026-05-29 became a real reboot recovery test. After restart, the Raspberry was reachable at `192.168.1.100`, the hotspot exposed `10.42.0.1`, Tailscale kept `100.64.0.1`, `/mnt/niwa-storage` was mounted, Docker was active and all expected NIWA containers were running.
+
+Verified from the wired LAN:
+- Homepage, Drone Panel, Review Panel, Storage Panel, Shooting Tools, Lights Panel, FileBrowser and Glances returned HTTP 200
+- Samba port 445 was reachable and the user confirmed file share access
+- Portainer was reachable on port 9443; Opera shows the expected local/self-signed certificate warning and can continue with the browser bypass
+- remote dashboard pages were tested by the user and worked correctly
 
 ### Version checkpoints
 
