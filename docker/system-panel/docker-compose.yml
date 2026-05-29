@@ -1,0 +1,13 @@
+services:
+  system-panel:
+    build: .
+    container_name: system-panel
+    network_mode: host
+    volumes:
+      - /mnt/niwa-storage:/storage:ro
+    environment:
+      - NIWA_LAN_IP=192.168.1.100
+      - NIWA_HOTSPOT_IP=10.42.0.1
+      - NIWA_TAILSCALE_IP=100.64.0.1
+      - NIWA_TIMEZONE=Europe/Rome
+    restart: unless-stopped

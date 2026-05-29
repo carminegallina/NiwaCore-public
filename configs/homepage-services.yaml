@@ -1,0 +1,55 @@
+---
+# NIWA Homepage services.
+# This mirrors the Raspberry external Homepage config in /home/niwa/homepage/config/services.yaml.
+
+- NIWA Core:
+    - NIWA System:
+        href: http://10.42.0.1:5056
+        description: Spunta stato servizi, rete e storage
+        icon: mdi-check-decagram
+    - FileBrowser:
+        href: http://10.42.0.1:8080
+        description: NAS locale / media storage
+        icon: filebrowser.png
+    - Dashboard System:
+        href: http://10.42.0.1:61208
+        description: Monitor Raspberry
+        icon: glances.png
+    - Portainer:
+        href: https://10.42.0.1:9443
+        description: Gestione Docker
+        icon: portainer.png
+
+- Drone:
+    - NIWA Drone Panel:
+        href: http://10.42.0.1:5051
+        description: Meteo, safety, checklist e batterie
+        icon: mdi-drone
+    - Gestione Droni:
+        href: http://10.42.0.1:5051/drones
+        description: Libreria droni e flotta personale
+        icon: mdi-drone
+
+- Review:
+    - NIWA Review:
+        href: http://10.42.0.1:5052
+        description: Gallery RAW/JPG e download originali
+        icon: mdi-image-multiple
+
+- Storage:
+    - NIWA Storage:
+        href: http://10.42.0.1:5053
+        description: Spazio SSD e riepilogo cartelle media
+        icon: mdi-harddisk
+
+- Shooting:
+    - NIWA Shooting Tools:
+        href: http://10.42.0.1:5054
+        description: Golden hour, meteo creativo, colore ed esposizione
+        icon: mdi-camera-iris
+
+- Luci:
+    - NIWA Lights:
+        href: http://10.42.0.1:5055
+        description: Controllo wireless pan/tilt luci
+        icon: mdi-spotlight-beam

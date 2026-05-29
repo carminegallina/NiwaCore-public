@@ -9,6 +9,7 @@
 /home/niwa/niwa/docker/storage-panel
 /home/niwa/niwa/docker/shooting-tools
 /home/niwa/niwa/docker/lights-panel
+/home/niwa/niwa/docker/system-panel
 /home/niwa/niwa/data
 /mnt/niwa-storage
 
@@ -23,6 +24,7 @@ review-panel
 storage-panel
 shooting-tools
 lights-panel
+system-panel
 
 ## Local URLs when connected to NIWA-AP
 
@@ -49,6 +51,9 @@ http://10.42.0.1:5054
 
 NIWA Lights:
 http://10.42.0.1:5055
+
+NIWA System:
+http://10.42.0.1:5056
 
 Portainer:
 https://10.42.0.1:9443
@@ -81,6 +86,9 @@ http://192.168.1.100:5054
 
 NIWA Lights:
 http://192.168.1.100:5055
+
+NIWA System:
+http://192.168.1.100:5056
 
 ## Remote URLs through Tailscale
 
@@ -120,12 +128,15 @@ http://100.64.0.1:5054
 NIWA Lights:
 http://100.64.0.1:5055
 
+NIWA System:
+http://100.64.0.1:5056
+
 Homepage host validation has been updated on the Raspberry external Homepage compose file to allow:
 
 100.64.0.1:3000
 niwahub.tailnet.ts.net:3000
 
-Homepage custom.js on the Raspberry rewrites NIWA service links in the browser so they keep the current access host and only change port. This allows dashboard links to work from hotspot, wired LAN and Tailscale without maintaining separate link sets.
+Homepage custom.js on the Raspberry rewrites NIWA service links in the browser so they keep the current access host and only change port. This allows dashboard links to work from hotspot, wired LAN and Tailscale without maintaining separate link sets. It also injects the NIWA System status badge into Homepage and reads `http://<current-host>:5056/api/summary`.
 
 Homepage custom.css on the Raspberry applies the logo-inspired dark copper/rose palette while keeping Homepage as a launcher/dashboard. The current override also replaces the remaining blue Homepage theme background on the main launcher surface.
 
@@ -429,6 +440,50 @@ API tests:
 curl http://localhost:5055/api/devices
 curl http://localhost:5055/api/devices/demo_light/status
 
+## NIWA System
+
+Path:
+
+/home/niwa/niwa/docker/system-panel
+
+Main app file:
+
+/home/niwa/niwa/docker/system-panel/app/app.py
+
+Docker Compose file:
+
+/home/niwa/niwa/docker/system-panel/docker-compose.yml
+
+Port:
+
+5056
+
+Expected Docker volume:
+
+/mnt/niwa-storage:/storage:ro
+
+Current behavior:
+- provides a read-only "is NIWA ready?" status panel
+- checks Homepage, FileBrowser, Glances, Portainer, Samba, SSH and all current NIWA panels
+- checks SSD free space through the read-only storage mount
+- checks expected LAN, hotspot and Tailscale IPs
+- shows uptime and current IP addresses
+- exposes `/api/summary` for the Homepage status badge
+- keeps system actions read-only in v1; no restart controls are exposed
+
+Useful commands:
+
+cd ~/niwa/docker/system-panel
+python3 -m py_compile app/app.py
+docker compose up -d --build
+docker logs system-panel --tail=80
+
+API tests:
+
+curl http://localhost:5056/api/health
+curl http://localhost:5056/api/summary
+curl http://localhost:5056/api/status
+
 ## Storage
 
 SSD mount path:
@@ -489,6 +544,8 @@ Tailscale is configured as private remote access. It should not replace the loca
 
 Verified after an unplanned power loss and reboot on 2026-05-29.
 
+NIWA System and the Homepage status badge were also verified after a later manual reboot. The user confirmed access works over wired LAN, the NIWA-AP hotspot and remote Tailscale/dashboard access.
+
 Observed after restart:
 - Raspberry reachable on wired LAN at 192.168.1.100
 - hotspot active on 10.42.0.1 through the `Hotspot` NetworkManager connection
@@ -496,8 +553,8 @@ Observed after restart:
 - `/mnt/niwa-storage` mounted from `/dev/sda1` as ext4
 - Docker service enabled and active
 - Samba services active and enabled
-- Homepage, FileBrowser, Glances, Portainer, Drone Panel, Review Panel, Storage Panel, Shooting Tools and Lights Panel containers running
-- Homepage, FileBrowser, Glances, Drone Panel, Review Panel, Storage Panel, Shooting Tools and Lights Panel returned HTTP 200 from the wired LAN test
+- Homepage, FileBrowser, Glances, Portainer, Drone Panel, Review Panel, Storage Panel, Shooting Tools, Lights Panel and System Panel containers running
+- Homepage, FileBrowser, Glances, Drone Panel, Review Panel, Storage Panel, Shooting Tools, Lights Panel and System Panel returned HTTP 200 from the wired LAN test
 - Samba port 445 reachable from the Windows PC
 - User confirmed dashboard pages work remotely
 

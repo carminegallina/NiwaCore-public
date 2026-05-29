@@ -230,6 +230,22 @@ Verified from the wired LAN:
 - Portainer was reachable on port 9443; Opera shows the expected local/self-signed certificate warning and can continue with the browser bypass
 - remote dashboard pages were tested by the user and worked correctly
 
+A later manual reboot after adding NIWA System confirmed that the dashboard, status badge and services still work correctly over wired LAN, the NIWA-AP hotspot and remote Tailscale access.
+
+### NIWA System
+
+NIWA System has been introduced as a separate Flask/Docker module on port 5056.
+
+Current purpose:
+- provide a read-only "is NIWA ready?" panel for event pre-flight checks
+- show an overall OK/warning/error state for services, storage and network
+- verify Homepage, FileBrowser, Glances, Drone Panel, Review Panel, Storage Panel, Shooting Tools, Lights Panel, Samba, SSH and Portainer reachability
+- verify SSD free space through the read-only `/storage` mount
+- verify expected LAN, hotspot and Tailscale IPs
+- expose `/api/summary` for the Homepage dashboard badge
+- keep Homepage as a launcher while adding a visible NIWA status badge that links to the full panel
+- confirmed after manual reboot over LAN, hotspot and remote access
+
 ### Version checkpoints
 
 Recent stable commits:

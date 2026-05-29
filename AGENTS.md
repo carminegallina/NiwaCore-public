@@ -85,6 +85,12 @@ NIWA Lights:
 - Port: 5055
 - Local URL: http://10.42.0.1:5055
 
+NIWA System:
+- Folder: /home/niwa/niwa/docker/system-panel
+- Container: system-panel
+- Port: 5056
+- Local URL: http://10.42.0.1:5056
+
 ## Storage
 
 SSD mount path:
@@ -284,6 +290,21 @@ Test API:
 
 curl http://localhost:5055/api/devices
 curl http://localhost:5055/api/devices/demo_light/status
+
+## NIWA System commands
+
+From the Raspberry:
+
+cd ~/niwa/docker/system-panel
+python3 -m py_compile app/app.py
+docker compose up -d --build
+docker logs system-panel --tail=80
+
+Test API:
+
+curl http://localhost:5056/api/health
+curl http://localhost:5056/api/summary
+curl http://localhost:5056/api/status
 
 ## Important project direction
 

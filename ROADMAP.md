@@ -86,6 +86,20 @@ Current status:
 - Logo-inspired dark UI with warmer copper/rose accents
 - Details section aligned from the left below the preset selector
 
+### NIWA System
+
+Current status:
+- Flask single-file app
+- Docker container
+- Port 5056
+- Read-only system status panel
+- Homepage status badge with OK/warning/error state
+- Checks Homepage, FileBrowser, Glances, Portainer, Samba, SSH and NIWA panels
+- Checks SSD free space through the read-only storage mount
+- Checks expected LAN, hotspot and Tailscale IPs
+- Exposes `/api/health`, `/api/summary` and `/api/status`
+- Verified by the user after manual reboot over LAN, hotspot and remote access
+
 ## Immediate next steps
 
 ### 1. Documentation and stable snapshots
@@ -113,6 +127,7 @@ Status:
 - Samba is active and reachable from the Windows PC
 - Tailscale is active and remote dashboard links were tested successfully by the user
 - Portainer is reachable on HTTPS 9443; browser warning is expected because the local certificate is not trusted by a public authority
+- NIWA System and the Homepage status badge were verified after a later manual reboot over LAN, hotspot and remote access
 
 Future checks:
 - Repeat reboot verification after OS/network changes
@@ -269,16 +284,12 @@ Tasks:
 Goal:
 Create a simple tablet-friendly system panel that answers one question: "Is NIWA ready to work right now?"
 
-Should show:
-- Raspberry reachable status
-- current IP addresses when available
-- SSD mount status
-- SSD free/used space summary
-- Docker service status for Homepage, FileBrowser, Drone Panel, Review Panel and Storage Panel
-- Samba/share availability
-- hotspot/network status when practical
-- last reboot or uptime
-- quick links to service URLs
+Status:
+- Implemented as NIWA System on port 5056
+- Homepage has a visible status badge that links to the panel
+- Shows current IP addresses, SSD status, SSD free/used space, uptime, service reachability and quick links
+- Checks Homepage, FileBrowser, Glances, Portainer, Samba, SSH and all current NIWA panels
+- Uses HTTP/TCP reachability rather than Docker socket control to keep v1 read-only and conservative
 
 Useful behavior:
 - show green/yellow/red status cards
@@ -287,7 +298,7 @@ Useful behavior:
 - use it before events as a pre-flight check for the whole NIWA system
 
 Possible future actions after the read-only version:
-- restart selected local containers
+- optional restart selected local containers after a security review
 - show recent logs
 - export a diagnostic report
 - warn if SSD is missing or almost full
