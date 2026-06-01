@@ -815,7 +815,7 @@ def extract_video_thumbnail(section, path, relative):
     if cache_path.exists() and cache_path.stat().st_size > 0:
         return cache_path
 
-    temp_path = cache_path.with_suffix(".tmp")
+    temp_path = cache_path.with_suffix(".tmp.jpg")
     attempts = [
         ["ffmpeg", "-y", "-ss", "00:00:01", "-i", str(path), "-frames:v", "1", "-vf", "scale=900:-2", "-q:v", "5", str(temp_path)],
         ["ffmpeg", "-y", "-ss", "00:00:00.2", "-i", str(path), "-frames:v", "1", "-vf", "scale=900:-2", "-q:v", "5", str(temp_path)],

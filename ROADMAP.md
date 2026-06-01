@@ -282,6 +282,7 @@ Status:
 - Implemented paginated `/api/media/<section>` support with legacy all-items behavior preserved
 - Implemented Review UI paginated loading and manual "Aggiorna indice" action
 - Implemented server-side video thumbnail cache with ffmpeg
+- Corrected temporary JPEG naming so ffmpeg thumbnails render for real GoPro MP4 files
 - Expanded preview cache cleanup for orphaned RAW/video preview files
 
 Future improvements:

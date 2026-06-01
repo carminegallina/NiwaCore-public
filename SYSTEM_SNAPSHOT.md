@@ -290,6 +290,7 @@ Current behavior:
 - extracts embedded RAW previews with ExifTool when available
 - caches RAW previews server-side
 - generates video thumbnails with ffmpeg when available
+- uses JPEG temporary output names so ffmpeg thumbnails render for imported GoPro MP4 files
 - stores a persistent JSON media index in /data
 - supports paginated gallery loading through `page`, `limit` and `offset`
 - keeps legacy all-items media API behavior when pagination is not requested

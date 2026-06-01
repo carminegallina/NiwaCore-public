@@ -82,6 +82,8 @@ The current design is intentionally simple:
 - persistent media index is stored in /home/niwa/niwa/data/review_index.json
 - tablet gallery loading is paginated so large folders do not render every item at once
 - video thumbnails are generated server-side with ffmpeg and cached locally
+- GoPro video thumbnail generation was corrected after a real import test by
+  keeping a JPEG extension on the temporary ffmpeg output file
 - RAW/video preview caches remove orphaned files when originals disappear or change
 
 Important photography workflow:
