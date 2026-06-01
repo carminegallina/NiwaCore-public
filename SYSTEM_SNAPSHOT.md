@@ -559,6 +559,11 @@ Current state:
 - leaves interrupted copies outside the Review library
 - never deletes or modifies source files
 - triggers NIWA Review index rebuild after successful import
+- validated with a real 128 GB exFAT GoPro microSD through a SanDisk SDDR-A631 reader
+- supports fallback approval fingerprinting when a card has no filesystem UUID
+- first real test imported three GoPro JPG files and three MP4 files
+- duplicate reinsertion and interrupted-copy isolation have been verified
+- current SanDisk SDDR-A631 reader should use Raspberry USB 3.0; the USB 2.0 path produced protocol error `-71`
 
 One-time Raspberry reinstall or update:
 

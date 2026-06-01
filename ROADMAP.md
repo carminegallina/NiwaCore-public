@@ -239,6 +239,9 @@ Status:
 - Keeps incomplete transfers outside the Review library
 - Triggers a Review index rebuild after a completed import
 - Needs real-card validation before it is considered fully field-tested
+- Real GoPro microSD validation completed with a SanDisk SDDR-A631 reader on USB 3.0
+- Verified first import, Review indexing, duplicate skipping and interrupted-copy isolation
+- Added fallback approval fingerprint for exFAT cards without filesystem UUID
 
 Goal:
 Copy new media from SD cards to the SSD without duplicating files and without risking source files.
@@ -258,7 +261,7 @@ Checklist:
 - use checksums before trusting copies
 - never delete files from the SD in the first implementation
 - show clear progress and errors from tablet
-- validate GoPro microSD reader with a real card
+- validate GoPro microSD reader with a real card: completed on USB 3.0
 - validate Nikon Z6 II CFexpress Type B reader with a real card
 - decide whether browser-only completion feedback is sufficient or a later notification channel is useful
 

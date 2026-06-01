@@ -181,11 +181,32 @@ def stable_device_id(node, parent):
     return hashlib.sha1("|".join(parts).encode("utf-8")).hexdigest()
 
 
+def fallback_signature(node, parent):
+    reader = parent or node
+    serial = str(reader.get("serial") or "")
+    model = str(reader.get("model") or "")
+    hctl = str(reader.get("hctl") or "")
+    lun = hctl.rsplit(":", 1)[-1] if ":" in hctl else hctl
+    size = str(node.get("size") or "")
+    fstype = str(node.get("fstype") or "")
+    label = str(node.get("label") or "")
+    partition_number = str(node.get("partn") or "")
+    if not serial or not size or not fstype:
+        return None
+    parts = [serial, model, lun, size, fstype, label, partition_number]
+    return hashlib.sha1("|".join(parts).encode("utf-8")).hexdigest()
+
+
 def source_match(device, config):
     for source in config.get("sources", []):
         if not source.get("approved"):
             continue
         if source.get("uuid") and source["uuid"] == device.get("uuid"):
+            return source
+        if (
+            source.get("fallback_signature")
+            and source["fallback_signature"] == device.get("fallback_signature")
+        ):
             return source
         if (
             source.get("allow_serial_match")
@@ -224,7 +245,7 @@ def scan_devices(include_ignored=True):
     try:
         payload = command_json([
             "lsblk", "-J", "-b",
-            "-o", "NAME,KNAME,PATH,TYPE,SIZE,FSTYPE,LABEL,UUID,MOUNTPOINTS,RM,HOTPLUG,RO,TRAN,MODEL,SERIAL,VENDOR,PKNAME",
+            "-o", "NAME,KNAME,PATH,TYPE,SIZE,FSTYPE,LABEL,UUID,MOUNTPOINTS,RM,HOTPLUG,RO,TRAN,MODEL,SERIAL,VENDOR,PKNAME,HCTL,PARTN",
         ])
     except Exception as error:
         LAST_SCAN_ERROR = str(error)
@@ -250,6 +271,7 @@ def scan_devices(include_ignored=True):
             "size": int(node.get("size") or 0),
             "model": ((parent or node).get("model") or "").strip(),
             "serial": ((parent or node).get("serial") or "").strip(),
+            "slot": str((parent or node).get("hctl") or "").rsplit(":", 1)[-1],
             "vendor": ((parent or node).get("vendor") or "").strip(),
             "transport": (parent or node).get("tran"),
             "removable": bool((parent or node).get("rm")),
@@ -257,6 +279,7 @@ def scan_devices(include_ignored=True):
             "readonly": bool(node.get("ro")),
             "mountpoints": list_mountpoints(node),
             "ignored_reasons": reasons,
+            "fallback_signature": fallback_signature(node, parent),
         }
         source = source_match(device, config)
         device["source"] = source
@@ -576,8 +599,8 @@ def approve_source(device_id, profile, auto_import):
     device = next((value for value in devices if value["id"] == device_id), None)
     if not device:
         raise RuntimeError("Scheda non disponibile o esclusa.")
-    if not device.get("uuid"):
-        raise RuntimeError("La scheda non espone un UUID: approvazione automatica non disponibile.")
+    if not device.get("uuid") and not device.get("fallback_signature"):
+        raise RuntimeError("La scheda non espone un identificativo stabile sufficiente per l'approvazione.")
 
     config = load_config()
     config["sources"] = [
@@ -588,6 +611,8 @@ def approve_source(device_id, profile, auto_import):
         "id": device["id"],
         "approved": True,
         "uuid": device["uuid"],
+        "fallback_signature": device.get("fallback_signature"),
+        "identity_method": "filesystem_uuid" if device.get("uuid") else "reader_card_fingerprint",
         "label": device["label"],
         "model": device["model"],
         "serial": device["serial"],

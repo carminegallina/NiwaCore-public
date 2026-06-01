@@ -61,3 +61,5 @@ The following are NIWA design choices, not camera manufacturer guarantees:
 - no source deletion
 - no automatic import of unknown SSD, HDD or M.2 devices
 - approval by filesystem UUID, requiring reapproval after a card is reformatted
+- fallback approval for cards without a filesystem UUID, using reader serial,
+  slot, filesystem and capacity rather than reader serial alone

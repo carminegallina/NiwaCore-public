@@ -165,6 +165,42 @@ class NiwaImportTests(unittest.TestCase):
         self.assertEqual(by_device["/dev/sdb1"]["status"], "unknown")
         self.assertEqual(by_device["/dev/zram0"]["status"], "ignored")
 
+    def test_card_without_uuid_can_be_approved_with_reader_fingerprint(self):
+        niwa_import.command_json = lambda _command: {
+            "blockdevices": [
+                {
+                    "name": "sdb",
+                    "path": "/dev/sdb",
+                    "type": "disk",
+                    "size": 64000000000,
+                    "model": "SDDR-A631",
+                    "serial": "reader-card",
+                    "hctl": "1:0:0:0",
+                    "children": [
+                        {
+                            "name": "sdb1",
+                            "path": "/dev/sdb1",
+                            "type": "part",
+                            "partn": 1,
+                            "size": 64000000000,
+                            "fstype": "exfat",
+                            "uuid": None,
+                            "mountpoints": [],
+                        }
+                    ],
+                },
+            ]
+        }
+
+        devices = niwa_import.scan_devices(include_ignored=False)
+        niwa_import.approve_source(devices[0]["id"], "gopro", True)
+        approved = niwa_import.scan_devices(include_ignored=False)[0]
+
+        self.assertEqual(approved["status"], "approved")
+        self.assertEqual(approved["profile"], "gopro")
+        self.assertTrue(approved["auto_import"])
+        self.assertEqual(approved["source"]["identity_method"], "reader_card_fingerprint")
+
 
 if __name__ == "__main__":
     unittest.main()

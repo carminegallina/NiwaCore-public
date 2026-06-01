@@ -17,6 +17,8 @@ and listens on port `5057`.
 - publication uses an atomic rename on the same SSD filesystem
 - source files are never deleted or modified
 - an interrupted copy remains outside the Review library
+- cards without a filesystem UUID use a narrower fallback fingerprint based on
+  reader serial, slot, filesystem and capacity
 
 ## Profiles
 

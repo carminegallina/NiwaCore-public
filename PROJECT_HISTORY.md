@@ -272,8 +272,19 @@ Current design:
 
 The host service has been installed and enabled on the Raspberry. It is
 reachable on port 5057 and is monitored by NIWA System. Validation with the
-real GoPro microSD reader and Nikon Z6 II CFexpress Type B reader remains
-pending.
+real GoPro microSD reader has now been completed with a SanDisk SDDR-A631 reader
+on a Raspberry USB 3.0 port:
+- a 128 GB exFAT GoPro microSD without filesystem UUID was detected
+- fallback approval fingerprinting was added for cards without filesystem UUID
+- six real GoPro files were copied and verified: three JPG and three MP4 files
+- NIWA Review indexed the six imported files under the GoPro section
+- reinserting the card correctly skipped the six duplicate files
+- physically removing the card during a copy produced an interrupted job and
+  did not publish partial files to NIWA Review
+- the current SanDisk reader produced USB protocol error `-71` on the Raspberry
+  USB 2.0 path, while USB 3.0 worked correctly
+
+Validation with the Nikon Z6 II CFexpress Type B reader remains pending.
 
 ### Version checkpoints
 
