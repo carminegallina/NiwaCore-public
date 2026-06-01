@@ -10,6 +10,7 @@
 /home/niwa/niwa/docker/shooting-tools
 /home/niwa/niwa/docker/lights-panel
 /home/niwa/niwa/docker/system-panel
+/home/niwa/niwa/host/import-service
 /home/niwa/niwa/data
 /mnt/niwa-storage
 
@@ -55,6 +56,9 @@ http://10.42.0.1:5055
 NIWA System:
 http://10.42.0.1:5056
 
+NIWA Import:
+http://10.42.0.1:5057
+
 Portainer:
 https://10.42.0.1:9443
 
@@ -89,6 +93,9 @@ http://192.168.1.100:5055
 
 NIWA System:
 http://192.168.1.100:5056
+
+NIWA Import:
+http://192.168.1.100:5057
 
 ## Remote URLs through Tailscale
 
@@ -130,6 +137,9 @@ http://100.64.0.1:5055
 
 NIWA System:
 http://100.64.0.1:5056
+
+NIWA Import:
+http://100.64.0.1:5057
 
 Homepage host validation has been updated on the Raspberry external Homepage compose file to allow:
 
@@ -521,6 +531,48 @@ Current intended folders:
 /mnt/niwa-storage/events
 
 Drone and Insta360 storage workflows are intentionally postponed until the device/file-format behavior is better understood.
+
+## NIWA Import
+
+Prepared host-level path:
+
+/home/niwa/niwa/host/import-service
+
+Prepared port:
+
+5057
+
+Current state:
+- installed and enabled as `niwa-import.service`
+- reachable on port 5057 and monitored by NIWA System
+- intentionally host-level because removable device mounts should not be delegated to a privileged Docker container
+- scans source cards recursively instead of relying on fixed camera folder names
+- supports a camera/universal profile and a GoPro profile
+- recognizes common RAW, JPG and video extensions
+- ignores GoPro `.lrv` proxy and `.thm` thumbnail files in the first version
+- keeps unknown devices pending until approved from the tablet UI
+- explicitly excludes the Kioxia SSD UUID and serial plus Raspberry system volumes
+- mounts approved cards read-only with `nosuid`, `nodev` and `noexec`
+- copies files into `/mnt/niwa-storage/.niwa_import_staging`
+- verifies SHA-256 before publishing files under `photo/imports`, `video/imports` or `gopro/imports`
+- uses atomic rename on the Kioxia filesystem for publication
+- leaves interrupted copies outside the Review library
+- never deletes or modifies source files
+- triggers NIWA Review index rebuild after successful import
+
+One-time Raspberry reinstall or update:
+
+cd ~/niwa
+chmod +x host/import-service/install.sh
+host/import-service/install.sh
+
+Useful checks:
+
+python3 ~/niwa/host/import-service/niwa_import.py --scan-once
+curl http://localhost:5057/api/health
+curl http://localhost:5057/api/status
+systemctl status niwa-import.service
+journalctl -u niwa-import.service -n 80 --no-pager
 
 ## Network notes
 

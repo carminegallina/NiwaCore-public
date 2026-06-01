@@ -14,19 +14,23 @@ MEDIA_GROUPS = [
         "id": "photo",
         "label": "Foto",
         "path": "photo",
-        "extensions": [".nef", ".nrw", ".dng", ".jpg", ".jpeg", ".xmp"],
+        "extensions": [
+            ".3fr", ".arw", ".cr2", ".cr3", ".dng", ".erf", ".fff", ".iiq",
+            ".jpg", ".jpeg", ".kdc", ".mos", ".mrw", ".nef", ".nrw", ".orf",
+            ".pef", ".raf", ".raw", ".rwl", ".rw2", ".srw", ".x3f", ".xmp",
+        ],
     },
     {
         "id": "video",
         "label": "Video",
         "path": "video",
-        "extensions": [".mp4", ".mov", ".m4v"],
+        "extensions": [".avi", ".braw", ".crm", ".m2ts", ".m4v", ".mov", ".mp4", ".mts", ".mxf"],
     },
     {
         "id": "gopro",
         "label": "GoPro",
         "path": "gopro",
-        "extensions": [".jpg", ".jpeg", ".mp4", ".mov", ".m4v"],
+        "extensions": [".gpr", ".jpg", ".jpeg", ".mp4", ".mov", ".m4v"],
     },
     {
         "id": "backstage",

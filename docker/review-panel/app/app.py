@@ -30,11 +30,15 @@ PREVIEW_RETRY_SECONDS = 300
 DEFAULT_PAGE_SIZE = 80
 MAX_PAGE_SIZE = 220
 
-RAW_EXTENSIONS = {".nef", ".nrw", ".dng", ".arw", ".cr2", ".cr3", ".raf", ".rw2"}
+RAW_EXTENSIONS = {
+    ".3fr", ".arw", ".cr2", ".cr3", ".dng", ".erf", ".fff", ".gpr",
+    ".iiq", ".kdc", ".mos", ".mrw", ".nef", ".nrw", ".orf", ".pef",
+    ".raf", ".raw", ".rwl", ".rw2", ".srw", ".x3f",
+}
 JPEG_EXTENSIONS = {".jpg", ".jpeg"}
-VIDEO_EXTENSIONS = {".mp4", ".mov", ".m4v"}
+VIDEO_EXTENSIONS = {".avi", ".braw", ".crm", ".m2ts", ".m4v", ".mov", ".mp4", ".mts", ".mxf"}
 PHOTO_EXTENSIONS = RAW_EXTENSIONS | JPEG_EXTENSIONS
-GOPRO_EXTENSIONS = JPEG_EXTENSIONS | VIDEO_EXTENSIONS
+GOPRO_EXTENSIONS = JPEG_EXTENSIONS | VIDEO_EXTENSIONS | {".gpr"}
 
 MEDIA_SECTIONS = {
     "photo": {
@@ -235,6 +239,8 @@ def media_item_from_path(section, path, relative):
     preview_url = f"/api/media-file/{section}/{file_id}"
     if section == "photo" and suffix in RAW_EXTENSIONS:
         preview_url = f"/api/preview/{file_id}"
+    elif section == "gopro" and suffix in RAW_EXTENSIONS:
+        preview_url = f"/api/preview/gopro/{file_id}"
     elif kind == "video":
         preview_url = f"/api/video-thumb/{section}/{file_id}"
 
@@ -1407,6 +1413,25 @@ def api_preview(file_id):
         abort(404)
 
     preview_path = extract_raw_preview(path, relative)
+    if preview_path:
+        return send_file(preview_path, mimetype="image/jpeg")
+
+    return placeholder_svg(path.name, "Anteprima RAW non disponibile")
+
+
+@app.route("/api/preview/<section>/<file_id>")
+def api_preview_section(section, file_id):
+    config = section_config(section)
+    path, relative = resolve_media(config["root"], file_id)
+    suffix = path.suffix.lower()
+
+    if suffix in JPEG_EXTENSIONS:
+        return send_file(path)
+
+    if suffix not in RAW_EXTENSIONS or suffix not in config["extensions"]:
+        abort(404)
+
+    preview_path = extract_raw_preview(path, Path(section) / relative)
     if preview_path:
         return send_file(preview_path, mimetype="image/jpeg")
 

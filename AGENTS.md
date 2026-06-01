@@ -91,6 +91,13 @@ NIWA System:
 - Port: 5056
 - Local URL: http://10.42.0.1:5056
 
+NIWA Import host service:
+- Folder: /home/niwa/niwa/host/import-service
+- Host service: niwa-import.service
+- Port: 5057
+- Local URL after installation: http://10.42.0.1:5057
+- Note: installed and enabled; physical card-reader validation remains pending
+
 ## Storage
 
 SSD mount path:
@@ -309,6 +316,22 @@ curl http://localhost:5056/api/health
 curl http://localhost:5056/api/summary
 curl http://localhost:5056/api/status
 
+## NIWA Import commands
+
+From the Raspberry:
+
+cd ~/niwa
+python3 host/import-service/niwa_import.py --scan-once
+chmod +x host/import-service/install.sh
+host/import-service/install.sh
+
+Test API after host service installation:
+
+curl http://localhost:5057/api/health
+curl http://localhost:5057/api/status
+systemctl status niwa-import.service
+journalctl -u niwa-import.service -n 80 --no-pager
+
 ## Important project direction
 
 NIWA should evolve as modular panels:
@@ -321,6 +344,7 @@ NIWA should evolve as modular panels:
 - NIWA System
 - NIWA Shooting Tools
 - NIWA Lights
+- NIWA Import
 
 Homepage should stay a launcher/dashboard, not become a giant app.
 

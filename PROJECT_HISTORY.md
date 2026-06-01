@@ -252,6 +252,29 @@ Current purpose:
 - keep Homepage as a launcher while adding a visible NIWA status badge that links to the full panel
 - confirmed after manual reboot over LAN, hotspot and remote access
 
+### NIWA Import
+
+A conservative host-level NIWA Import foundation has been prepared for removable
+camera media.
+
+Current design:
+- run as a separate host service on port 5057 after one-time installation
+- detect removable storage without assuming a fixed camera folder structure
+- keep unknown cards pending until explicitly approved
+- exclude the Kioxia media SSD and Raspberry system card
+- mount approved sources read-only
+- copy into hidden SSD staging and verify SHA-256 before publication
+- publish verified files through atomic rename on the Kioxia filesystem
+- keep interrupted copies outside the Review library
+- route camera RAW/JPG files to photo, camera videos to video and GoPro media to gopro
+- ignore GoPro LRV proxy and THM thumbnail files in the first version
+- trigger a Review index rebuild after completed imports
+
+The host service has been installed and enabled on the Raspberry. It is
+reachable on port 5057 and is monitored by NIWA System. Validation with the
+real GoPro microSD reader and Nikon Z6 II CFexpress Type B reader remains
+pending.
+
 ### Version checkpoints
 
 Recent stable commits:

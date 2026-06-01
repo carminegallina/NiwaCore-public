@@ -32,6 +32,7 @@ data/*.json
 !data/drones_library.json
 !data/my_drones.example.json
 !data/lights_devices.example.json
+!data/import_sources.example.json
 
 # FileBrowser runtime data / local config
 docker/filebrowser/database/

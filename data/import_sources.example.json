@@ -1,0 +1,12 @@
+{
+  "version": 1,
+  "storage_root": "/mnt/niwa-storage",
+  "mount_root": "/mnt/niwa-import",
+  "excluded_uuids": [
+    "7ca9f987-1382-4e77-85d9-84a6424c7425"
+  ],
+  "excluded_serials": [
+    "41RB806NKFU2"
+  ],
+  "sources": []
+}

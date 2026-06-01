@@ -1,0 +1,18 @@
+[Unit]
+Description=NIWA Import removable media assistant
+After=local-fs.target network-online.target
+RequiresMountsFor=/mnt/niwa-storage
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/opt/niwa-import
+ExecStart=/usr/bin/python3 /opt/niwa-import/niwa_import.py
+Restart=on-failure
+RestartSec=4
+PrivateTmp=true
+ProtectSystem=full
+ReadWritePaths=/home/niwa/niwa/data /mnt/niwa-storage /mnt/niwa-import
+
+[Install]
+WantedBy=multi-user.target

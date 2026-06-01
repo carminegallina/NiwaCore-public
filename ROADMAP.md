@@ -229,7 +229,16 @@ Rules:
 
 ### 6. Media import assistant
 
-This is a future feature to implement absolutely, but it should be approached carefully.
+Status:
+- Safe host-level NIWA Import service installed and enabled on port 5057
+- Uses recursive extension-based discovery rather than fixed camera folders
+- Keeps unknown devices pending until explicitly approved
+- Excludes the Kioxia media SSD and Raspberry system card
+- Mounts approved cards read-only
+- Copies into hidden staging, verifies SHA-256 and publishes through atomic rename
+- Keeps incomplete transfers outside the Review library
+- Triggers a Review index rebuild after a completed import
+- Needs real-card validation before it is considered fully field-tested
 
 Goal:
 Copy new media from SD cards to the SSD without duplicating files and without risking source files.
@@ -249,6 +258,9 @@ Checklist:
 - use checksums before trusting copies
 - never delete files from the SD in the first implementation
 - show clear progress and errors from tablet
+- validate GoPro microSD reader with a real card
+- validate Nikon Z6 II CFexpress Type B reader with a real card
+- decide whether browser-only completion feedback is sufficient or a later notification channel is useful
 
 Postponed until better understood:
 - drone internal storage workflow

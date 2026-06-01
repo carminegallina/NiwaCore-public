@@ -31,6 +31,10 @@
         icon: mdi-drone
 
 - Review:
+    - NIWA Import:
+        href: http://10.42.0.1:5057
+        description: Copia verificata da schede camera e GoPro
+        icon: mdi-memory
     - NIWA Review:
         href: http://10.42.0.1:5052
         description: Gallery RAW/JPG e download originali
