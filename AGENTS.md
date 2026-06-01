@@ -245,8 +245,11 @@ Test API:
 
 curl http://localhost:5052/api/status
 curl http://localhost:5052/api/media/photo
+curl 'http://localhost:5052/api/media/photo?page=1&limit=80'
 curl http://localhost:5052/api/media/video
 curl 'http://localhost:5052/api/media/gopro?kind=all'
+curl http://localhost:5052/api/index/status
+curl -X POST http://localhost:5052/api/index/rebuild
 curl http://localhost:5052/api/previews/status
 
 ## NIWA Storage commands

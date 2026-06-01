@@ -3,7 +3,7 @@ FROM python:3.11-slim
 WORKDIR /app
 
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends libimage-exiftool-perl \
+    && apt-get install -y --no-install-recommends ffmpeg libimage-exiftool-perl \
     && rm -rf /var/lib/apt/lists/*
 
 COPY app/requirements.txt .

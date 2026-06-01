@@ -6,4 +6,5 @@ services:
       - "5052:5052"
     volumes:
       - /mnt/niwa-storage:/storage
+      - /home/niwa/niwa/data:/data
     restart: unless-stopped

@@ -35,6 +35,9 @@ Current status:
 - Reads /mnt/niwa-storage/gopro
 - RAW/JPG gallery
 - Server-side RAW preview extraction and cache
+- Persistent media index in /home/niwa/niwa/data/review_index.json
+- Paginated gallery loading for tablet performance
+- Server-side video thumbnail cache through ffmpeg
 - Full-screen tablet-friendly viewer
 - Swipe and keyboard navigation
 - Original file download
@@ -253,14 +256,18 @@ Postponed until better understood:
 
 ### 7. Review performance improvements
 
-Current Review Panel scans folders on demand.
+Status:
+- Implemented persistent JSON media index
+- Implemented paginated `/api/media/<section>` support with legacy all-items behavior preserved
+- Implemented Review UI paginated loading and manual "Aggiorna indice" action
+- Implemented server-side video thumbnail cache with ffmpeg
+- Expanded preview cache cleanup for orphaned RAW/video preview files
 
 Future improvements:
-- persistent media index
-- pagination for very large folders
 - background watcher for new files
-- server-side video thumbnails
-- cache cleanup for missing files is already started for RAW previews, but can be expanded
+- richer index filters/search
+- optional event/date grouping
+- export diagnostic report for index/cache state
 
 ### 8. NIWA Lights firmware
 

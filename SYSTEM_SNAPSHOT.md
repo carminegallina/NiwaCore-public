@@ -249,6 +249,7 @@ Port:
 Expected Docker volume:
 
 /mnt/niwa-storage:/storage
+/home/niwa/niwa/data:/data
 
 Current media roots inside the container:
 
@@ -266,10 +267,22 @@ RAW preview cache:
 
 /mnt/niwa-storage/.niwa_cache/review_previews
 
+Video thumbnail cache:
+
+/mnt/niwa-storage/.niwa_cache/review_video_thumbs
+
+Persistent media index:
+
+/home/niwa/niwa/data/review_index.json
+
 Current behavior:
 - shows RAW/JPG files from photo
 - extracts embedded RAW previews with ExifTool when available
 - caches RAW previews server-side
+- generates video thumbnails with ffmpeg when available
+- stores a persistent JSON media index in /data
+- supports paginated gallery loading through `page`, `limit` and `offset`
+- keeps legacy all-items media API behavior when pagination is not requested
 - supports XMP sidecar star ratings for photo files
 - shows video files from video
 - shows GoPro JPG/video files from gopro
@@ -288,8 +301,11 @@ API tests:
 
 curl http://localhost:5052/api/status
 curl http://localhost:5052/api/media/photo
+curl 'http://localhost:5052/api/media/photo?page=1&limit=80'
 curl http://localhost:5052/api/media/video
 curl 'http://localhost:5052/api/media/gopro?kind=all'
+curl http://localhost:5052/api/index/status
+curl -X POST http://localhost:5052/api/index/rebuild
 curl http://localhost:5052/api/previews/status
 
 ## NIWA Storage

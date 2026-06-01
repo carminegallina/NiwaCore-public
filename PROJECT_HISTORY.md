@@ -79,6 +79,10 @@ The current design is intentionally simple:
 - no destructive file operations from the browser
 - RAW preview cache is generated server-side and reused
 - asynchronous tab loading is guarded so stale responses do not update the wrong tab
+- persistent media index is stored in /home/niwa/niwa/data/review_index.json
+- tablet gallery loading is paginated so large folders do not render every item at once
+- video thumbnails are generated server-side with ffmpeg and cached locally
+- RAW/video preview caches remove orphaned files when originals disappear or change
 
 Important photography workflow:
 - Camera uses dual SD cards for RAW backup redundancy.
@@ -86,6 +90,8 @@ Important photography workflow:
 - Raspberry is an operational hub and tertiary backup, not primary safety.
 - RAW preview should not be forced in browser.
 - Preferred approach is JPG preview plus RAW association.
+
+Review performance v1 keeps the previous API behavior compatible. `/api/media/<section>` still returns all items when no pagination arguments are provided, but it also supports `page`, `limit` and `offset`. The Review UI uses the paginated path and exposes an "Aggiorna indice" control for manual refresh.
 
 ### NIWA Storage
 

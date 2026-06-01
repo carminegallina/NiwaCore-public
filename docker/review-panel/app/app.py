@@ -17,11 +17,18 @@ PHOTO_ROOT = Path("/storage/photo")
 VIDEO_ROOT = Path("/storage/video")
 GOPRO_ROOT = Path("/storage/gopro")
 CACHE_ROOT = Path("/storage/.niwa_cache/review_previews")
+VIDEO_CACHE_ROOT = Path("/storage/.niwa_cache/review_video_thumbs")
 PREVIEW_STATE_FILE = CACHE_ROOT / "preview_state.json"
+DATA_ROOT = Path("/data")
+REVIEW_INDEX_FILE = DATA_ROOT / "review_index.json"
 
+INDEX_VERSION = 1
+INDEX_SCAN_INTERVAL_SECONDS = 120
 PREVIEW_SCAN_INTERVAL_SECONDS = 20
 PREVIEW_STABLE_SECONDS = 60
 PREVIEW_RETRY_SECONDS = 300
+DEFAULT_PAGE_SIZE = 80
+MAX_PAGE_SIZE = 220
 
 RAW_EXTENSIONS = {".nef", ".nrw", ".dng", ".arw", ".cr2", ".cr3", ".raf", ".rw2"}
 JPEG_EXTENSIONS = {".jpg", ".jpeg"}
@@ -60,6 +67,16 @@ WORKER_STATE = {
     "processed": 0,
     "errors": 0,
     "message": "Worker non ancora avviato.",
+}
+
+INDEX_LOCK = threading.Lock()
+INDEX_STATE = {
+    "running": False,
+    "last_scan": None,
+    "duration_ms": 0,
+    "items": 0,
+    "errors": 0,
+    "message": "Indice non ancora avviato.",
 }
 
 XMP_TEMPLATE = """<?xpacket begin="" id="W5M0MpCehiHzreSzNTczkc9d"?>
@@ -205,53 +222,298 @@ def iter_photo_files(extensions):
     yield from iter_media_files(PHOTO_ROOT, extensions)
 
 
-def scan_media(section, kind_filter="all"):
+def media_item_from_path(section, path, relative):
+    suffix = path.suffix.lower()
+    kind = media_kind(path)
+
+    try:
+        stat = path.stat()
+    except OSError:
+        return None
+
+    file_id = encode_id(relative)
+    preview_url = f"/api/media-file/{section}/{file_id}"
+    if section == "photo" and suffix in RAW_EXTENSIONS:
+        preview_url = f"/api/preview/{file_id}"
+    elif kind == "video":
+        preview_url = f"/api/video-thumb/{section}/{file_id}"
+
+    return {
+        "id": file_id,
+        "section": section,
+        "name": path.name,
+        "relative_path": str(relative).replace("\\", "/"),
+        "extension": suffix.upper().lstrip("."),
+        "kind": kind,
+        "size": stat.st_size,
+        "size_label": human_size(stat.st_size),
+        "mtime": stat.st_mtime,
+        "mtime_ns": stat.st_mtime_ns,
+        "mtime_label": time.strftime(
+            "%Y-%m-%d %H:%M",
+            time.localtime(stat.st_mtime)
+        ),
+        "preview_url": preview_url,
+        "media_url": f"/api/media-file/{section}/{file_id}",
+        "download_url": f"/api/download/{section}/{file_id}",
+        "rating": read_rating(path) if section == "photo" and kind != "video" else 0,
+    }
+
+
+def filter_kind(items, kind_filter):
+    if kind_filter == "all":
+        return items
+
+    filtered = []
+    for item in items:
+        kind = item.get("kind")
+        if kind_filter == "photo" and kind == "video":
+            continue
+        if kind_filter == "video" and kind != "video":
+            continue
+        filtered.append(item)
+    return filtered
+
+
+def scan_media_filesystem(section, kind_filter="all"):
     config = section_config(section)
     root_path = config["root"]
     items = []
 
     for path, relative in iter_media_files(root_path, config["extensions"]):
-        suffix = path.suffix.lower()
-        kind = media_kind(path)
-
-        if kind_filter == "photo" and kind == "video":
-            continue
-        if kind_filter == "video" and kind != "video":
+        item = media_item_from_path(section, path, relative)
+        if not item:
             continue
 
-        try:
-            stat = path.stat()
-        except OSError:
+        if kind_filter == "photo" and item["kind"] == "video":
+            continue
+        if kind_filter == "video" and item["kind"] != "video":
             continue
 
-        file_id = encode_id(relative)
-        preview_url = f"/api/media-file/{section}/{file_id}"
-        if section == "photo" and suffix in RAW_EXTENSIONS:
-            preview_url = f"/api/preview/{file_id}"
-
-        item = {
-            "id": file_id,
-            "section": section,
-            "name": path.name,
-            "relative_path": str(relative).replace("\\", "/"),
-            "extension": suffix.upper().lstrip("."),
-            "kind": kind,
-            "size": stat.st_size,
-            "size_label": human_size(stat.st_size),
-            "mtime": stat.st_mtime,
-            "mtime_label": time.strftime(
-                "%Y-%m-%d %H:%M",
-                time.localtime(stat.st_mtime)
-            ),
-            "preview_url": preview_url,
-            "media_url": f"/api/media-file/{section}/{file_id}",
-            "download_url": f"/api/download/{section}/{file_id}",
-            "rating": read_rating(path) if section == "photo" and kind != "video" else 0,
-        }
         items.append(item)
 
     items.sort(key=lambda item: item["mtime"], reverse=True)
     return items
+
+
+def load_review_index():
+    if not REVIEW_INDEX_FILE.exists():
+        return None
+
+    try:
+        with open(REVIEW_INDEX_FILE, "r", encoding="utf-8") as f:
+            data = json.load(f)
+    except Exception:
+        return None
+
+    if data.get("version") != INDEX_VERSION:
+        return None
+    if not isinstance(data.get("sections"), dict):
+        return None
+
+    return data
+
+
+def save_review_index(index):
+    DATA_ROOT.mkdir(parents=True, exist_ok=True)
+    temp_path = REVIEW_INDEX_FILE.with_suffix(".tmp")
+    with open(temp_path, "w", encoding="utf-8") as f:
+        json.dump(index, f, indent=2)
+    temp_path.replace(REVIEW_INDEX_FILE)
+
+
+def index_summary(index):
+    sections = index.get("sections", {})
+    total = 0
+    summary = {}
+
+    for section, payload in sections.items():
+        items = payload.get("items", [])
+        total += len(items)
+        summary[section] = {
+            "count": len(items),
+            "exists": payload.get("exists", False),
+            "root": payload.get("root", ""),
+            "kind_counts": payload.get("kind_counts", {}),
+        }
+
+    return {
+        "version": index.get("version"),
+        "updated": index.get("updated"),
+        "duration_ms": index.get("duration_ms", 0),
+        "total_items": total,
+        "sections": summary,
+    }
+
+
+def cleanup_orphan_raw_previews(raw_files):
+    expected = set()
+    for path, relative in raw_files:
+        try:
+            expected.add(cache_path_for(path, relative).resolve())
+        except OSError:
+            continue
+
+    if not CACHE_ROOT.exists():
+        return 0
+
+    removed = 0
+    for cache_file in CACHE_ROOT.glob("*.jpg"):
+        try:
+            resolved = cache_file.resolve()
+        except OSError:
+            continue
+        if resolved in expected:
+            continue
+        try:
+            cache_file.unlink()
+            removed += 1
+        except OSError:
+            pass
+
+    return removed
+
+
+def cleanup_orphan_video_thumbnails():
+    expected = set()
+    for section, config in MEDIA_SECTIONS.items():
+        for path, relative in iter_media_files(config["root"], config["extensions"]):
+            if media_kind(path) != "video":
+                continue
+            try:
+                expected.add(video_thumb_path_for(section, path, relative).resolve())
+            except OSError:
+                continue
+
+    if not VIDEO_CACHE_ROOT.exists():
+        return 0
+
+    removed = 0
+    for cache_file in VIDEO_CACHE_ROOT.glob("*.jpg"):
+        try:
+            resolved = cache_file.resolve()
+        except OSError:
+            continue
+        if resolved in expected:
+            continue
+        try:
+            cache_file.unlink()
+            removed += 1
+        except OSError:
+            pass
+
+    return removed
+
+
+def update_index_state(**updates):
+    with INDEX_LOCK:
+        INDEX_STATE.update(updates)
+
+
+def rebuild_review_index():
+    started = time.time()
+    update_index_state(running=True, message="Indicizzazione media in corso.")
+
+    sections = {}
+    total_items = 0
+
+    try:
+        for section, config in MEDIA_SECTIONS.items():
+            items = scan_media_filesystem(section, "all")
+            kind_counts = {}
+            for item in items:
+                kind = item.get("kind", "file")
+                kind_counts[kind] = kind_counts.get(kind, 0) + 1
+
+            sections[section] = {
+                "label": config["label"],
+                "root": str(config["root"]),
+                "exists": config["root"].exists(),
+                "empty_message": config["empty"],
+                "count": len(items),
+                "kind_counts": kind_counts,
+                "items": items,
+            }
+            total_items += len(items)
+
+        cleanup_orphan_video_thumbnails()
+
+        index = {
+            "version": INDEX_VERSION,
+            "updated": time.strftime("%Y-%m-%d %H:%M:%S"),
+            "updated_ts": time.time(),
+            "duration_ms": int((time.time() - started) * 1000),
+            "sections": sections,
+        }
+        save_review_index(index)
+        update_index_state(
+            running=False,
+            last_scan=index["updated"],
+            duration_ms=index["duration_ms"],
+            items=total_items,
+            message=f"Indice aggiornato: {total_items} file.",
+        )
+        return index
+    except Exception as exc:
+        update_index_state(
+            running=False,
+            errors=INDEX_STATE.get("errors", 0) + 1,
+            message=f"Errore indice: {exc}",
+        )
+        raise
+
+
+def get_review_index(force=False):
+    if not force:
+        index = load_review_index()
+        if index:
+            return index
+
+    return rebuild_review_index()
+
+
+def index_worker_loop():
+    time.sleep(3)
+
+    while True:
+        try:
+            rebuild_review_index()
+        except Exception:
+            pass
+
+        time.sleep(INDEX_SCAN_INTERVAL_SECONDS)
+
+
+def scan_media(section, kind_filter="all", use_index=True):
+    if not use_index:
+        return scan_media_filesystem(section, kind_filter)
+
+    index = get_review_index()
+    section_data = index.get("sections", {}).get(section)
+    if not section_data:
+        return scan_media_filesystem(section, kind_filter)
+
+    items = section_data.get("items", [])
+    return filter_kind(items, kind_filter)
+
+
+def update_index_rating(file_id, rating):
+    index = load_review_index()
+    if not index:
+        return
+
+    changed = False
+    items = index.get("sections", {}).get("photo", {}).get("items", [])
+    for item in items:
+        if item.get("id") == file_id:
+            item["rating"] = rating
+            changed = True
+            break
+
+    if changed:
+        index["updated"] = time.strftime("%Y-%m-%d %H:%M:%S")
+        index["updated_ts"] = time.time()
+        save_review_index(index)
 
 
 def scan_photos():
@@ -263,6 +525,13 @@ def cache_path_for(path, relative):
     key = f"{relative}|{stat.st_mtime_ns}|{stat.st_size}".encode("utf-8")
     digest = hashlib.sha1(key).hexdigest()
     return CACHE_ROOT / f"{digest}.jpg"
+
+
+def video_thumb_path_for(section, path, relative):
+    stat = path.stat()
+    key = f"{section}|{relative}|{stat.st_mtime_ns}|{stat.st_size}".encode("utf-8")
+    digest = hashlib.sha1(key).hexdigest()
+    return VIDEO_CACHE_ROOT / f"{digest}.jpg"
 
 
 def photo_signature(path):
@@ -310,6 +579,15 @@ def preview_is_cached(path, relative):
     return cache_path.exists() and cache_path.stat().st_size > 0
 
 
+def video_thumb_is_cached(section, path, relative):
+    try:
+        cache_path = video_thumb_path_for(section, path, relative)
+    except OSError:
+        return False
+
+    return cache_path.exists() and cache_path.stat().st_size > 0
+
+
 def raw_is_stable(path):
     try:
         stat = path.stat()
@@ -328,6 +606,22 @@ def count_cached_raw_previews():
         total += 1
         if preview_is_cached(path, relative):
             cached += 1
+
+    return total, cached
+
+
+def count_cached_video_thumbnails():
+    total = 0
+    cached = 0
+
+    for section, config in MEDIA_SECTIONS.items():
+        for path, relative in iter_media_files(config["root"], config["extensions"]):
+            if media_kind(path) != "video":
+                continue
+
+            total += 1
+            if video_thumb_is_cached(section, path, relative):
+                cached += 1
 
     return total, cached
 
@@ -359,6 +653,7 @@ def run_preview_scan():
     files_state = state.setdefault("files", {})
     raw_files = list(iter_photo_files(RAW_EXTENSIONS))
     existing_keys = {state_key(relative) for _path, relative in raw_files}
+    cleanup_orphan_raw_previews(raw_files)
 
     for key, entry in list(files_state.items()):
         if key in existing_keys:
@@ -507,6 +802,100 @@ def extract_raw_preview(path, relative):
     return None
 
 
+def extract_video_thumbnail(section, path, relative):
+    VIDEO_CACHE_ROOT.mkdir(parents=True, exist_ok=True)
+    cache_path = video_thumb_path_for(section, path, relative)
+
+    if cache_path.exists() and cache_path.stat().st_size > 0:
+        return cache_path
+
+    temp_path = cache_path.with_suffix(".tmp")
+    attempts = [
+        ["ffmpeg", "-y", "-ss", "00:00:01", "-i", str(path), "-frames:v", "1", "-vf", "scale=900:-2", "-q:v", "5", str(temp_path)],
+        ["ffmpeg", "-y", "-ss", "00:00:00.2", "-i", str(path), "-frames:v", "1", "-vf", "scale=900:-2", "-q:v", "5", str(temp_path)],
+    ]
+
+    for command in attempts:
+        try:
+            result = subprocess.run(
+                command,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                timeout=45,
+                check=False,
+            )
+        except (OSError, subprocess.TimeoutExpired):
+            return None
+
+        if result.returncode == 0 and temp_path.exists() and temp_path.stat().st_size > 0:
+            temp_path.replace(cache_path)
+            return cache_path
+
+        if temp_path.exists():
+            try:
+                temp_path.unlink()
+            except OSError:
+                pass
+
+    return None
+
+
+def request_pagination(total):
+    has_pagination_request = any(key in request.args for key in ("page", "limit", "offset"))
+    if not has_pagination_request:
+        return {
+            "enabled": False,
+            "page": 1,
+            "limit": total,
+            "offset": 0,
+            "total": total,
+            "has_more": False,
+            "next_page": None,
+        }
+
+    try:
+        limit = int(request.args.get("limit", DEFAULT_PAGE_SIZE))
+    except (TypeError, ValueError):
+        limit = DEFAULT_PAGE_SIZE
+    limit = max(1, min(MAX_PAGE_SIZE, limit))
+
+    if "offset" in request.args:
+        try:
+            offset = int(request.args.get("offset", 0))
+        except (TypeError, ValueError):
+            offset = 0
+        offset = max(0, offset)
+        page = (offset // limit) + 1
+    else:
+        try:
+            page = int(request.args.get("page", 1))
+        except (TypeError, ValueError):
+            page = 1
+        page = max(1, page)
+        offset = (page - 1) * limit
+
+    has_more = offset + limit < total
+    return {
+        "enabled": True,
+        "page": page,
+        "limit": limit,
+        "offset": offset,
+        "total": total,
+        "has_more": has_more,
+        "next_page": page + 1 if has_more else None,
+    }
+
+
+def apply_pagination(items):
+    pagination = request_pagination(len(items))
+    if not pagination["enabled"]:
+        return items, pagination
+
+    start = pagination["offset"]
+    end = start + pagination["limit"]
+    return items[start:end], pagination
+
+
 @app.route("/")
 def index():
     return """
@@ -524,8 +913,12 @@ h1{margin:0 0 6px 0;font-size:32px;letter-spacing:0}.subtitle{color:var(--muted)
 .topbar{display:flex;justify-content:space-between;gap:14px;align-items:flex-start;margin-bottom:18px}
 .button{display:inline-flex;align-items:center;justify-content:center;background:#263244;color:white;text-decoration:none;padding:10px 12px;border-radius:10px;border:1px solid rgba(148,163,184,.22);min-height:40px;box-shadow:inset 0 1px 0 rgba(255,255,255,.04)}
 .button:hover{background:#334155}.status{color:var(--muted);font-size:14px;margin:12px 0}
-.worker{background:linear-gradient(180deg,rgba(30,41,59,.92),rgba(15,23,42,.94));border:1px solid rgba(148,163,184,.18);border-radius:12px;padding:12px;margin:12px 0;color:#d1d5db;font-size:14px}
+.toolbar{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:10px;align-items:stretch;margin:12px 0}
+.worker{background:linear-gradient(180deg,rgba(30,41,59,.92),rgba(15,23,42,.94));border:1px solid rgba(148,163,184,.18);border-radius:12px;padding:12px;color:#d1d5db;font-size:14px;line-height:1.4}
 .worker strong{color:#e5e7eb}
+.toolbar-actions{display:flex;align-items:stretch;gap:8px}
+.small-button{background:#101827;color:#e5e7eb;border:1px solid rgba(148,163,184,.20);border-radius:10px;padding:10px 12px;min-height:42px}
+.small-button:hover{background:#334155}.small-button:disabled{opacity:.55}
 .tabs,.filters{display:flex;gap:8px;margin:16px 0;flex-wrap:wrap}
 .filter-row{display:none}.filter-row.visible{display:flex}
 .tab,.filter-button{background:#101827;color:#e5e7eb;border:1px solid rgba(148,163,184,.20);border-radius:10px;padding:10px 12px}
@@ -537,6 +930,7 @@ h1{margin:0 0 6px 0;font-size:32px;letter-spacing:0}.subtitle{color:var(--muted)
 .info{padding:10px}.name{font-weight:bold;font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .meta{color:var(--muted);font-size:12px;margin-top:4px}.badge{display:inline-block;background:#263244;border:1px solid rgba(148,163,184,.18);color:#e5e7eb;border-radius:999px;padding:3px 7px;font-size:11px;margin-top:8px}
 .empty{background:linear-gradient(180deg,rgba(30,41,59,.92),rgba(15,23,42,.94));border:1px solid rgba(148,163,184,.18);border-radius:12px;padding:18px;color:var(--muted)}
+.load-more-wrap{display:flex;justify-content:center;margin:16px 0}.load-more-wrap.hidden{display:none}.load-more{min-width:180px}
 .modal{position:fixed;inset:0;background:rgba(0,0,0,.9);display:none;align-items:center;justify-content:center;padding:12px;z-index:10}
 .modal.open{display:flex}.modal-inner{position:relative;width:100%;height:100%;display:flex;align-items:center;justify-content:center}
 .modal img,.modal video{max-width:100%;max-height:100%;object-fit:contain}
@@ -555,13 +949,13 @@ h1{margin:0 0 6px 0;font-size:32px;letter-spacing:0}.subtitle{color:var(--muted)
 body{background:radial-gradient(circle at 18% -5%,rgba(213,154,132,.22),transparent 34%),radial-gradient(circle at 84% 8%,rgba(246,226,209,.08),transparent 28%),linear-gradient(180deg,#0e0c0c,#171211 46%,#0e0c0c)}
 .brand-heading{display:flex;align-items:center;gap:12px;min-width:0}.brand-logo{width:52px;height:52px;border-radius:50%;border:1px solid rgba(213,154,132,.42);background:#f2dfcf;box-shadow:0 16px 34px rgba(0,0,0,.28);flex:0 0 auto}.brand-copy{min-width:0}
 h1{color:#fff4ec}.subtitle{color:var(--muted)}
-.button,.tab,.filter-button{background:rgba(64,45,42,.92);border-color:var(--line)}
-.button:hover,.tab:hover,.filter-button:hover{background:rgba(87,61,56,.96);border-color:rgba(213,154,132,.42)}
+.button,.tab,.filter-button,.small-button{background:rgba(64,45,42,.92);border-color:var(--line)}
+.button:hover,.tab:hover,.filter-button:hover,.small-button:hover{background:rgba(87,61,56,.96);border-color:rgba(213,154,132,.42)}
 .tab.active,.filter-button.active{background:linear-gradient(180deg,#d59a84,#9f6f63);border-color:rgba(240,184,162,.45);color:#fffaf5}
 .card,.worker,.empty{background:linear-gradient(180deg,rgba(42,31,29,.94),rgba(18,14,14,.96));border-color:var(--line)}
 .thumb{background:#151112}.badge{background:rgba(64,45,42,.92);border-color:var(--line)}
 .overlay-button,.photo-counter,.rating{background:rgba(28,20,19,.76)}
-@media(max-width:800px){.topbar{display:block}.brand-logo{width:44px;height:44px}.topbar .button{margin-top:10px}.modal{padding:6px}.nav-button{width:36px;height:36px;font-size:22px;opacity:.72}.download-button{top:10px;right:10px}.photo-counter{top:10px;left:10px}}
+@media(max-width:800px){.topbar{display:block}.brand-logo{width:44px;height:44px}.topbar .button{margin-top:10px}.toolbar{grid-template-columns:1fr}.toolbar-actions{display:grid;grid-template-columns:1fr}.modal{padding:6px}.nav-button{width:36px;height:36px;font-size:22px;opacity:.72}.download-button{top:10px;right:10px}.photo-counter{top:10px;left:10px}}
 </style>
 </head>
 <body>
@@ -589,8 +983,19 @@ h1{color:#fff4ec}.subtitle{color:var(--muted)}
 </div>
 
 <div class="status" id="status">Caricamento...</div>
-<div class="worker" id="workerStatus">Anteprime: controllo stato...</div>
+<div class="toolbar">
+<div>
+<div class="worker" id="indexStatus">Indice: controllo stato...</div>
+<div class="worker" id="workerStatus" style="margin-top:10px">Anteprime: controllo stato...</div>
+</div>
+<div class="toolbar-actions">
+<button class="small-button" id="refreshIndexButton" onclick="refreshIndex()">Aggiorna indice</button>
+</div>
+</div>
 <div class="grid" id="gallery"></div>
+<div class="load-more-wrap hidden" id="loadMoreWrap">
+<button class="small-button load-more" id="loadMoreButton" onclick="loadMoreMedia()">Carica altri</button>
+</div>
 
 <div class="modal" id="modal" onclick="closeModal(event)" ontouchstart="startSwipe(event)" ontouchend="endSwipe(event)">
 <div class="modal-inner">
@@ -618,6 +1023,10 @@ let GOPRO_FILTER = 'all';
 let LOAD_SEQUENCE = 0;
 let SWIPE_START_X = 0;
 let SWIPE_START_Y = 0;
+const PAGE_SIZE = 80;
+let CURRENT_PAGE = 1;
+let HAS_MORE = false;
+let TOTAL_ITEMS = 0;
 
 const SECTION_LABELS = {
     photo: 'foto',
@@ -632,7 +1041,7 @@ function setSection(section){
     });
     document.getElementById('goproFilters').classList.toggle('visible', section === 'gopro');
     document.getElementById('workerStatus').style.display = section === 'photo' ? 'block' : 'none';
-    loadMedia();
+    loadMedia(true);
 }
 
 function setGoProFilter(filter){
@@ -640,23 +1049,60 @@ function setGoProFilter(filter){
     document.querySelectorAll('.filter-button').forEach((button)=>{
         button.classList.toggle('active', button.dataset.filter === filter);
     });
-    loadMedia();
+    loadMedia(true);
 }
 
-async function loadMedia(){
+function itemCard(item){
+    const card = document.createElement('div');
+    card.className = 'card';
+    card.onclick = ()=>openPhoto(item.id);
+
+    const thumb = item.kind === 'video'
+        ? `<img class="thumb video-thumb" loading="lazy" src="${item.preview_url}" alt=""><div class="play-badge">Play</div>`
+        : `<img class="thumb" loading="lazy" src="${item.preview_url}" alt="">`;
+
+    card.innerHTML = `
+        ${thumb}
+        <div class="info">
+            <div class="name">${item.name}</div>
+            <div class="meta">${item.size_label} - ${item.mtime_label}</div>
+            <span class="badge">${item.extension}</span>
+        </div>
+    `;
+    return card;
+}
+
+function renderLoadMore(){
+    const wrap = document.getElementById('loadMoreWrap');
+    const button = document.getElementById('loadMoreButton');
+    wrap.classList.toggle('hidden', !HAS_MORE);
+    button.disabled = !HAS_MORE;
+    button.textContent = HAS_MORE ? `Carica altri (${PHOTOS.length}/${TOTAL_ITEMS})` : 'Tutto caricato';
+}
+
+async function loadMedia(reset=true){
     const status = document.getElementById('status');
     const gallery = document.getElementById('gallery');
     const requestSection = CURRENT_SECTION;
     const requestFilter = GOPRO_FILTER;
     const requestId = ++LOAD_SEQUENCE;
     const label = SECTION_LABELS[requestSection] || 'media';
-    status.textContent = `Scansione ${label}...`;
-    gallery.innerHTML = '';
+
+    if(reset){
+        CURRENT_PAGE = 1;
+        HAS_MORE = false;
+        TOTAL_ITEMS = 0;
+        PHOTOS = [];
+        gallery.innerHTML = '';
+    }
+
+    status.textContent = reset ? `Caricamento indice ${label}...` : `Caricamento altri ${label}...`;
+    renderLoadMore();
 
     try{
-        let url = `/api/media/${requestSection}`;
+        let url = `/api/media/${requestSection}?page=${CURRENT_PAGE}&limit=${PAGE_SIZE}`;
         if(requestSection === 'gopro'){
-            url += `?kind=${encodeURIComponent(requestFilter)}`;
+            url += `&kind=${encodeURIComponent(requestFilter)}`;
         }
 
         const res = await fetch(url);
@@ -666,39 +1112,67 @@ async function loadMedia(){
             return;
         }
 
-        PHOTOS = data.items || [];
+        const incoming = data.items || [];
+        PHOTOS = reset ? incoming : PHOTOS.concat(incoming);
+        TOTAL_ITEMS = data.pagination ? data.pagination.total : PHOTOS.length;
+        HAS_MORE = Boolean(data.pagination && data.pagination.has_more);
 
-        status.textContent = `${PHOTOS.length} file trovati in ${data.storage_path || data.root}`;
+        status.textContent = `${PHOTOS.length}/${TOTAL_ITEMS} file caricati da ${data.storage_path || data.root}`;
 
         if(!PHOTOS.length){
             gallery.innerHTML = `<div class="empty">${data.empty_message || 'Nessun file trovato.'}</div>`;
+            renderLoadMore();
             return;
         }
 
-        PHOTOS.forEach((item)=>{
-            const card = document.createElement('div');
-            card.className = 'card';
-            card.onclick = ()=>openPhoto(item.id);
-
-            const thumb = item.kind === 'video'
-                ? `<video class="thumb video-thumb" muted preload="metadata" src="${item.media_url}"></video><div class="play-badge">Play</div>`
-                : `<img class="thumb" loading="lazy" src="${item.preview_url}" alt="">`;
-
-            card.innerHTML = `
-                ${thumb}
-                <div class="info">
-                    <div class="name">${item.name}</div>
-                    <div class="meta">${item.size_label} - ${item.mtime_label}</div>
-                    <span class="badge">${item.extension}</span>
-                </div>
-            `;
-            gallery.appendChild(card);
-        });
+        incoming.forEach((item)=>gallery.appendChild(itemCard(item)));
+        renderLoadMore();
     }catch(e){
         if(requestId !== LOAD_SEQUENCE || requestSection !== CURRENT_SECTION){
             return;
         }
         status.textContent = 'Errore caricamento media: ' + e.message;
+        renderLoadMore();
+    }
+}
+
+async function loadMoreMedia(){
+    if(!HAS_MORE){
+        return;
+    }
+    CURRENT_PAGE += 1;
+    await loadMedia(false);
+}
+
+async function loadIndexStatus(){
+    try{
+        const res = await fetch('/api/index/status');
+        const data = await res.json();
+        const index = data.index || {};
+        const worker = data.worker || {};
+        const message = worker.running ? 'Indicizzazione in corso...' : (worker.message || 'Indice pronto.');
+        document.getElementById('indexStatus').innerHTML =
+            `<strong>Indice media:</strong> ${index.total_items || 0} file. ${message}`;
+    }catch(e){
+        document.getElementById('indexStatus').textContent = 'Indice: stato non disponibile.';
+    }
+}
+
+async function refreshIndex(){
+    const button = document.getElementById('refreshIndexButton');
+    button.disabled = true;
+    button.textContent = 'Aggiorno...';
+    try{
+        const res = await fetch('/api/index/rebuild', {method:'POST'});
+        const data = await res.json();
+        if(data.error){ throw new Error(data.error); }
+        await loadIndexStatus();
+        await loadMedia(true);
+    }catch(e){
+        document.getElementById('indexStatus').textContent = 'Errore indice: ' + e.message;
+    }finally{
+        button.disabled = false;
+        button.textContent = 'Aggiorna indice';
     }
 }
 
@@ -709,10 +1183,12 @@ async function loadPreviewStatus(){
         const worker = data.worker || {};
         const total = data.raw_total || 0;
         const cached = data.raw_cached || 0;
+        const videoTotal = data.video_total || 0;
+        const videoCached = data.video_cached || 0;
         const current = worker.current ? ` - ${worker.current}` : '';
 
         document.getElementById('workerStatus').innerHTML =
-            `<strong>Anteprime RAW:</strong> ${cached}/${total} in cache. ${worker.message || ''}${current}`;
+            `<strong>Anteprime:</strong> RAW ${cached}/${total}, video ${videoCached}/${videoTotal}. ${worker.message || ''}${current}`;
     }catch(e){
         document.getElementById('workerStatus').textContent = 'Anteprime: stato non disponibile.';
     }
@@ -878,8 +1354,10 @@ document.addEventListener('keydown', (event)=>{
     }
 });
 
-loadMedia();
+loadMedia(true);
+loadIndexStatus();
 loadPreviewStatus();
+setInterval(loadIndexStatus, 15000);
 setInterval(loadPreviewStatus, 10000);
 </script>
 </body>
@@ -903,6 +1381,7 @@ def api_media(section):
         kind_filter = "all"
 
     items = scan_media(section, kind_filter)
+    page_items, pagination = apply_pagination(items)
     return jsonify({
         "section": section,
         "label": config["label"],
@@ -910,7 +1389,9 @@ def api_media(section):
         "storage_path": str(config["root"]),
         "exists": config["root"].exists(),
         "empty_message": config["empty"],
-        "items": items,
+        "items": page_items,
+        "pagination": pagination,
+        "index": index_summary(get_review_index()),
     })
 
 
@@ -942,6 +1423,21 @@ def api_media_file(section, file_id):
 
     mime = mimetypes.guess_type(path.name)[0] or "application/octet-stream"
     return send_file(path, mimetype=mime, conditional=True)
+
+
+@app.route("/api/video-thumb/<section>/<file_id>")
+def api_video_thumb(section, file_id):
+    config = section_config(section)
+    path, relative = resolve_media(config["root"], file_id)
+
+    if path.suffix.lower() not in VIDEO_EXTENSIONS:
+        abort(404)
+
+    thumb_path = extract_video_thumbnail(section, path, relative)
+    if thumb_path:
+        return send_file(thumb_path, mimetype="image/jpeg")
+
+    return placeholder_svg(path.name, "Anteprima video non disponibile")
 
 
 @app.route("/api/download/<file_id>")
@@ -983,9 +1479,12 @@ def api_set_rating(file_id):
     except OSError as exc:
         return jsonify({"error": str(exc)}), 500
 
+    final_rating = read_rating(path)
+    update_index_rating(file_id, final_rating)
+
     return jsonify({
         "ok": True,
-        "rating": read_rating(path),
+        "rating": final_rating,
         "xmp": str(xmp_path_for(path)),
     })
 
@@ -1004,12 +1503,47 @@ def api_status():
             ["sh", "-c", "command -v exiftool >/dev/null 2>&1"],
             check=False
         ).returncode == 0,
+        "ffmpeg": subprocess.run(
+            ["sh", "-c", "command -v ffmpeg >/dev/null 2>&1"],
+            check=False
+        ).returncode == 0,
+        "index_file": str(REVIEW_INDEX_FILE),
+        "index": index_summary(get_review_index()),
+    })
+
+
+@app.route("/api/index/status")
+def api_index_status():
+    index = get_review_index()
+
+    with INDEX_LOCK:
+        worker = dict(INDEX_STATE)
+
+    return jsonify({
+        "index_file": str(REVIEW_INDEX_FILE),
+        "scan_interval_seconds": INDEX_SCAN_INTERVAL_SECONDS,
+        "index": index_summary(index),
+        "worker": worker,
+    })
+
+
+@app.route("/api/index/rebuild", methods=["POST"])
+def api_index_rebuild():
+    try:
+        index = rebuild_review_index()
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 500
+
+    return jsonify({
+        "ok": True,
+        "index": index_summary(index),
     })
 
 
 @app.route("/api/previews/status")
 def api_preview_status():
     total, cached = count_cached_raw_previews()
+    video_total, video_cached = count_cached_video_thumbnails()
     state = load_preview_state()
     errors = [
         {"path": path, **entry}
@@ -1023,7 +1557,10 @@ def api_preview_status():
     return jsonify({
         "raw_total": total,
         "raw_cached": cached,
+        "video_total": video_total,
+        "video_cached": video_cached,
         "cache_root": str(CACHE_ROOT),
+        "video_cache_root": str(VIDEO_CACHE_ROOT),
         "state_file": str(PREVIEW_STATE_FILE),
         "scan_interval_seconds": PREVIEW_SCAN_INTERVAL_SECONDS,
         "stable_seconds": PREVIEW_STABLE_SECONDS,
@@ -1036,4 +1573,6 @@ def api_preview_status():
 if __name__ == "__main__":
     worker = threading.Thread(target=preview_worker_loop, daemon=True)
     worker.start()
+    index_worker = threading.Thread(target=index_worker_loop, daemon=True)
+    index_worker.start()
     app.run(host="0.0.0.0", port=5052)
