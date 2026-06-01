@@ -567,6 +567,8 @@ Current state:
   to skip unchanged verified files before copying them again
 - optimized GoPro reinsertion test recognized six unchanged files in about one
   second with zero bytes copied
+- completed staging is removed immediately; interrupted staging is retained for
+  24 hours and cleaned automatically by an hourly maintenance pass
 - current SanDisk SDDR-A631 reader should use Raspberry USB 3.0; the USB 2.0 path produced protocol error `-71`
 
 One-time Raspberry reinstall or update:

@@ -65,3 +65,5 @@ The following are NIWA design choices, not camera manufacturer guarantees:
   slot, filesystem and capacity rather than reader serial alone
 - persistent per-card inventory with a quick content fingerprint for unchanged
   files, while new files still go through full staging and SHA-256 verification
+- automatic staging cleanup: completed jobs are removed immediately and
+  interrupted staging is retained for 24 hours before hourly cleanup

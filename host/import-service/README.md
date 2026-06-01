@@ -21,6 +21,9 @@ and listens on port `5057`.
   reader serial, slot, filesystem and capacity
 - repeat imports use a persistent card inventory and a quick content
   fingerprint to skip unchanged verified files before copying them again
+- completed jobs remove their empty staging immediately
+- interrupted staging is cleaned automatically after 24 hours by an hourly
+  maintenance pass that never touches the active job
 
 ## Profiles
 

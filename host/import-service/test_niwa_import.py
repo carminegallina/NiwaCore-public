@@ -1,6 +1,8 @@
 from pathlib import Path
 from tempfile import TemporaryDirectory
 import importlib.util
+import os
+import time
 import unittest
 
 
@@ -140,6 +142,28 @@ class NiwaImportTests(unittest.TestCase):
         jobs = niwa_import.load_jobs()["jobs"]
         self.assertEqual(jobs[0]["status"], "interrupted")
         self.assertEqual(len(list((self.storage / "photo").rglob("*.NEF"))), 0)
+
+    def test_cleanup_removes_only_expired_inactive_staging(self):
+        old_job = self.storage / ".niwa_import_staging" / "old-job"
+        active_job = self.storage / ".niwa_import_staging" / "active-job"
+        recent_job = self.storage / ".niwa_import_staging" / "recent-job"
+        for directory in (old_job, active_job, recent_job):
+            directory.mkdir(parents=True)
+            (directory / "partial.tmp").write_bytes(b"partial")
+
+        old_time = time.time() - 7200
+        os.utime(old_job, (old_time, old_time))
+        os.utime(active_job, (old_time, old_time))
+
+        removed = niwa_import.cleanup_old_staging(
+            max_age_seconds=3600,
+            active_job_id="active-job",
+        )
+
+        self.assertEqual(removed, 1)
+        self.assertFalse(old_job.exists())
+        self.assertTrue(active_job.exists())
+        self.assertTrue(recent_job.exists())
 
     def test_scan_excludes_niwa_storage_and_keeps_unknown_card_pending(self):
         niwa_import.command_json = lambda _command: {

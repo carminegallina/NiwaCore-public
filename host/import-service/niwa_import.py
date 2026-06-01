@@ -14,13 +14,15 @@ import time
 import traceback
 
 
-APP_VERSION = "0.1.0"
+APP_VERSION = "0.2.0"
 PORT = int(os.environ.get("NIWA_IMPORT_PORT", "5057"))
 PROJECT_ROOT = Path(os.environ.get("NIWA_PROJECT_ROOT", "/home/niwa/niwa"))
 DATA_ROOT = Path(os.environ.get("NIWA_DATA_ROOT", str(PROJECT_ROOT / "data")))
 STORAGE_ROOT = Path(os.environ.get("NIWA_STORAGE_ROOT", "/mnt/niwa-storage"))
 MOUNT_ROOT = Path(os.environ.get("NIWA_IMPORT_MOUNT_ROOT", "/mnt/niwa-import"))
 STAGING_ROOT = STORAGE_ROOT / ".niwa_import_staging"
+STAGING_RETENTION_SECONDS = int(os.environ.get("NIWA_IMPORT_STAGING_RETENTION_SECONDS", str(24 * 3600)))
+STAGING_CLEANUP_INTERVAL_SECONDS = int(os.environ.get("NIWA_IMPORT_STAGING_CLEANUP_INTERVAL_SECONDS", str(3600)))
 
 CONFIG_FILE = DATA_ROOT / "import_sources.json"
 JOBS_FILE = DATA_ROOT / "import_jobs.json"
@@ -538,16 +540,39 @@ def review_rebuild():
         return False
 
 
-def cleanup_old_staging(max_age_seconds=7 * 86400):
+def cleanup_old_staging(max_age_seconds=STAGING_RETENTION_SECONDS, active_job_id=None):
     if not STAGING_ROOT.exists():
-        return
+        return 0
     cutoff = time.time() - max_age_seconds
+    removed = 0
     for child in STAGING_ROOT.iterdir():
         try:
-            if child.is_dir() and child.stat().st_mtime < cutoff:
+            if (
+                child.is_dir()
+                and child.name != active_job_id
+                and child.stat().st_mtime < cutoff
+            ):
                 shutil.rmtree(child)
+                removed += 1
         except OSError:
             pass
+    return removed
+
+
+def cleanup_completed_staging(staging_job):
+    try:
+        if staging_job.exists():
+            shutil.rmtree(staging_job)
+    except OSError:
+        pass
+
+
+def staging_cleanup_loop():
+    while True:
+        with STATE_LOCK:
+            active_job_id = ACTIVE_JOB.get("id") if ACTIVE_JOB else None
+        cleanup_old_staging(active_job_id=active_job_id)
+        time.sleep(STAGING_CLEANUP_INTERVAL_SECONDS)
 
 
 def run_import(device, profile, trigger):
@@ -679,6 +704,7 @@ def run_import(device, profile, trigger):
             f"{job['duplicate_files']} duplicati saltati, "
             f"{job['fast_skipped_files']} riconosciuti senza ricopia."
         )
+        cleanup_completed_staging(staging_job)
     except Exception as error:
         job["status"] = "interrupted"
         job["errors"].append(str(error))
@@ -977,6 +1003,8 @@ def serve():
     cleanup_old_staging()
     monitor = threading.Thread(target=auto_import_loop, daemon=True)
     monitor.start()
+    staging_cleanup = threading.Thread(target=staging_cleanup_loop, daemon=True)
+    staging_cleanup.start()
     server = ThreadingHTTPServer(("0.0.0.0", PORT), Handler)
     print(f"NIWA Import {APP_VERSION} listening on 0.0.0.0:{PORT}", flush=True)
     server.serve_forever()

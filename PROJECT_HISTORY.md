@@ -285,6 +285,8 @@ on a Raspberry USB 3.0 port:
   fingerprint so unchanged verified media are skipped before a full staging copy
 - the first optimized GoPro reinsertion recognized all six unchanged files in
   about one second and copied zero bytes
+- completed staging is removed immediately; interrupted staging is retained for
+  24 hours and then cleaned automatically by an hourly maintenance pass
 - the current SanDisk reader produced USB protocol error `-71` on the Raspberry
   USB 2.0 path, while USB 3.0 worked correctly
 

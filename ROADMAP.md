@@ -246,6 +246,8 @@ Status:
   before full staging copy on later insertions
 - Verified optimized GoPro reinsertion: six unchanged files recognized in about
   one second with zero bytes copied
+- Added automatic staging cleanup: immediate after completed jobs and hourly
+  cleanup for interrupted staging older than 24 hours
 
 Goal:
 Copy new media from SD cards to the SSD without duplicating files and without risking source files.
