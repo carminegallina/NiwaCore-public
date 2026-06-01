@@ -63,3 +63,5 @@ The following are NIWA design choices, not camera manufacturer guarantees:
 - approval by filesystem UUID, requiring reapproval after a card is reformatted
 - fallback approval for cards without a filesystem UUID, using reader serial,
   slot, filesystem and capacity rather than reader serial alone
+- persistent per-card inventory with a quick content fingerprint for unchanged
+  files, while new files still go through full staging and SHA-256 verification

@@ -281,6 +281,10 @@ on a Raspberry USB 3.0 port:
 - reinserting the card correctly skipped the six duplicate files
 - physically removing the card during a copy produced an interrupted job and
   did not publish partial files to NIWA Review
+- repeat imports now use a persistent per-card inventory and quick content
+  fingerprint so unchanged verified media are skipped before a full staging copy
+- the first optimized GoPro reinsertion recognized all six unchanged files in
+  about one second and copied zero bytes
 - the current SanDisk reader produced USB protocol error `-71` on the Raspberry
   USB 2.0 path, while USB 3.0 worked correctly
 

@@ -242,6 +242,10 @@ Status:
 - Real GoPro microSD validation completed with a SanDisk SDDR-A631 reader on USB 3.0
 - Verified first import, Review indexing, duplicate skipping and interrupted-copy isolation
 - Added fallback approval fingerprint for exFAT cards without filesystem UUID
+- Added persistent per-card inventory so unchanged verified media are skipped
+  before full staging copy on later insertions
+- Verified optimized GoPro reinsertion: six unchanged files recognized in about
+  one second with zero bytes copied
 
 Goal:
 Copy new media from SD cards to the SSD without duplicating files and without risking source files.

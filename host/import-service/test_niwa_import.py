@@ -87,13 +87,46 @@ class NiwaImportTests(unittest.TestCase):
         self.write_source("DCIM/100NZ6_2/DSC_0001.NEF", b"raw")
 
         niwa_import.run_import(self.device(), "camera", "test")
+        calls = []
+        original_copy = niwa_import.copy_and_verify
+
+        def track_copy(source, staged_path):
+            calls.append((source, staged_path))
+            return original_copy(source, staged_path)
+
+        niwa_import.copy_and_verify = track_copy
         niwa_import.run_import(self.device(), "camera", "test")
 
         jobs = niwa_import.load_jobs()["jobs"]
         self.assertEqual(jobs[0]["status"], "completed")
         self.assertEqual(jobs[0]["published_files"], 0)
         self.assertEqual(jobs[0]["duplicate_files"], 1)
+        self.assertEqual(jobs[0]["fast_skipped_files"], 1)
+        self.assertEqual(jobs[0]["bytes_copied"], 0)
+        self.assertEqual(calls, [])
         self.assertEqual(len(list((self.storage / "photo").rglob("*.NEF"))), 1)
+
+    def test_existing_hash_index_bootstraps_fast_skip_without_copy(self):
+        relative = Path("DCIM/100GOPRO/GX010001.MP4")
+        self.write_source(relative, b"video")
+        destination = self.storage / "gopro" / "imports" / "old-session" / relative
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        destination.write_bytes(b"video")
+        digest = niwa_import.sha256_file(destination)
+        niwa_import.save_hashes({"version": 1, "files": {digest: str(destination)}})
+
+        def fail_copy(_source, _staged_path):
+            raise AssertionError("existing verified file should not be copied again")
+
+        niwa_import.copy_and_verify = fail_copy
+        niwa_import.run_import(self.device(), "gopro", "test")
+
+        job = niwa_import.load_jobs()["jobs"][0]
+        hashes = niwa_import.load_hashes()
+        self.assertEqual(job["status"], "completed")
+        self.assertEqual(job["fast_skipped_files"], 1)
+        self.assertEqual(job["bytes_copied"], 0)
+        self.assertTrue(hashes["sources"])
 
     def test_interrupted_copy_never_publishes_partial_media(self):
         self.write_source("DCIM/100NZ6_2/DSC_0001.NEF", b"raw")

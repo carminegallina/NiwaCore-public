@@ -563,6 +563,10 @@ Current state:
 - supports fallback approval fingerprinting when a card has no filesystem UUID
 - first real test imported three GoPro JPG files and three MP4 files
 - duplicate reinsertion and interrupted-copy isolation have been verified
+- repeat imports use a persistent per-card inventory and quick content fingerprint
+  to skip unchanged verified files before copying them again
+- optimized GoPro reinsertion test recognized six unchanged files in about one
+  second with zero bytes copied
 - current SanDisk SDDR-A631 reader should use Raspberry USB 3.0; the USB 2.0 path produced protocol error `-71`
 
 One-time Raspberry reinstall or update:

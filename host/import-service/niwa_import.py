@@ -135,9 +135,12 @@ def save_job(job):
 
 
 def load_hashes():
-    payload = load_json(HASHES_FILE, {"version": 1, "files": {}})
+    payload = load_json(HASHES_FILE, {"version": 2, "files": {}, "sources": {}})
     if not isinstance(payload, dict) or not isinstance(payload.get("files"), dict):
-        return {"version": 1, "files": {}}
+        return {"version": 2, "files": {}, "sources": {}}
+    if not isinstance(payload.get("sources"), dict):
+        payload["sources"] = {}
+    payload["version"] = 2
     return payload
 
 
@@ -404,6 +407,84 @@ def sha256_file(path):
     return digest.hexdigest()
 
 
+def quick_fingerprint(path):
+    stat = path.stat()
+    digest = hashlib.sha256()
+    digest.update(str(stat.st_size).encode("ascii"))
+    chunk_size = 64 * 1024
+    offsets = {0}
+    if stat.st_size > chunk_size:
+        offsets.add(max(0, (stat.st_size // 2) - (chunk_size // 2)))
+        offsets.add(max(0, stat.st_size - chunk_size))
+    with open(path, "rb") as handle:
+        for offset in sorted(offsets):
+            handle.seek(offset)
+            digest.update(handle.read(chunk_size))
+    return {
+        "size": stat.st_size,
+        "mtime_ns": stat.st_mtime_ns,
+        "quick_hash": digest.hexdigest(),
+    }
+
+
+def inventory_source_key(device):
+    identity = device.get("uuid") or device.get("fallback_signature") or device["id"]
+    return hashlib.sha1(str(identity).encode("utf-8")).hexdigest()
+
+
+def inventory_file_key(category, relative):
+    return f"{category}|{str(relative).replace(os.sep, '/')}"
+
+
+def known_destinations_by_relative(hashes):
+    destinations = {}
+    for digest, path_string in hashes.get("files", {}).items():
+        path = Path(path_string)
+        try:
+            relative = path.relative_to(STORAGE_ROOT)
+        except ValueError:
+            continue
+        parts = relative.parts
+        if len(parts) < 4 or parts[1] != "imports":
+            continue
+        key = inventory_file_key(parts[0], Path(*parts[3:]))
+        destinations.setdefault(key, []).append((path, digest))
+    return destinations
+
+
+def cached_duplicate(source_path, key, source_inventory, destinations):
+    signature = quick_fingerprint(source_path)
+    cached = source_inventory.get(key)
+    if (
+        cached
+        and cached.get("size") == signature["size"]
+        and cached.get("mtime_ns") == signature["mtime_ns"]
+    ):
+        destination = Path(cached.get("destination", ""))
+        if (
+            destination.exists()
+            and cached.get("quick_hash") == signature["quick_hash"]
+        ):
+            return signature, destination, cached.get("digest")
+
+    for destination, digest in destinations.get(key, []):
+        try:
+            if destination.exists() and quick_fingerprint(destination)["quick_hash"] == signature["quick_hash"]:
+                return signature, destination, digest
+        except OSError:
+            continue
+
+    return signature, None, None
+
+
+def remember_source_file(source_inventory, key, signature, digest, destination):
+    source_inventory[key] = {
+        **signature,
+        "digest": digest,
+        "destination": str(destination),
+    }
+
+
 def copy_and_verify(source, staged_path):
     staged_path.parent.mkdir(parents=True, exist_ok=True)
     partial_path = staged_path.with_suffix(staged_path.suffix + ".partial")
@@ -486,6 +567,7 @@ def run_import(device, profile, trigger):
         "processed_files": 0,
         "published_files": 0,
         "duplicate_files": 0,
+        "fast_skipped_files": 0,
         "bytes_copied": 0,
         "review_rebuild": False,
         "errors": [],
@@ -499,6 +581,8 @@ def run_import(device, profile, trigger):
     session = f"{datetime.now().strftime('%Y-%m-%d_%H%M%S')}_{device['id'][:8]}"
     staged_files = []
     hashes = load_hashes()
+    source_inventory = hashes["sources"].setdefault(inventory_source_key(device), {})
+    destinations = known_destinations_by_relative(hashes)
 
     try:
         STAGING_ROOT.mkdir(parents=True, exist_ok=True)
@@ -513,6 +597,28 @@ def run_import(device, profile, trigger):
             return
 
         for source_path, relative, category, kind in files:
+            key = inventory_file_key(category, relative)
+            signature, known_destination, known_digest = cached_duplicate(
+                source_path,
+                key,
+                source_inventory,
+                destinations,
+            )
+            if known_destination:
+                remember_source_file(
+                    source_inventory,
+                    key,
+                    signature,
+                    known_digest,
+                    known_destination,
+                )
+                job["processed_files"] += 1
+                job["duplicate_files"] += 1
+                job["fast_skipped_files"] += 1
+                job["message"] = f"Gia verificato, salto rapido: {relative}"
+                save_job(job)
+                continue
+
             job["message"] = f"Copia e checksum: {relative}"
             save_job(job)
             staged_path = staging_job / category / "imports" / session / relative
@@ -525,6 +631,8 @@ def run_import(device, profile, trigger):
                 "digest": digest,
                 "relative": str(relative),
                 "kind": kind,
+                "inventory_key": key,
+                "signature": signature,
             })
             save_job(job)
 
@@ -535,6 +643,13 @@ def run_import(device, profile, trigger):
             if known and Path(known).exists():
                 item["staged"].unlink(missing_ok=True)
                 job["duplicate_files"] += 1
+                remember_source_file(
+                    source_inventory,
+                    item["inventory_key"],
+                    item["signature"],
+                    item["digest"],
+                    Path(known),
+                )
                 continue
             destination, duplicate = publish_verified_file(
                 item["staged"],
@@ -546,6 +661,13 @@ def run_import(device, profile, trigger):
             else:
                 hashes["files"][item["digest"]] = str(destination)
                 job["published_files"] += 1
+            remember_source_file(
+                source_inventory,
+                item["inventory_key"],
+                item["signature"],
+                item["digest"],
+                destination,
+            )
 
         save_hashes(hashes)
         if hasattr(os, "sync"):
@@ -554,7 +676,8 @@ def run_import(device, profile, trigger):
         job["status"] = "completed"
         job["message"] = (
             f"Importazione completata: {job['published_files']} file nuovi, "
-            f"{job['duplicate_files']} duplicati saltati."
+            f"{job['duplicate_files']} duplicati saltati, "
+            f"{job['fast_skipped_files']} riconosciuti senza ricopia."
         )
     except Exception as error:
         job["status"] = "interrupted"
@@ -736,7 +859,7 @@ function deviceCard(d){
 function jobCard(j){
   const status=j.status==='completed'?pill('ok','COMPLETATA'):j.status==='running'?pill('warning','IN CORSO'):pill('error','INTERROTTA');
   const progress=j.total_files?Math.round((j.processed_files/j.total_files)*100):0;
-  return `<div class="card job"><div class="head"><strong>${esc(j.label||j.device)}</strong>${status}</div><div class="meta">${esc(j.started||'')} - profilo ${esc(j.profile||'')}</div><div class="job-message">${esc(j.message||'')}</div><div class="meta">${j.processed_files||0}/${j.total_files||0} file letti, ${j.published_files||0} pubblicati, ${j.duplicate_files||0} duplicati</div><div class="progress"><div class="fill" style="width:${progress}%"></div></div></div>`;
+  return `<div class="card job"><div class="head"><strong>${esc(j.label||j.device)}</strong>${status}</div><div class="meta">${esc(j.started||'')} - profilo ${esc(j.profile||'')}</div><div class="job-message">${esc(j.message||'')}</div><div class="meta">${j.processed_files||0}/${j.total_files||0} file letti, ${j.published_files||0} pubblicati, ${j.duplicate_files||0} duplicati, ${j.fast_skipped_files||0} saltati rapidamente</div><div class="progress"><div class="fill" style="width:${progress}%"></div></div></div>`;
 }
 function notifyCompleted(jobs){
   const latest=(jobs||[]).find(j=>j.status==='completed');

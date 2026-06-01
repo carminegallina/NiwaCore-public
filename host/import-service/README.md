@@ -19,6 +19,8 @@ and listens on port `5057`.
 - an interrupted copy remains outside the Review library
 - cards without a filesystem UUID use a narrower fallback fingerprint based on
   reader serial, slot, filesystem and capacity
+- repeat imports use a persistent card inventory and a quick content
+  fingerprint to skip unchanged verified files before copying them again
 
 ## Profiles
 
