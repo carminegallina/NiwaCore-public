@@ -41,7 +41,9 @@ chmod +x host/import-service/install.sh
 host/import-service/install.sh
 ```
 
-The installer needs `sudo` because the service mounts cards read-only.
+The installer needs `sudo` because the service mounts cards read-only. When the
+restricted NIWA admin wrapper is installed from `host/admin`, later updates use
+that wrapper automatically and no longer ask for the Raspberry password.
 
 ## Useful checks
 

@@ -317,6 +317,23 @@ Planned architecture:
 - evaluate ESP32-S3 before combining camera, display, microphone, speaker and
   multiple servos in a polished wearable
 
+### Restricted administration and firmware tooling
+
+Normal Raspberry maintenance has been streamlined without granting unrestricted
+passwordless root access:
+- a root-owned `/usr/local/sbin/niwa-admin` wrapper is installed
+- the sudoers entry allows passwordless execution only through that wrapper
+- the wrapper validates a closed list of NIWA Import, hotspot and infrastructure
+  service actions
+- arbitrary shell actions and non-allowlisted services were verified as rejected
+- the NIWA Import installer automatically uses the wrapper when available
+
+The Windows PC already has Arduino IDE. A versioned `firmware/tools/niwa-arduino`
+launcher now uses its bundled Arduino CLI with project-local ignored runtime and
+build folders. The initial ESP32 core download must be run once from a normal
+Windows PowerShell because the current Codex terminal blocks outbound Arduino
+index downloads.
+
 ### Version checkpoints
 
 Recent stable commits:

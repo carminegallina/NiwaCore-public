@@ -590,6 +590,50 @@ curl http://localhost:5057/api/status
 systemctl status niwa-import.service
 journalctl -u niwa-import.service -n 80 --no-pager
 
+## NIWA restricted administration
+
+Installed Raspberry wrapper:
+
+/usr/local/sbin/niwa-admin
+
+Versioned source:
+
+/home/niwa/niwa/host/admin
+
+Current behavior:
+- root-owned wrapper with a closed list of accepted actions
+- passwordless `sudo -n` access only through `/usr/local/sbin/niwa-admin`
+- supports NIWA Import install, restart and status
+- supports bringing up the existing `Hotspot` NetworkManager connection
+- supports restart and status only for explicitly allowed infrastructure services
+- rejects arbitrary commands and services outside the allowlist
+- intentionally does not grant unrestricted `NOPASSWD: ALL`
+- rare operating-system package changes still need an explicit maintenance session
+
+Validation completed:
+- passwordless `import-status` passed
+- allowed Docker service status passed
+- arbitrary `shell` action was rejected
+- non-allowlisted `ssh.service` status was rejected
+- `hotspot-up` passed
+- NIWA Import health remained OK after wrapper installation
+
+## ESP32 firmware tooling
+
+Windows Arduino IDE includes a bundled `arduino-cli.exe`. The repository provides:
+
+firmware/tools/niwa-arduino.cmd
+firmware/tools/niwa-arduino.ps1
+
+The launcher keeps runtime and build files under ignored local folders:
+
+.arduino-cli
+.arduino-build
+
+The ESP32 core still needs one initial setup from a normal Windows PowerShell
+outside the Codex sandbox because outbound Arduino index downloads are blocked
+inside the current desktop terminal environment.
+
 ## Network notes
 
 The Raspberry can create a local hotspot called NIWA-AP.

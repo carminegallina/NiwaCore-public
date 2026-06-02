@@ -3,6 +3,11 @@ set -euo pipefail
 
 PROJECT_ROOT="${NIWA_PROJECT_ROOT:-/home/niwa/niwa}"
 SERVICE_ROOT="/opt/niwa-import"
+ADMIN_WRAPPER="/usr/local/sbin/niwa-admin"
+
+if [[ -x "${ADMIN_WRAPPER}" ]]; then
+  exec sudo -n "${ADMIN_WRAPPER}" import-install
+fi
 
 sudo install -d -m 0755 "${SERVICE_ROOT}"
 sudo install -d -m 0755 "${SERVICE_ROOT}/static"

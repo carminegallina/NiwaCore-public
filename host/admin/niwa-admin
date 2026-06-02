@@ -1,0 +1,103 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+PROJECT_ROOT="/home/niwa/niwa"
+IMPORT_SOURCE="${PROJECT_ROOT}/host/import-service"
+IMPORT_TARGET="/opt/niwa-import"
+
+usage() {
+  cat <<'EOF'
+Usage: sudo niwa-admin <command> [argument]
+
+Commands:
+  import-install
+  import-restart
+  import-status
+  hotspot-up
+  service-restart <service>
+  service-status <service>
+
+Allowed services:
+  niwa-import.service
+  docker.service
+  tailscaled.service
+  smbd.service
+  nmbd.service
+  NetworkManager.service
+EOF
+}
+
+require_root() {
+  if [[ "${EUID}" -ne 0 ]]; then
+    echo "niwa-admin must run through sudo." >&2
+    exit 1
+  fi
+}
+
+require_file() {
+  local path="$1"
+  if [[ ! -f "${path}" ]]; then
+    echo "Required file not found: ${path}" >&2
+    exit 1
+  fi
+}
+
+validate_service() {
+  case "${1:-}" in
+    niwa-import.service|docker.service|tailscaled.service|smbd.service|nmbd.service|NetworkManager.service)
+      ;;
+    *)
+      echo "Service is not allowed: ${1:-<missing>}" >&2
+      exit 1
+      ;;
+  esac
+}
+
+install_import_service() {
+  require_file "${IMPORT_SOURCE}/niwa_import.py"
+  require_file "${IMPORT_SOURCE}/static/niwa-logo.png"
+  require_file "${IMPORT_SOURCE}/niwa-import.service"
+
+  install -d -m 0755 "${IMPORT_TARGET}"
+  install -d -m 0755 "${IMPORT_TARGET}/static"
+  install -d -m 0755 /mnt/niwa-import
+  install -d -m 0755 /mnt/niwa-storage/.niwa_import_staging
+  install -m 0755 "${IMPORT_SOURCE}/niwa_import.py" "${IMPORT_TARGET}/niwa_import.py"
+  install -m 0644 "${IMPORT_SOURCE}/static/niwa-logo.png" "${IMPORT_TARGET}/static/niwa-logo.png"
+  install -m 0644 "${IMPORT_SOURCE}/niwa-import.service" /etc/systemd/system/niwa-import.service
+  systemctl daemon-reload
+  systemctl enable niwa-import.service
+  systemctl restart niwa-import.service
+  systemctl --no-pager status niwa-import.service
+}
+
+require_root
+
+case "${1:-}" in
+  import-install)
+    install_import_service
+    ;;
+  import-restart)
+    systemctl restart niwa-import.service
+    systemctl --no-pager status niwa-import.service
+    ;;
+  import-status)
+    systemctl --no-pager status niwa-import.service
+    ;;
+  hotspot-up)
+    nmcli connection up Hotspot
+    ;;
+  service-restart)
+    validate_service "${2:-}"
+    systemctl restart "$2"
+    systemctl --no-pager status "$2"
+    ;;
+  service-status)
+    validate_service "${2:-}"
+    systemctl --no-pager status "$2"
+    ;;
+  *)
+    usage >&2
+    exit 2
+    ;;
+esac

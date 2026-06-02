@@ -132,6 +132,10 @@ Status:
 - Tailscale is active and remote dashboard links were tested successfully by the user
 - Portainer is reachable on HTTPS 9443; browser warning is expected because the local certificate is not trusted by a public authority
 - NIWA System and the Homepage status badge were verified after a later manual reboot over LAN, hotspot and remote access
+- Restricted root-owned `niwa-admin` wrapper installed for passwordless NIWA
+  maintenance without granting unrestricted `NOPASSWD: ALL`
+- NIWA Import reinstall verified through the restricted wrapper without a
+  password prompt; NIWA System returned 17/17 OK afterward
 
 Future checks:
 - Repeat reboot verification after OS/network changes

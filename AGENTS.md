@@ -333,6 +333,39 @@ curl http://localhost:5057/api/status
 systemctl status niwa-import.service
 journalctl -u niwa-import.service -n 80 --no-pager
 
+## NIWA restricted admin commands
+
+The Raspberry has a root-owned restricted maintenance wrapper:
+
+/usr/local/sbin/niwa-admin
+
+It is installed once from:
+
+/home/niwa/niwa/host/admin
+
+Normal NIWA maintenance can use passwordless restricted commands:
+
+sudo -n /usr/local/sbin/niwa-admin import-status
+sudo -n /usr/local/sbin/niwa-admin import-install
+sudo -n /usr/local/sbin/niwa-admin import-restart
+sudo -n /usr/local/sbin/niwa-admin hotspot-up
+sudo -n /usr/local/sbin/niwa-admin service-status docker.service
+sudo -n /usr/local/sbin/niwa-admin service-restart tailscaled.service
+
+Do not replace this wrapper with unrestricted `NOPASSWD: ALL`.
+
+## ESP32 firmware workflow
+
+Arduino IDE is installed on the Windows PC. Use the versioned launcher:
+
+.\firmware\tools\niwa-arduino.cmd
+
+The launcher uses the Arduino CLI bundled with Arduino IDE and keeps runtime
+files under the ignored `.arduino-cli` folder. ESP32 core setup may need to be
+run once from a normal user PowerShell outside the Codex sandbox:
+
+.\firmware\tools\niwa-arduino.cmd -Action setup
+
 ## Important project direction
 
 NIWA should evolve as modular panels:
