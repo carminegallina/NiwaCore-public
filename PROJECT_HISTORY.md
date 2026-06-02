@@ -67,8 +67,11 @@ Current purpose:
 - show JPG files directly
 - extract and cache browser-friendly previews from RAW files when available
 - allow downloading the original file
-- rate photo files with stars
-- write XMP sidecars compatible with Adobe Bridge style ratings
+- rate RAW, JPG and video files with stars across photo, video and GoPro
+- write XMP sidecars compatible with Adobe Bridge style RAW ratings
+- keep RAW sidecars as `IMG_0001.xmp` while JPG and video sidecars retain the
+  original extension, such as `IMG_0001.JPG.xmp` or `GX010001.MP4.xmp`, so
+  paired media can keep independent ratings
 - browse Nikon video files from /mnt/niwa-storage/video
 - browse GoPro JPG/video files from /mnt/niwa-storage/gopro
 - filter GoPro media by all/photo/video
@@ -85,6 +88,9 @@ The current design is intentionally simple:
 - GoPro video thumbnail generation was corrected after a real import test by
   keeping a JPEG extension on the temporary ffmpeg output file
 - RAW/video preview caches remove orphaned files when originals disappear or change
+- star ratings now cover RAW, JPG and video files across photo, video and GoPro
+- GoPro JPG and MP4 rating sidecars were validated on the Raspberry with real
+  imported media, then the temporary test ratings were removed
 
 Important photography workflow:
 - Camera uses dual SD cards for RAW backup redundancy.
@@ -294,9 +300,34 @@ on a Raspberry USB 3.0 port:
 
 Validation with the Nikon Z6 II CFexpress Type B reader remains pending.
 
+### NIWA Companion feasibility
+
+NIWA Companion has been evaluated as a future modular wearable creator assistant.
+
+Planned architecture:
+- add a separate panel and container rather than expanding Homepage into a
+  monolithic application
+- keep the Raspberry as the local-first backend and future AI core
+- use ESP32-CAM initially as a lightweight camera, sensor and expressive avatar
+  node over Wi-Fi
+- prepare device pairing, heartbeats, JPEG uploads, expression state, command
+  polling, event logs and real-time dashboard updates
+- leave face recognition, voice, autonomous behavior and other AI features as
+  explicit future work rather than simulating them in the MVP
+- evaluate ESP32-S3 before combining camera, display, microphone, speaker and
+  multiple servos in a polished wearable
+
 ### Version checkpoints
 
 Recent stable commits:
+- e9e098d Extend Review ratings to JPG and video
+- 724ee35 Fix GoPro video thumbnail generation
+- cdb44db Clean interrupted import staging automatically
+- d60a992 Skip unchanged media before import copy
+- cdd279e Support exFAT cards without filesystem UUID
+- abd93a6 Add safe removable media import service
+- 029562d Add persistent Review media index
+- 76264b5 Add NIWA System status panel
 - b3cca7c Add review media and storage panels
 - 7b395d6 Add review ratings and cache status
 - b995a3b Add dashboard link to drone panel

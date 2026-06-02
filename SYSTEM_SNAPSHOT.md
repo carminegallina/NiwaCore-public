@@ -294,7 +294,11 @@ Current behavior:
 - stores a persistent JSON media index in /data
 - supports paginated gallery loading through `page`, `limit` and `offset`
 - keeps legacy all-items media API behavior when pagination is not requested
-- supports XMP sidecar star ratings for photo files
+- supports XMP sidecar star ratings for RAW, JPG and video files across photo,
+  video and GoPro sections
+- keeps standard RAW sidecars such as `IMG_0001.xmp` and uses distinct JPG/video
+  sidecars such as `IMG_0001.JPG.xmp` or `GX010001.MP4.xmp` to avoid collisions
+- validated JPG and MP4 ratings against real imported GoPro media on the Raspberry
 - shows video files from video
 - shows GoPro JPG/video files from gopro
 - supports GoPro all/photo/video filter

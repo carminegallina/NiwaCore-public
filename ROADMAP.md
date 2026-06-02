@@ -41,7 +41,8 @@ Current status:
 - Full-screen tablet-friendly viewer
 - Swipe and keyboard navigation
 - Original file download
-- XMP sidecar star ratings for photo files
+- XMP sidecar star ratings for RAW, JPG and video files across photo, video and
+  GoPro sections
 - GoPro all/photo/video filter
 
 ### NIWA Storage
@@ -256,19 +257,38 @@ Checklist:
 - detect inserted SD/card reader
 - identify Nikon photo/video files
 - identify GoPro photo/video files
+- support common camera video containers from Sony, Canon, Panasonic Lumix,
+  Fujifilm, OM System and similar cameras: MP4, MOV, MTS, M2TS, MXF and AVI
+- support common professional RAW video extensions already recognized by the
+  importer: BRAW and Canon CRM
+- add the remaining professional RAW video extensions: Nikon NEV, RED R3D and
+  ARRI ARI/ARX
 - copy Nikon photo RAW/JPG files to /mnt/niwa-storage/photo
 - copy Nikon Z6 II videos to /mnt/niwa-storage/video
 - copy GoPro JPG/MP4 files to /mnt/niwa-storage/gopro
 - skip files already present
 - preserve original filenames and timestamps
+- add a camera-originals preservation mode for professional media cards so
+  clip folder structure, metadata, XML files, sidecars, separate audio and
+  segmented recordings can be archived together without cluttering NIWA Review
 - generate RAW previews during or immediately after import
-- generate video thumbnails later if needed
+- generate video thumbnails for decodable MP4/MOV/MTS/M2TS/MXF/AVI media
+- show a clear RAW video placeholder when the original is imported safely but
+  the Raspberry ffmpeg build cannot decode the codec for a thumbnail
+- document and test the preview compatibility matrix separately from import
+  compatibility: safe archival must not depend on thumbnail support
+- evaluate an ffmpeg 8.x upgrade for ProRes RAW thumbnails
+- keep a documented fallback for formats that need proprietary decoders, such
+  as BRAW, Canon CRM, RED R3D and ARRIRAW
 - keep an import log
 - use checksums before trusting copies
 - never delete files from the SD in the first implementation
 - show clear progress and errors from tablet
 - validate GoPro microSD reader with a real card: completed on USB 3.0
 - validate Nikon Z6 II CFexpress Type B reader with a real card
+- validate at least one Sony and one Canon card or representative test fixture
+- test professional card folder preservation before enabling automatic import
+  for cinema-oriented media
 - decide whether browser-only completion feedback is sufficient or a later notification channel is useful
 
 Postponed until better understood:
@@ -305,6 +325,44 @@ Tasks:
 - test without servos first
 - test one servo at a time
 - document external servo power and common ground
+
+### 9. NIWA Companion foundation
+
+Goal:
+Create a wearable creator companion as a separate local-first NIWA module without
+turning the ESP32-CAM into the main AI brain.
+
+Feasibility status:
+- Architecture study completed
+- Raspberry Pi 4 is suitable for an MVP backend, dashboard, local persistence,
+  device management, events and occasional JPEG processing
+- ESP32-CAM is suitable as an initial camera, sensor and expressive avatar node
+- ESP32-S3 should be evaluated before combining camera, display, microphone,
+  speaker and multiple servos in a polished wearable
+- Advanced local AI, continuous recognition and voice features remain future
+  work and must be measured separately
+
+MVP tasks:
+- add a separate NIWA Companion panel and container
+- keep Homepage as launcher and add Companion as a dedicated link
+- register multiple devices with unique IDs and pairing
+- expose heartbeat, image upload, expression fetch, command polling and event APIs
+- provide device status, Wi-Fi state, battery placeholder, expression preview,
+  camera preview placeholder and logs in the dashboard
+- define expressions: idle, happy, curious, sleeping, alert and photo mode
+- add SQLite-backed placeholders for subjects and encounter history
+- prepare real-time dashboard updates through WebSocket or Socket.IO
+- store credentials and pairing tokens only at runtime; never commit secrets
+- add NIWA System monitoring after the panel is implemented
+
+Future work, not part of MVP:
+- face recognition
+- voice assistant and speech-to-text
+- subject tracking
+- autonomous behaviors
+- cosplay recognition
+- drone integration
+- smart event tagging
 
 ## Medium/low priority
 
@@ -375,6 +433,8 @@ NIWA should evolve as modular panels:
 - NIWA Storage
 - NIWA System
 - NIWA Shooting Tools
+- NIWA Lights
+- NIWA Companion
 
 Homepage should remain the launcher/dashboard.
 

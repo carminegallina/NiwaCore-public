@@ -96,7 +96,8 @@ NIWA Import host service:
 - Host service: niwa-import.service
 - Port: 5057
 - Local URL after installation: http://10.42.0.1:5057
-- Note: installed and enabled; physical card-reader validation remains pending
+- Note: installed and enabled; GoPro microSD validation completed on USB 3.0,
+  Nikon Z6 II CFexpress Type B validation remains pending
 
 ## Storage
 
@@ -345,6 +346,7 @@ NIWA should evolve as modular panels:
 - NIWA Shooting Tools
 - NIWA Lights
 - NIWA Import
+- NIWA Companion (planned)
 
 Homepage should stay a launcher/dashboard, not become a giant app.
 
@@ -377,18 +379,19 @@ Medium priority:
 Advanced:
 - DJI database extended
 - Multi-brand drone database
-- XMP rating export for Adobe Bridge
+- XMP sidecar ratings for RAW, JPG and video files
 - NIWA Review gallery with JPG/RAW pairing
 - ESP32 lighting controls
+- NIWA Companion wearable foundation
 - Weather cache offline
 - Optional maps
 
 ## Current stable checkpoint
 
-Latest committed stable checkpoint before the next large task:
+Latest committed stable code checkpoint before the next large task:
 
-bda870f Add place autocomplete and unified panel styling
+e9e098d Extend Review ratings to JPG and video
 
 Useful next-thread prompt:
 
-Continue NIWA in C:\Users\utente\Projects\niwa. Read AGENTS.md, PROJECT_HISTORY.md, ROADMAP.md and SYSTEM_SNAPSHOT.md. Latest stable commit is bda870f. Next task: extend data/drones_library.json with a large verified multi-brand drone library, integrating it into Drone Panel without breaking existing features. Use official or reliable sources for max wind values and document uncertainty when a value is not official.
+Continue NIWA in C:\Users\utente\Projects\niwa. Read AGENTS.md, PROJECT_HISTORY.md, ROADMAP.md and SYSTEM_SNAPSHOT.md. Latest stable code commit is e9e098d. Next task: design the NIWA Companion MVP as a separate modular panel without breaking existing services. Keep ESP32-CAM as a camera/sensor/avatar node and the Raspberry as the local-first backend core. Do not implement fake AI.
