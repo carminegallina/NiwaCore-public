@@ -360,9 +360,12 @@ Arduino IDE is installed on the Windows PC. Use the versioned launcher:
 
 .\firmware\tools\niwa-arduino.cmd
 
-The launcher uses the Arduino CLI bundled with Arduino IDE and keeps runtime
-files under the ignored `.arduino-cli` folder. ESP32 core setup may need to be
-run once from a normal user PowerShell outside the Codex sandbox:
+The launcher uses the Arduino CLI bundled with Arduino IDE and reuses the
+standard `%LOCALAPPDATA%\Arduino15` runtime. Build output stays under the
+ignored `.arduino-build` project folder. The Windows PC already has
+`esp32:esp32 3.3.0`, and the existing NIWA Lights firmware has been compiled
+successfully through the launcher. Core setup is only needed if the Arduino
+installation changes:
 
 .\firmware\tools\niwa-arduino.cmd -Action setup
 

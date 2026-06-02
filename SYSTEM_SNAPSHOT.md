@@ -625,14 +625,18 @@ Windows Arduino IDE includes a bundled `arduino-cli.exe`. The repository provide
 firmware/tools/niwa-arduino.cmd
 firmware/tools/niwa-arduino.ps1
 
-The launcher keeps runtime and build files under ignored local folders:
+The launcher reuses the standard Arduino IDE runtime and keeps build files under
+an ignored local project folder:
 
-.arduino-cli
+%LOCALAPPDATA%\Arduino15
 .arduino-build
 
-The ESP32 core still needs one initial setup from a normal Windows PowerShell
-outside the Codex sandbox because outbound Arduino index downloads are blocked
-inside the current desktop terminal environment.
+Current validation:
+- standard Arduino IDE runtime already contains `esp32:esp32 3.3.0`
+- `firmware/tools/niwa-arduino.cmd -Action compile` completed successfully for
+  the existing NIWA Lights firmware
+- build output is written under the ignored `.arduino-build` folder
+- upload remains pending until an ESP32-CAM or USB adapter is connected
 
 ## Network notes
 

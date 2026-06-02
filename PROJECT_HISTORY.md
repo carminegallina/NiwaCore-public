@@ -329,10 +329,11 @@ passwordless root access:
 - the NIWA Import installer automatically uses the wrapper when available
 
 The Windows PC already has Arduino IDE. A versioned `firmware/tools/niwa-arduino`
-launcher now uses its bundled Arduino CLI with project-local ignored runtime and
-build folders. The initial ESP32 core download must be run once from a normal
-Windows PowerShell because the current Codex terminal blocks outbound Arduino
-index downloads.
+launcher now uses its bundled Arduino CLI with the standard Arduino IDE runtime
+and a project-local ignored build folder. The standard runtime already contains
+`esp32:esp32 3.3.0`. The existing NIWA Lights firmware was compiled
+successfully through the launcher; upload remains pending until an ESP32-CAM or
+its USB adapter is connected.
 
 ### Version checkpoints
 

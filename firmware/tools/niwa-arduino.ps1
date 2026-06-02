@@ -9,7 +9,7 @@ param(
 $ErrorActionPreference = "Stop"
 
 $ProjectRoot = (Resolve-Path (Join-Path $PSScriptRoot "..\..")).Path
-$ConfigDir = Join-Path $ProjectRoot ".arduino-cli"
+$ConfigDir = Join-Path $env:LOCALAPPDATA "Arduino15"
 $BuildRoot = Join-Path $ProjectRoot ".arduino-build"
 $DefaultSketch = Join-Path $ProjectRoot "firmware\esp32cam-lights"
 $Esp32Index = "https://espressif.github.io/arduino-esp32/package_esp32_index.json"
@@ -60,7 +60,7 @@ switch ($Action) {
     "info" {
         Invoke-ArduinoCli version
         Write-Host ""
-        Write-Host "Config locale: $ConfigDir"
+        Write-Host "Runtime Arduino standard: $ConfigDir"
         Write-Host "Build locali: $BuildRoot"
         Write-Host "FQBN predefinito ESP32-CAM: $Fqbn"
     }

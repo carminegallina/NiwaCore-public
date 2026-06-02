@@ -1,10 +1,11 @@
 # NIWA firmware workflow
 
-The repository uses the `arduino-cli.exe` bundled with Arduino IDE and keeps its
-runtime files under `.arduino-cli`. The local runtime and build folders are
-ignored by Git.
+The repository uses the `arduino-cli.exe` bundled with Arduino IDE and reuses
+the standard Arduino runtime under `%LOCALAPPDATA%\Arduino15`. Build output is
+kept under the ignored `.arduino-build` project folder.
 
-Initial ESP32 core setup from PowerShell:
+Initial ESP32 core setup from PowerShell, only if `esp32:esp32` is not already
+installed through Arduino IDE:
 
 ```powershell
 .\firmware\tools\niwa-arduino.cmd -Action setup
