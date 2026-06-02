@@ -300,18 +300,27 @@ on a Raspberry USB 3.0 port:
 
 Validation with the Nikon Z6 II CFexpress Type B reader remains pending.
 
-### NIWA Companion feasibility
+### NIWA Companion
 
-NIWA Companion has been evaluated as a future modular wearable creator assistant.
+NIWA Companion has been introduced as a separate Flask/Docker module on port
+5058 for the first wearable creator assistant prototype.
 
-Planned architecture:
+Current foundation:
 - add a separate panel and container rather than expanding Homepage into a
   monolithic application
 - keep the Raspberry as the local-first backend and future AI core
 - use ESP32-CAM initially as a lightweight camera, sensor and expressive avatar
   node over Wi-Fi
-- prepare device pairing, heartbeats, JPEG uploads, expression state, command
-  polling, event logs and real-time dashboard updates
+- store expression state, registered devices and event logs in local JSON
+- expose heartbeat and expression polling APIs for the first avatar node
+- provide real-time dashboard updates through server-sent events
+- render a web preview and an OLED preview for idle, happy, curious, excited,
+  sleepy, sleeping, alert, surprised, sad, annoyed, love, thinking, photo mode,
+  tracking, scanning, offline, blink, wink, wake up, fall asleep and photo flash
+- keep photo mode, tracking, scanning and photo flash as manual animations only:
+  no camera integration or fake AI is implied
+- provision Wi-Fi over serial at runtime so credentials are saved only in ESP32
+  memory and never committed
 - leave face recognition, voice, autonomous behavior and other AI features as
   explicit future work rather than simulating them in the MVP
 - evaluate ESP32-S3 before combining camera, display, microphone, speaker and
@@ -338,10 +347,21 @@ The first physical ESP32-CAM validation has also been completed:
 - the USB adapter appeared as `COM4`
 - a separate safe smoke-test firmware was compiled and uploaded without Wi-Fi,
   camera, servos or external hardware
-- upload mode worked automatically without a manual BOOT action
-- one adapter `RST` press started the sketch after upload
+- later OLED testing clarified that this adapter requires `GPIO0` connected to
+  `GND` only while flashing, then disconnected before restart
+- one adapter `RST` press starts the sketch after the flash link is removed
 - the onboard flash LED blinked twice and serial output confirmed the board was
   online
+- a dependency-free SSD1306 OLED hello-world sketch was uploaded successfully
+- the tested OLED uses `GND`, `VCC`, `SCL`, `SDA`, with `SCL -> GPIO14` and
+  `SDA -> GPIO13`
+- the full animated Companion avatar firmware compiles successfully
+- runtime Wi-Fi provisioning was validated against `NIWA-AP` without storing
+  the password in the repository
+- the ESP32-CAM reconnects automatically after restart and receives an IP from
+  the Raspberry hotspot
+- heartbeat, remote `happy`, manual `tracking`, temporary `blink` and automatic
+  return to the previous expression were validated on the physical OLED
 
 ### Version checkpoints
 

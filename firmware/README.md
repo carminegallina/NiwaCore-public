@@ -34,14 +34,53 @@ Wi-Fi, camera, servos or external hardware:
 
 Validated physical setup:
 - ESP32-CAM connected through its USB adapter on `COM4`
-- smoke-test upload completed automatically without manual BOOT mode
-- adapter reset after upload may still leave the sketch waiting to start
-- pressing the adapter `RST` button once starts the sketch
+- smoke-test upload completed successfully
+- OLED hello-world upload completed successfully
+- the current adapter requires the manual `GPIO0` to `GND` flash link below
+- pressing the adapter `RST` button once after removing that link starts the sketch
 - onboard flash LED blinks twice and the serial monitor confirms the board is
   online
+- SSD1306-style OLED works with `SCL -> GPIO14` and `SDA -> GPIO13`
 
 Uploading requires the ESP32-CAM or its USB adapter to be connected. Some
 adapters still require a physical BOOT or RESET action before flashing.
 
+Current adapter manual flash procedure:
+1. Connect ESP32-CAM `GPIO0` to `GND` only while uploading.
+2. Upload the firmware.
+3. Disconnect USB power.
+4. Disconnect `GPIO0` from `GND`.
+5. Reconnect USB power.
+6. Press the adapter `RST` button once to start the sketch.
+
+Do not restart the board while `GPIO0` remains connected to `GND`, otherwise it
+returns to the serial download bootloader instead of running the sketch.
+
 Wi-Fi credentials must remain local placeholders or runtime configuration.
 Never commit real passwords, tokens or secrets.
+
+## NIWA Companion OLED avatar
+
+Compile the animated Companion firmware:
+
+```powershell
+.\firmware\tools\niwa-arduino.cmd -Action compile -Sketch .\firmware\esp32cam-companion
+```
+
+Upload it after placing the board in the manual flash mode described above:
+
+```powershell
+.\firmware\tools\niwa-arduino.cmd -Action upload -Sketch .\firmware\esp32cam-companion -Port COM4
+```
+
+After removing the flash link, reconnecting USB and pressing `RST`, provision
+Wi-Fi locally:
+
+```powershell
+.\firmware\tools\niwa-companion-provision.cmd -Port COM4
+```
+
+The provisioning prompt sends the NIWA-AP password directly over serial and
+stores it only in the ESP32 memory. The repository never stores that password.
+The validated board reconnects automatically after restart once provisioning
+has completed.

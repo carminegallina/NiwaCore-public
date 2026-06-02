@@ -116,6 +116,16 @@ SERVICE_CHECKS = [
         "href_port": 5057,
     },
     {
+        "id": "companion",
+        "name": "NIWA Companion",
+        "group": "Pannelli",
+        "kind": "http",
+        "port": 5058,
+        "path": "/api/health",
+        "critical": True,
+        "href_port": 5058,
+    },
+    {
         "id": "glances",
         "name": "Glances",
         "group": "Monitor",

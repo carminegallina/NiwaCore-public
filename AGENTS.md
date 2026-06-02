@@ -91,6 +91,12 @@ NIWA System:
 - Port: 5056
 - Local URL: http://10.42.0.1:5056
 
+NIWA Companion:
+- Folder: /home/niwa/niwa/docker/companion-panel
+- Container: companion-panel
+- Port: 5058
+- Local URL: http://10.42.0.1:5058
+
 NIWA Import host service:
 - Folder: /home/niwa/niwa/host/import-service
 - Host service: niwa-import.service
@@ -333,6 +339,22 @@ curl http://localhost:5057/api/status
 systemctl status niwa-import.service
 journalctl -u niwa-import.service -n 80 --no-pager
 
+## NIWA Companion commands
+
+From the Raspberry:
+
+cd ~/niwa/docker/companion-panel
+python3 -m py_compile app/app.py
+docker compose up -d --build
+docker logs companion-panel --tail=80
+
+Test API:
+
+curl http://localhost:5058/api/health
+curl http://localhost:5058/api/status
+curl -X POST http://localhost:5058/api/expression -H 'Content-Type: application/json' -d '{"expression":"happy"}'
+curl http://localhost:5058/api/devices/companion_01/expression
+
 ## NIWA restricted admin commands
 
 The Raspberry has a root-owned restricted maintenance wrapper:
@@ -369,6 +391,18 @@ installation changes:
 
 .\firmware\tools\niwa-arduino.cmd -Action setup
 
+The current ESP32-CAM adapter requires a manual flash link:
+
+1. Connect `GPIO0` to `GND` only during upload.
+2. Disconnect USB power after upload.
+3. Remove the `GPIO0` to `GND` link.
+4. Reconnect USB power and press `RST` once.
+
+For the NIWA Companion OLED avatar, Wi-Fi provisioning is local and must never
+place credentials in committed files:
+
+.\firmware\tools\niwa-companion-provision.cmd -Port COM4
+
 ## Important project direction
 
 NIWA should evolve as modular panels:
@@ -382,7 +416,7 @@ NIWA should evolve as modular panels:
 - NIWA Shooting Tools
 - NIWA Lights
 - NIWA Import
-- NIWA Companion (planned)
+- NIWA Companion
 
 Homepage should stay a launcher/dashboard, not become a giant app.
 
@@ -418,16 +452,16 @@ Advanced:
 - XMP sidecar ratings for RAW, JPG and video files
 - NIWA Review gallery with JPG/RAW pairing
 - ESP32 lighting controls
-- NIWA Companion wearable foundation
+- NIWA Companion animated OLED avatar foundation
 - Weather cache offline
 - Optional maps
 
 ## Current stable checkpoint
 
-Latest committed stable code checkpoint before the next large task:
+Latest committed stable code checkpoint before the Companion implementation:
 
-e9e098d Extend Review ratings to JPG and video
+d5a58b1 Add ESP32-CAM smoke test firmware
 
 Useful next-thread prompt:
 
-Continue NIWA in C:\Users\utente\Projects\niwa. Read AGENTS.md, PROJECT_HISTORY.md, ROADMAP.md and SYSTEM_SNAPSHOT.md. Latest stable code commit is e9e098d. Next task: design the NIWA Companion MVP as a separate modular panel without breaking existing services. Keep ESP32-CAM as a camera/sensor/avatar node and the Raspberry as the local-first backend core. Do not implement fake AI.
+Continue NIWA in C:\Users\utente\Projects\niwa. Read AGENTS.md, PROJECT_HISTORY.md, ROADMAP.md and SYSTEM_SNAPSHOT.md. NIWA Companion now has a separate panel on port 5058 and an animated OLED avatar firmware. Keep ESP32-CAM as an avatar/camera/sensor node and the Raspberry as the local-first backend core. Do not implement fake AI. Next physical step: flash firmware/esp32cam-companion, remove the GPIO0-GND flash link before restart, provision NIWA-AP Wi-Fi locally and test dashboard expression buttons.

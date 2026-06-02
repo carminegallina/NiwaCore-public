@@ -104,6 +104,23 @@ Current status:
 - Exposes `/api/health`, `/api/summary` and `/api/status`
 - Verified by the user after manual reboot over LAN, hotspot and remote access
 
+### NIWA Companion
+
+Current status:
+- Flask single-file app
+- Docker container
+- Port 5058
+- Dedicated Homepage launcher link
+- NIWA System health monitoring
+- Local JSON expression, device and event state
+- Animated browser preview
+- Manual expression controls grouped into base faces, special modes and actions
+- Photo mode, tracking, scanning and photo flash remain manual visual demos only
+- ESP32-CAM OLED firmware compiled without external display libraries
+- Runtime serial Wi-Fi provisioning without committed credentials
+- Physical ESP32-CAM connection to NIWA-AP verified
+- Automatic reconnect, heartbeat and remote OLED expression changes verified
+
 ## Immediate next steps
 
 ### 1. Documentation and stable snapshots
@@ -333,9 +350,11 @@ Tasks:
 Hardware validation:
 - ESP32-CAM USB adapter detected on COM4
 - safe smoke-test firmware compiled and uploaded successfully
-- automatic upload mode verified
-- adapter RST button starts the sketch after upload
+- current adapter requires a manual `GPIO0` to `GND` link only while uploading
+- adapter RST button starts the sketch after removing the flash link
 - onboard flash LED and serial output verified
+- SSD1306-style I2C OLED wired to `GPIO14` SCL and `GPIO13` SDA
+- dependency-free OLED hello-world uploaded and visually verified by the user
 
 ### 9. NIWA Companion foundation
 
@@ -343,7 +362,7 @@ Goal:
 Create a wearable creator companion as a separate local-first NIWA module without
 turning the ESP32-CAM into the main AI brain.
 
-Feasibility status:
+Implementation status:
 - Architecture study completed
 - Raspberry Pi 4 is suitable for an MVP backend, dashboard, local persistence,
   device management, events and occasional JPEG processing
@@ -352,19 +371,18 @@ Feasibility status:
   speaker and multiple servos in a polished wearable
 - Advanced local AI, continuous recognition and voice features remain future
   work and must be measured separately
+- separate panel and container implemented on port 5058
+- Homepage launcher and NIWA System monitoring integrated
+- animated browser face preview and manual expression buttons implemented
+- dependency-free animated OLED avatar firmware compiled
+- runtime serial Wi-Fi provisioning prepared without committed credentials
 
-MVP tasks:
-- add a separate NIWA Companion panel and container
-- keep Homepage as launcher and add Companion as a dedicated link
+Next tasks:
 - register multiple devices with unique IDs and pairing
-- expose heartbeat, image upload, expression fetch, command polling and event APIs
-- provide device status, Wi-Fi state, battery placeholder, expression preview,
-  camera preview placeholder and logs in the dashboard
-- define expressions: idle, happy, curious, sleeping, alert and photo mode
+- expose image upload, command polling and camera event APIs
 - add SQLite-backed placeholders for subjects and encounter history
 - prepare real-time dashboard updates through WebSocket or Socket.IO
 - store credentials and pairing tokens only at runtime; never commit secrets
-- add NIWA System monitoring after the panel is implemented
 
 Future work, not part of MVP:
 - face recognition

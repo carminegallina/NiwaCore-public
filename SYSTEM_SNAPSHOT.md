@@ -10,6 +10,7 @@
 /home/niwa/niwa/docker/shooting-tools
 /home/niwa/niwa/docker/lights-panel
 /home/niwa/niwa/docker/system-panel
+/home/niwa/niwa/docker/companion-panel
 /home/niwa/niwa/host/import-service
 /home/niwa/niwa/data
 /mnt/niwa-storage
@@ -26,6 +27,7 @@ storage-panel
 shooting-tools
 lights-panel
 system-panel
+companion-panel
 
 ## Local URLs when connected to NIWA-AP
 
@@ -58,6 +60,9 @@ http://10.42.0.1:5056
 
 NIWA Import:
 http://10.42.0.1:5057
+
+NIWA Companion:
+http://10.42.0.1:5058
 
 Portainer:
 https://10.42.0.1:9443
@@ -96,6 +101,9 @@ http://192.168.1.100:5056
 
 NIWA Import:
 http://192.168.1.100:5057
+
+NIWA Companion:
+http://192.168.1.100:5058
 
 ## Remote URLs through Tailscale
 
@@ -140,6 +148,9 @@ http://100.64.0.1:5056
 
 NIWA Import:
 http://100.64.0.1:5057
+
+NIWA Companion:
+http://100.64.0.1:5058
 
 Homepage host validation has been updated on the Raspberry external Homepage compose file to allow:
 
@@ -515,6 +526,56 @@ curl http://localhost:5056/api/health
 curl http://localhost:5056/api/summary
 curl http://localhost:5056/api/status
 
+## NIWA Companion
+
+Path:
+
+/home/niwa/niwa/docker/companion-panel
+
+Main app file:
+
+/home/niwa/niwa/docker/companion-panel/app/app.py
+
+Docker Compose file:
+
+/home/niwa/niwa/docker/companion-panel/docker-compose.yml
+
+Port:
+
+5058
+
+Expected Docker volume:
+
+/home/niwa/niwa/data:/data
+
+Runtime state:
+
+/home/niwa/niwa/data/companion_state.json
+/home/niwa/niwa/data/companion_events.json
+
+Current behavior:
+- provides an animated browser preview and manual OLED expression controls
+- stores active expression, registered devices and recent events in local JSON
+- accepts ESP32-CAM heartbeat updates and exposes expression polling
+- exposes server-sent events for responsive browser updates
+- keeps battery and camera previews as explicit placeholders
+- keeps photo mode, tracking, scanning and photo flash as manual animations only
+- does not implement fake camera processing, recognition or AI
+
+Useful commands:
+
+cd ~/niwa/docker/companion-panel
+python3 -m py_compile app/app.py
+docker compose up -d --build
+docker logs companion-panel --tail=80
+
+API tests:
+
+curl http://localhost:5058/api/health
+curl http://localhost:5058/api/status
+curl -X POST http://localhost:5058/api/expression -H 'Content-Type: application/json' -d '{"expression":"happy"}'
+curl http://localhost:5058/api/devices/companion_01/expression
+
 ## Storage
 
 SSD mount path:
@@ -638,9 +699,23 @@ Current validation:
 - build output is written under the ignored `.arduino-build` folder
 - ESP32-CAM USB adapter was detected as `COM4`
 - safe `firmware/esp32cam-smoke-test` upload completed successfully
-- the adapter handled upload mode automatically without a manual BOOT action
-- pressing the adapter `RST` button once after upload started the sketch
+- early smoke testing appeared to enter upload mode without a manual BOOT action
+- later OLED testing clarified the required flash sequence for this adapter
+- pressing the adapter `RST` button once after removing the flash link starts the sketch
 - onboard flash LED double blink and serial output were confirmed by the user
+- later physical testing clarified that this adapter uses a manual `GPIO0` to
+  `GND` flash link: keep it connected only during upload, disconnect it before
+  restart, then press `RST` once to run the sketch
+- dependency-free OLED hello-world test completed successfully with
+  `SCL -> GPIO14` and `SDA -> GPIO13`
+- `firmware/esp32cam-companion` compiles successfully with animated OLED faces,
+  Raspberry expression polling and runtime serial Wi-Fi provisioning
+- runtime provisioning against `NIWA-AP` was completed without committing the
+  hotspot password
+- automatic Wi-Fi reconnect, heartbeat and remote OLED expression changes were
+  validated on the physical ESP32-CAM
+- the first validated DHCP address was `10.42.0.101`; treat it as runtime data,
+  not a fixed device address
 
 ## Network notes
 

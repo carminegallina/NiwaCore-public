@@ -1,0 +1,8 @@
+services:
+  companion-panel:
+    build: .
+    container_name: companion-panel
+    network_mode: host
+    volumes:
+      - /home/niwa/niwa/data:/data
+    restart: unless-stopped

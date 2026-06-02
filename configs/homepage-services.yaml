@@ -57,3 +57,9 @@
         href: http://10.42.0.1:5055
         description: Controllo wireless pan/tilt luci
         icon: mdi-spotlight-beam
+
+- Companion:
+    - NIWA Companion:
+        href: http://10.42.0.1:5058
+        description: Volto espressivo e controllo pet robot
+        icon: mdi-robot-happy
