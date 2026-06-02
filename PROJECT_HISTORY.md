@@ -332,8 +332,16 @@ The Windows PC already has Arduino IDE. A versioned `firmware/tools/niwa-arduino
 launcher now uses its bundled Arduino CLI with the standard Arduino IDE runtime
 and a project-local ignored build folder. The standard runtime already contains
 `esp32:esp32 3.3.0`. The existing NIWA Lights firmware was compiled
-successfully through the launcher; upload remains pending until an ESP32-CAM or
-its USB adapter is connected.
+successfully through the launcher.
+
+The first physical ESP32-CAM validation has also been completed:
+- the USB adapter appeared as `COM4`
+- a separate safe smoke-test firmware was compiled and uploaded without Wi-Fi,
+  camera, servos or external hardware
+- upload mode worked automatically without a manual BOOT action
+- one adapter `RST` press started the sketch after upload
+- the onboard flash LED blinked twice and serial output confirmed the board was
+  online
 
 ### Version checkpoints
 

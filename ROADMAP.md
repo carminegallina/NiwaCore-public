@@ -330,6 +330,13 @@ Tasks:
 - test one servo at a time
 - document external servo power and common ground
 
+Hardware validation:
+- ESP32-CAM USB adapter detected on COM4
+- safe smoke-test firmware compiled and uploaded successfully
+- automatic upload mode verified
+- adapter RST button starts the sketch after upload
+- onboard flash LED and serial output verified
+
 ### 9. NIWA Companion foundation
 
 Goal:

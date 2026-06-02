@@ -24,6 +24,22 @@ Useful commands:
 The default sketch is `firmware/esp32cam-lights` and the default board is
 `esp32:esp32:esp32cam`.
 
+For the first physical upload test, use the safe smoke-test sketch without
+Wi-Fi, camera, servos or external hardware:
+
+```powershell
+.\firmware\tools\niwa-arduino.cmd -Action upload -Sketch .\firmware\esp32cam-smoke-test -Port COM4
+.\firmware\tools\niwa-arduino.cmd -Action monitor -Port COM4
+```
+
+Validated physical setup:
+- ESP32-CAM connected through its USB adapter on `COM4`
+- smoke-test upload completed automatically without manual BOOT mode
+- adapter reset after upload may still leave the sketch waiting to start
+- pressing the adapter `RST` button once starts the sketch
+- onboard flash LED blinks twice and the serial monitor confirms the board is
+  online
+
 Uploading requires the ESP32-CAM or its USB adapter to be connected. Some
 adapters still require a physical BOOT or RESET action before flashing.
 

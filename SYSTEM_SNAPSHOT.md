@@ -636,7 +636,11 @@ Current validation:
 - `firmware/tools/niwa-arduino.cmd -Action compile` completed successfully for
   the existing NIWA Lights firmware
 - build output is written under the ignored `.arduino-build` folder
-- upload remains pending until an ESP32-CAM or USB adapter is connected
+- ESP32-CAM USB adapter was detected as `COM4`
+- safe `firmware/esp32cam-smoke-test` upload completed successfully
+- the adapter handled upload mode automatically without a manual BOOT action
+- pressing the adapter `RST` button once after upload started the sketch
+- onboard flash LED double blink and serial output were confirmed by the user
 
 ## Network notes
 
