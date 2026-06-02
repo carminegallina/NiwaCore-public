@@ -141,7 +141,9 @@ def resolve_photo(file_id):
 
 
 def xmp_path_for(path):
-    return path.with_suffix(".xmp")
+    if path.suffix.lower() in RAW_EXTENSIONS:
+        return path.with_suffix(".xmp")
+    return path.with_name(f"{path.name}.xmp")
 
 
 def read_rating(path):
@@ -262,7 +264,7 @@ def media_item_from_path(section, path, relative):
         "preview_url": preview_url,
         "media_url": f"/api/media-file/{section}/{file_id}",
         "download_url": f"/api/download/{section}/{file_id}",
-        "rating": read_rating(path) if section == "photo" and kind != "video" else 0,
+        "rating": read_rating(path),
     }
 
 
@@ -503,13 +505,13 @@ def scan_media(section, kind_filter="all", use_index=True):
     return filter_kind(items, kind_filter)
 
 
-def update_index_rating(file_id, rating):
+def update_index_rating(section, file_id, rating):
     index = load_review_index()
     if not index:
         return
 
     changed = False
-    items = index.get("sections", {}).get("photo", {}).get("items", [])
+    items = index.get("sections", {}).get(section, {}).get("items", [])
     for item in items:
         if item.get("id") == file_id:
             item["rating"] = rating
@@ -1239,7 +1241,7 @@ function renderCurrentPhoto(){
     document.getElementById('photoCounter').textContent = `${CURRENT_INDEX + 1} / ${PHOTOS.length}`;
 
     const rating = document.getElementById('ratingStars');
-    if(item.section === 'photo' && item.kind !== 'video'){
+    if(item){
         rating.classList.remove('hidden');
         renderRating(item.rating || 0);
     }else{
@@ -1267,14 +1269,14 @@ async function setRating(rating, event){
     }
 
     const item = PHOTOS[CURRENT_INDEX];
-    if(!item || item.section !== 'photo'){
+    if(!item){
         return;
     }
 
     const nextRating = item.rating === rating ? 0 : rating;
 
     try{
-        const res = await fetch(`/api/rating/${item.id}`, {
+        const res = await fetch(`/api/rating/${item.section}/${item.id}`, {
             method:'POST',
             headers:{'Content-Type':'application/json'},
             body:JSON.stringify({rating:nextRating})
@@ -1486,11 +1488,21 @@ def api_download(section, file_id):
 
 @app.route("/api/rating/<file_id>", methods=["POST"])
 def api_set_rating(file_id):
-    path, _relative = resolve_photo(file_id)
+    return set_media_rating("photo", file_id)
+
+
+@app.route("/api/rating/<section>/<file_id>", methods=["POST"])
+def api_set_section_rating(section, file_id):
+    return set_media_rating(section, file_id)
+
+
+def set_media_rating(section, file_id):
+    config = section_config(section)
+    path, _relative = resolve_media(config["root"], file_id)
     payload = request.get_json(silent=True) or {}
 
-    if path.suffix.lower() not in PHOTO_EXTENSIONS:
-        return jsonify({"error": "Rating disponibile solo per le foto."}), 400
+    if path.suffix.lower() not in config["extensions"]:
+        return jsonify({"error": "Rating non disponibile per questo file."}), 400
 
     try:
         rating = int(payload.get("rating", 0))
@@ -1505,7 +1517,7 @@ def api_set_rating(file_id):
         return jsonify({"error": str(exc)}), 500
 
     final_rating = read_rating(path)
-    update_index_rating(file_id, final_rating)
+    update_index_rating(section, file_id, final_rating)
 
     return jsonify({
         "ok": True,
