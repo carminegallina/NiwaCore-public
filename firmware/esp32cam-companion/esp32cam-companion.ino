@@ -28,9 +28,12 @@
 */
 
 #include <HTTPClient.h>
+#include <FS.h>
 #include <Preferences.h>
+#include <SD_MMC.h>
 #include <WiFi.h>
 #include <Wire.h>
+#include <esp_camera.h>
 #include <esp_wifi.h>
 
 #if __has_include("niwa_companion_local_config.h")
@@ -58,7 +61,7 @@
 
 #include "companion_oled_bitmaps.h"
 
-const char* FIRMWARE_VERSION = "0.3.12-web-bitmaps";
+const char* FIRMWARE_VERSION = "0.4.0-camera-capture";
 const char* DEVICE_ID = "companion_01";
 const char* DEVICE_NAME = "NIWA Companion 01";
 const char* DEVICE_HOSTNAME = "niwa-companion-01";
@@ -69,6 +72,22 @@ const char* LOCAL_SERVER_URL = NIWA_COMPANION_SERVER_URL;
 
 const int I2C_SDA_PIN = 13;
 const int I2C_SCL_PIN = 14;
+const int CAMERA_PWDN_PIN = 32;
+const int CAMERA_RESET_PIN = -1;
+const int CAMERA_XCLK_PIN = 0;
+const int CAMERA_SIOD_PIN = 26;
+const int CAMERA_SIOC_PIN = 27;
+const int CAMERA_Y9_PIN = 35;
+const int CAMERA_Y8_PIN = 34;
+const int CAMERA_Y7_PIN = 39;
+const int CAMERA_Y6_PIN = 36;
+const int CAMERA_Y5_PIN = 21;
+const int CAMERA_Y4_PIN = 19;
+const int CAMERA_Y3_PIN = 18;
+const int CAMERA_Y2_PIN = 5;
+const int CAMERA_VSYNC_PIN = 25;
+const int CAMERA_HREF_PIN = 23;
+const int CAMERA_PCLK_PIN = 22;
 const int OLED_WIDTH = 128;
 const int OLED_HEIGHT = 64;
 const int OLED_BUFFER_SIZE = OLED_WIDTH * OLED_HEIGHT / 8;
@@ -90,6 +109,11 @@ String targetExpression = "idle";
 String wifiConfigSource = "none";
 String wifiStateLabel = "BOOT";
 String serverStateLabel = "SERVER WAIT";
+String cameraStateLabel = "not-tested";
+String sdStateLabel = "not-tested";
+String lastCaptureStatus = "none";
+String lastCaptureFilename = "";
+String lastHandledCommandId = "";
 int remoteRevision = 0;
 int lastWifiReason = 0;
 int lastWifiChannel = 0;
@@ -105,6 +129,11 @@ unsigned long wifiAttemptStartedAt = 0;
 unsigned long lastServerOkAt = 0;
 bool wifiAttemptInProgress = false;
 bool serverOnline = false;
+bool cameraOnline = false;
+bool sdOnline = false;
+bool captureBusy = false;
+
+void markServerStatus(bool online, int statusCode);
 
 struct Glyph {
   char character;
@@ -1040,6 +1069,249 @@ int extractJsonInt(const String& json, const String& key, int fallback) {
   return json.substring(start).toInt();
 }
 
+String boolJson(bool value) {
+  return value ? "true" : "false";
+}
+
+String statusFromBool(bool value) {
+  return value ? "online" : "not-found";
+}
+
+String safeCaptureFilename(const String& commandId) {
+  String base = commandId.length() ? commandId : String(millis());
+  String clean = "";
+  for (int index = 0; index < base.length(); index++) {
+    char character = base[index];
+    if (isalnum(character) || character == '_' || character == '-') {
+      clean += character;
+    }
+  }
+  if (!clean.length()) {
+    clean = String(millis());
+  }
+  return "niwa_" + clean + ".jpg";
+}
+
+void restoreOledBus() {
+  if (!oledAddress) {
+    return;
+  }
+  Wire.begin(I2C_SDA_PIN, I2C_SCL_PIN);
+  initializeDisplay();
+}
+
+void initializeCamera() {
+  camera_config_t config;
+  config.ledc_channel = LEDC_CHANNEL_0;
+  config.ledc_timer = LEDC_TIMER_0;
+  config.pin_d0 = CAMERA_Y2_PIN;
+  config.pin_d1 = CAMERA_Y3_PIN;
+  config.pin_d2 = CAMERA_Y4_PIN;
+  config.pin_d3 = CAMERA_Y5_PIN;
+  config.pin_d4 = CAMERA_Y6_PIN;
+  config.pin_d5 = CAMERA_Y7_PIN;
+  config.pin_d6 = CAMERA_Y8_PIN;
+  config.pin_d7 = CAMERA_Y9_PIN;
+  config.pin_xclk = CAMERA_XCLK_PIN;
+  config.pin_pclk = CAMERA_PCLK_PIN;
+  config.pin_vsync = CAMERA_VSYNC_PIN;
+  config.pin_href = CAMERA_HREF_PIN;
+  config.pin_sccb_sda = CAMERA_SIOD_PIN;
+  config.pin_sccb_scl = CAMERA_SIOC_PIN;
+  config.pin_pwdn = CAMERA_PWDN_PIN;
+  config.pin_reset = CAMERA_RESET_PIN;
+  config.xclk_freq_hz = 20000000;
+  config.pixel_format = PIXFORMAT_JPEG;
+  config.grab_mode = CAMERA_GRAB_LATEST;
+
+  if (psramFound()) {
+    config.frame_size = FRAMESIZE_SVGA;
+    config.jpeg_quality = 12;
+    config.fb_count = 2;
+    config.fb_location = CAMERA_FB_IN_PSRAM;
+  } else {
+    config.frame_size = FRAMESIZE_VGA;
+    config.jpeg_quality = 14;
+    config.fb_count = 1;
+    config.fb_location = CAMERA_FB_IN_DRAM;
+  }
+
+  esp_err_t error = esp_camera_init(&config);
+  if (error != ESP_OK) {
+    cameraOnline = false;
+    cameraStateLabel = "not-found";
+    Serial.print("Camera non disponibile. esp_camera_init=0x");
+    Serial.println(error, HEX);
+    return;
+  }
+
+  cameraOnline = true;
+  cameraStateLabel = "online";
+  sensor_t* sensor = esp_camera_sensor_get();
+  if (sensor) {
+    sensor->set_framesize(sensor, psramFound() ? FRAMESIZE_SVGA : FRAMESIZE_VGA);
+    sensor->set_quality(sensor, psramFound() ? 12 : 14);
+  }
+  Serial.println("Camera ESP32-CAM online.");
+}
+
+bool initializeStorage(bool verbose = true) {
+  if (sdOnline) {
+    return true;
+  }
+
+  if (!SD_MMC.begin("/sdcard", true)) {
+    sdOnline = false;
+    sdStateLabel = "not-found";
+    if (verbose) {
+      Serial.println("microSD ESP non disponibile.");
+    }
+    restoreOledBus();
+    return false;
+  }
+
+  uint8_t cardType = SD_MMC.cardType();
+  if (cardType == CARD_NONE) {
+    sdOnline = false;
+    sdStateLabel = "not-found";
+    if (verbose) {
+      Serial.println("microSD ESP non rilevata.");
+    }
+    restoreOledBus();
+    return false;
+  }
+
+  sdOnline = true;
+  sdStateLabel = "online";
+  if (verbose) {
+    Serial.println("microSD ESP online.");
+  }
+  restoreOledBus();
+  return true;
+}
+
+bool saveCaptureToSd(const String& filename, const uint8_t* data, size_t length) {
+  if (!initializeStorage(false)) {
+    return false;
+  }
+
+  SD_MMC.mkdir("/niwa");
+  String path = "/niwa/" + filename;
+  File file = SD_MMC.open(path, FILE_WRITE);
+  if (!file) {
+    sdStateLabel = "write-error";
+    restoreOledBus();
+    return false;
+  }
+  size_t written = file.write(data, length);
+  file.close();
+  restoreOledBus();
+  if (written != length) {
+    sdStateLabel = "write-error";
+    return false;
+  }
+  sdStateLabel = "online";
+  return true;
+}
+
+bool uploadCapture(const String& commandId, const String& filename, const uint8_t* data, size_t length) {
+  if (WiFi.status() != WL_CONNECTED || !serverUrl.length()) {
+    return false;
+  }
+
+  HTTPClient http;
+  http.setConnectTimeout(2500);
+  http.setTimeout(6500);
+  String url = serverUrl + "/api/devices/" + DEVICE_ID + "/upload-image";
+  if (!http.begin(url)) {
+    return false;
+  }
+  http.addHeader("Content-Type", "image/jpeg");
+  http.addHeader("X-NIWA-Command-ID", commandId);
+  http.addHeader("X-NIWA-Filename", filename);
+  int statusCode = http.POST((uint8_t*)data, length);
+  bool ok = statusCode >= 200 && statusCode < 300;
+  markServerStatus(statusCode > 0, statusCode);
+  http.end();
+  return ok;
+}
+
+void reportCommandResult(
+  const String& commandId,
+  bool ok,
+  bool sdSaved,
+  bool uploadOk,
+  const String& filename,
+  const String& message
+) {
+  if (WiFi.status() != WL_CONNECTED || !serverUrl.length()) {
+    return;
+  }
+
+  HTTPClient http;
+  http.setConnectTimeout(1800);
+  http.setTimeout(2600);
+  String url = serverUrl + "/api/devices/" + DEVICE_ID + "/command-result";
+  if (!http.begin(url)) {
+    return;
+  }
+  http.addHeader("Content-Type", "application/json");
+  String payload = "{";
+  payload += "\"command_id\":" + jsonString(commandId) + ",";
+  payload += "\"ok\":" + boolJson(ok) + ",";
+  payload += "\"sd_saved\":" + boolJson(sdSaved) + ",";
+  payload += "\"upload_ok\":" + boolJson(uploadOk) + ",";
+  payload += "\"filename\":" + jsonString(filename) + ",";
+  payload += "\"message\":" + jsonString(message);
+  payload += "}";
+  int statusCode = http.POST(payload);
+  markServerStatus(statusCode > 0, statusCode);
+  http.end();
+}
+
+void handleCaptureCommand(const String& commandId) {
+  if (captureBusy || !commandId.length() || commandId == lastHandledCommandId) {
+    return;
+  }
+
+  captureBusy = true;
+  lastHandledCommandId = commandId;
+  setTargetExpression("photo_capture");
+  updateTransition();
+  renderExpression(millis());
+
+  if (!cameraOnline) {
+    initializeCamera();
+  }
+
+  if (!cameraOnline) {
+    lastCaptureStatus = "camera not-found";
+    reportCommandResult(commandId, false, false, false, "", "Camera non disponibile.");
+    captureBusy = false;
+    return;
+  }
+
+  camera_fb_t* frame = esp_camera_fb_get();
+  if (!frame) {
+    lastCaptureStatus = "capture failed";
+    reportCommandResult(commandId, false, false, false, "", "Frame camera non acquisito.");
+    captureBusy = false;
+    return;
+  }
+
+  String filename = safeCaptureFilename(commandId);
+  bool sdSaved = saveCaptureToSd(filename, frame->buf, frame->len);
+  bool uploadOk = uploadCapture(commandId, filename, frame->buf, frame->len);
+  esp_camera_fb_return(frame);
+
+  lastCaptureFilename = filename;
+  lastCaptureStatus = uploadOk ? "uploaded" : (sdSaved ? "sd-only" : "failed");
+  bool ok = sdSaved || uploadOk;
+  String message = ok ? "Scatto gestito." : "Scatto non salvato.";
+  reportCommandResult(commandId, ok, sdSaved, uploadOk, filename, message);
+  captureBusy = false;
+}
+
 bool hasLocalWifiConfig() {
   return LOCAL_WIFI_SSID && LOCAL_WIFI_SSID[0] != '\0';
 }
@@ -1206,6 +1478,12 @@ void printStatus() {
   Serial.println(FIRMWARE_VERSION);
   Serial.print("OLED: ");
   Serial.println(oledAddress ? "online" : "non trovato");
+  Serial.print("Camera: ");
+  Serial.println(cameraStateLabel);
+  Serial.print("microSD ESP: ");
+  Serial.println(sdStateLabel);
+  Serial.print("Ultimo scatto: ");
+  Serial.println(lastCaptureStatus);
   Serial.print("Wi-Fi SSID: ");
   Serial.println(wifiSsid.length() ? wifiSsid : "(non configurato)");
   Serial.print("Wi-Fi origine: ");
@@ -1340,6 +1618,11 @@ void pollExpression() {
       remoteRevision = revision;
       setTargetExpression(expression);
     }
+    String commandType = extractJsonString(body, "command_type");
+    String commandId = extractJsonString(body, "command_id");
+    if (commandType == "capture_photo" && commandId.length()) {
+      handleCaptureCommand(commandId);
+    }
   } else {
     markServerStatus(false, statusCode);
   }
@@ -1365,7 +1648,11 @@ void sendHeartbeat() {
   payload += "\"rssi\":" + String(WiFi.RSSI()) + ",";
   payload += "\"firmware\":" + jsonString(FIRMWARE_VERSION) + ",";
   payload += "\"oled\":" + jsonString(oledAddress ? "online" : "not-found") + ",";
-  payload += "\"message\":\"Avatar OLED connesso\"";
+  payload += "\"camera\":" + jsonString(cameraStateLabel) + ",";
+  payload += "\"sd\":" + jsonString(sdStateLabel) + ",";
+  payload += "\"last_capture\":" + jsonString(lastCaptureStatus) + ",";
+  payload += "\"last_capture_filename\":" + jsonString(lastCaptureFilename) + ",";
+  payload += "\"message\":\"Avatar OLED con camera opzionale\"";
   payload += "}";
   int statusCode = http.POST(payload);
   if (statusCode == HTTP_CODE_OK) {
@@ -1402,6 +1689,9 @@ void setup() {
   } else {
     Serial.println("OLED non trovato a 0x3C o 0x3D.");
   }
+
+  initializeCamera();
+  initializeStorage();
 
   preferences.begin("niwa", true);
   wifiSsid = preferences.getString("ssid", "");

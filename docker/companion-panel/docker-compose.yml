@@ -5,4 +5,5 @@ services:
     network_mode: host
     volumes:
       - /home/niwa/niwa/data:/data
+      - /mnt/niwa-storage:/storage
     restart: unless-stopped

@@ -33,6 +33,7 @@ Current status:
 - Reads /mnt/niwa-storage/photo
 - Reads /mnt/niwa-storage/video
 - Reads /mnt/niwa-storage/gopro
+- Reads /mnt/niwa-storage/companion for NIWA Companion JPEG captures
 - RAW/JPG gallery
 - Server-side RAW preview extraction and cache
 - Persistent media index in /home/niwa/niwa/data/review_index.json
@@ -122,6 +123,10 @@ Current status:
   flashes, with only a placeholder example committed
 - Physical ESP32-CAM connection to NIWA-AP verified
 - Automatic reconnect, heartbeat and remote OLED expression changes verified
+- Dashboard camera capture command implemented
+- Companion JPEG upload endpoint implemented and routed to NIWA Review
+- ESP32-CAM firmware camera/microSD support compiles and remains optional at
+  runtime when the camera or onboard microSD is missing
 
 ## Immediate next steps
 
@@ -389,10 +394,11 @@ Implementation status:
 Next tasks:
 - redesign the `eating` expression so the hamburger/object composition fits the
   OLED better
-- integrate optional ESP32-CAM camera capture without breaking avatar, Wi-Fi or
-  dashboard behavior when the camera is not connected
-- add a dashboard capture button that triggers the photo animation and stores
-  captured JPEGs both on the ESP SD card and in NIWA Review
+- physically validate optional ESP32-CAM camera capture with the real camera
+  module connected
+- physically validate ESP onboard microSD saving together with the current OLED
+  wiring; if the SD/OLED pin sharing proves unreliable, choose revised display
+  pins or a later ESP32-S3 board
 - register multiple devices with unique IDs and pairing
 - expose image upload, command polling and camera event APIs
 - add SQLite-backed placeholders for subjects and encounter history

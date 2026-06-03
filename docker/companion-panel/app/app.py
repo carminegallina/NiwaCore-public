@@ -3,19 +3,25 @@ from pathlib import Path
 import copy
 import json
 import os
+import re
 import threading
 import time
+import urllib.request
 
 
 app = Flask(__name__)
 
 PORT = int(os.environ.get("NIWA_COMPANION_PORT", "5058"))
 DATA_ROOT = Path(os.environ.get("NIWA_COMPANION_DATA_ROOT", "/data"))
+STORAGE_ROOT = Path(os.environ.get("NIWA_COMPANION_STORAGE_ROOT", "/storage"))
 STATE_FILE = DATA_ROOT / "companion_state.json"
 EVENTS_FILE = DATA_ROOT / "companion_events.json"
+COMPANION_CAPTURE_ROOT = STORAGE_ROOT / "companion"
+REVIEW_REBUILD_URL = os.environ.get("NIWA_COMPANION_REVIEW_REBUILD_URL", "http://127.0.0.1:5052/api/index/rebuild")
 STATE_LOCK = threading.Lock()
 EVENT_LIMIT = 240
 ONLINE_SECONDS = 35
+MAX_UPLOAD_BYTES = 8 * 1024 * 1024
 
 EXPRESSIONS = [
     {"id": "idle", "label": "Idle", "group": "Emozioni", "detail": "Occhi morbidi, battito naturale e piccoli sguardi."},
@@ -91,6 +97,10 @@ def default_state():
                 "battery_percent": None,
                 "firmware": None,
                 "oled": None,
+                "camera": "unknown",
+                "sd": "unknown",
+                "last_capture": None,
+                "last_capture_label": None,
                 "message": "In attesa del primo heartbeat ESP32-CAM.",
             }
         },
@@ -181,6 +191,58 @@ def append_event(event_type, message, **extra):
     return events[-1]
 
 
+def safe_filename(name, fallback):
+    name = Path(str(name or fallback)).name
+    name = re.sub(r"[^A-Za-z0-9._-]+", "_", name).strip("._")
+    if not name:
+        name = fallback
+    if not name.lower().endswith((".jpg", ".jpeg")):
+        name = f"{name}.jpg"
+    return name[:120]
+
+
+def capture_day_folder():
+    return time.strftime("%Y-%m-%d")
+
+
+def trigger_review_rebuild():
+    def rebuild_later():
+        try:
+            request_obj = urllib.request.Request(REVIEW_REBUILD_URL, method="POST")
+            urllib.request.urlopen(request_obj, timeout=1.8).close()
+        except Exception:
+            pass
+
+    threading.Thread(target=rebuild_later, daemon=True).start()
+
+
+def save_uploaded_capture(device_id, command_id, original_name, data):
+    if len(data) > MAX_UPLOAD_BYTES:
+        raise ValueError("File troppo grande.")
+    if not data.startswith(b"\xff\xd8"):
+        raise ValueError("Il file ricevuto non sembra un JPEG.")
+
+    fallback = f"{device_id}_{command_id or int(now_ts())}.jpg"
+    filename = safe_filename(original_name, fallback)
+    target_dir = COMPANION_CAPTURE_ROOT / capture_day_folder()
+    target_dir.mkdir(parents=True, exist_ok=True)
+    target_path = target_dir / filename
+
+    if target_path.exists():
+        stem = target_path.stem
+        suffix = target_path.suffix
+        target_path = target_dir / f"{stem}_{int(now_ts())}{suffix}"
+
+    temp_path = target_path.with_suffix(target_path.suffix + ".tmp")
+    with open(temp_path, "wb") as handle:
+        handle.write(data)
+        handle.flush()
+        os.fsync(handle.fileno())
+    temp_path.replace(target_path)
+    trigger_review_rebuild()
+    return target_path
+
+
 def public_device(device):
     result = copy.deepcopy(device)
     last_seen = result.get("last_seen")
@@ -204,7 +266,7 @@ def public_state(state=None):
 def add_cors_headers(response):
     response.headers["Access-Control-Allow-Origin"] = "*"
     response.headers["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS"
-    response.headers["Access-Control-Allow-Headers"] = "Content-Type"
+    response.headers["Access-Control-Allow-Headers"] = "Content-Type, X-NIWA-Command-ID, X-NIWA-Filename"
     return response
 
 
@@ -272,6 +334,59 @@ def api_expression():
     return jsonify({"ok": True, "state": public_state(state), "event": event})
 
 
+@app.route("/api/camera/capture", methods=["POST"])
+def api_camera_capture():
+    payload = request.get_json(silent=True) or {}
+    device_id = str(payload.get("device_id") or "").strip() or None
+
+    with STATE_LOCK:
+        state = load_state()
+        device_id = device_id or state.get("active_device") or "companion_01"
+        device = state["devices"].setdefault(device_id, {
+            "id": device_id,
+            "name": device_id,
+            "paired": False,
+        })
+
+        if not public_device(device).get("online"):
+            return jsonify({"error": "ESP32 offline: impossibile avviare lo scatto."}), 409
+
+        command_id = f"capture_{int(now_ts() * 1000)}"
+        device["pending_command"] = {
+            "id": command_id,
+            "type": "capture_photo",
+            "created": now_label(),
+            "created_ts": now_ts(),
+        }
+        device["last_command"] = command_id
+
+        previous_expression = state.get("expression", "idle")
+        previous_resume = state.get("resume_expression")
+        state["expression"] = "photo_capture"
+        state["revision"] = int(state.get("revision", 0)) + 1
+        state["updated"] = now_label()
+        state["updated_ts"] = now_ts()
+        state["source"] = "camera-capture"
+        action_rule = ACTION_RULES["photo_capture"]
+        state["resume_expression"] = previous_resume or previous_expression or "idle"
+        state["action_expires_ts"] = now_ts() + action_rule["duration_ms"] / 1000
+        save_state(state)
+        event = append_event(
+            "camera",
+            f"Scatto richiesto a {device_id}",
+            device_id=device_id,
+            command_id=command_id,
+        )
+
+    schedule_action_settlement(ACTION_RULES["photo_capture"]["duration_ms"])
+    return jsonify({
+        "ok": True,
+        "command": device.get("pending_command"),
+        "state": public_state(state),
+        "event": event,
+    })
+
+
 @app.route("/api/devices/register", methods=["POST"])
 def api_register_device():
     payload = request.get_json(silent=True) or {}
@@ -315,6 +430,10 @@ def api_device_heartbeat(device_id):
             "battery_percent": payload.get("battery_percent"),
             "firmware": payload.get("firmware"),
             "oled": payload.get("oled"),
+            "camera": payload.get("camera", device.get("camera", "unknown")),
+            "sd": payload.get("sd", device.get("sd", "unknown")),
+            "last_capture": payload.get("last_capture", device.get("last_capture")),
+            "last_capture_label": payload.get("last_capture_label", device.get("last_capture_label")),
             "message": str(payload.get("message") or "Heartbeat ricevuto.")[:160],
         })
         save_state(state)
@@ -328,13 +447,113 @@ def api_device_heartbeat(device_id):
 def api_device_expression(device_id):
     with STATE_LOCK:
         state = load_state()
+        device = state.get("devices", {}).get(device_id, {})
+        command = device.get("pending_command")
+        if command and now_ts() - float(command.get("created_ts", 0)) > 60:
+            device.pop("pending_command", None)
+            save_state(state)
+            append_event("camera", f"Comando scatto scaduto per {device_id}", device_id=device_id)
+            command = None
     return jsonify({
         "ok": True,
         "device_id": device_id,
         "expression": state["expression"],
         "revision": state["revision"],
+        "command": command,
+        "command_id": command.get("id") if command else "",
+        "command_type": command.get("type") if command else "",
         "poll_after_ms": 900,
     })
+
+
+@app.route("/api/devices/<device_id>/upload-image", methods=["POST"])
+def api_device_upload_image(device_id):
+    command_id = request.headers.get("X-NIWA-Command-ID", "").strip()
+    original_name = request.headers.get("X-NIWA-Filename", "").strip()
+    if request.content_length and request.content_length > MAX_UPLOAD_BYTES:
+        return jsonify({"error": "File troppo grande."}), 413
+    data = request.get_data(cache=False)
+
+    if not data:
+        return jsonify({"error": "Nessun JPEG ricevuto."}), 400
+
+    try:
+        target_path = save_uploaded_capture(device_id, command_id, original_name, data)
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
+    except OSError as exc:
+        return jsonify({"error": str(exc)}), 500
+
+    try:
+        relative = target_path.relative_to(STORAGE_ROOT)
+    except ValueError:
+        relative = target_path
+    with STATE_LOCK:
+        state = load_state()
+        device = state["devices"].setdefault(device_id, {"id": device_id, "name": device_id, "paired": False})
+        device["last_capture"] = str(relative)
+        device["last_capture_label"] = now_label()
+        device["last_capture_bytes"] = len(data)
+        save_state(state)
+        append_event(
+            "camera",
+            f"Scatto Companion salvato: {target_path.name}",
+            device_id=device_id,
+            command_id=command_id,
+            bytes=len(data),
+        )
+
+    return jsonify({
+        "ok": True,
+        "section": "companion",
+        "path": str(relative),
+        "bytes": len(data),
+    })
+
+
+@app.route("/api/devices/<device_id>/command-result", methods=["POST"])
+def api_device_command_result(device_id):
+    payload = request.get_json(silent=True) or {}
+    command_id = str(payload.get("command_id") or "").strip()
+    ok = bool(payload.get("ok"))
+    sd_saved = bool(payload.get("sd_saved"))
+    upload_ok = bool(payload.get("upload_ok"))
+    filename = str(payload.get("filename") or "").strip()
+    message = str(payload.get("message") or "").strip()[:180]
+
+    with STATE_LOCK:
+        state = load_state()
+        device = state["devices"].setdefault(device_id, {"id": device_id, "name": device_id, "paired": False})
+        pending = device.get("pending_command")
+        if pending and pending.get("id") == command_id:
+            device.pop("pending_command", None)
+        device["last_command_result"] = {
+            "command_id": command_id,
+            "ok": ok,
+            "sd_saved": sd_saved,
+            "upload_ok": upload_ok,
+            "filename": filename,
+            "message": message,
+            "timestamp": now_label(),
+        }
+        if filename:
+            device["last_capture_filename"] = filename
+        save_state(state)
+
+        if ok:
+            event_message = f"Scatto completato: SD {'ok' if sd_saved else 'non salvata'}, Review {'ok' if upload_ok else 'non aggiornata'}."
+        else:
+            event_message = message or "Comando scatto non completato."
+        append_event(
+            "camera",
+            event_message,
+            device_id=device_id,
+            command_id=command_id,
+            sd_saved=sd_saved,
+            upload_ok=upload_ok,
+        )
+
+    return jsonify({"ok": True})
 
 
 @app.route("/api/events")
@@ -381,7 +600,7 @@ body{margin:0;background:radial-gradient(circle at 18% -5%,rgba(213,154,132,.22)
 h1,h2,h3,p{margin-top:0}h1{font-size:32px;margin-bottom:6px;letter-spacing:0;color:#fff4ec}h2{font-size:18px;margin-bottom:12px}h3{font-size:15px;margin-bottom:8px}
 .topbar{display:flex;justify-content:space-between;gap:14px;align-items:flex-start;margin-bottom:18px}.brand-heading{display:flex;align-items:center;gap:12px}.brand-logo{width:52px;height:52px;border-radius:50%;border:1px solid rgba(213,154,132,.42);background:#f2dfcf;box-shadow:0 16px 34px rgba(0,0,0,.28)}.subtitle,.muted{color:var(--muted);line-height:1.45}.button{display:inline-flex;align-items:center;justify-content:center;background:rgba(64,45,42,.92);color:#fff;text-decoration:none;border:1px solid var(--line);border-radius:8px;padding:10px 12px;min-height:40px;cursor:pointer}.button:hover{background:rgba(87,61,56,.96);border-color:rgba(213,154,132,.46)}
 .layout{display:grid;grid-template-columns:minmax(320px,.95fr) minmax(420px,1.4fr);gap:14px;align-items:start}.card{background:linear-gradient(180deg,rgba(42,31,29,.94),rgba(18,14,14,.96));border:1px solid var(--line);border-radius:8px;padding:16px;box-shadow:0 18px 34px rgba(0,0,0,.25)}.stack{display:grid;gap:14px}.face-stage{display:grid;place-items:center;background:#050404;border:1px solid rgba(213,154,132,.24);border-radius:8px;overflow:hidden;aspect-ratio:2/1}.face-stage canvas{width:100%;height:100%;display:block}.face-meta{display:flex;justify-content:space-between;gap:10px;align-items:center;margin-top:12px}.expression-label{font-size:22px;font-weight:bold;color:#fff4ec}.pill{display:inline-flex;align-items:center;border:1px solid var(--line);border-radius:999px;padding:5px 8px;font-size:12px;color:#ffe0d1;background:rgba(64,45,42,.72)}.pill.online{color:#86efac;border-color:rgba(34,197,94,.36);background:rgba(34,197,94,.12)}.pill.offline{color:#fde68a;border-color:rgba(250,204,21,.36);background:rgba(250,204,21,.10)}
-.metrics{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}.metric{background:rgba(21,17,18,.92);border:1px solid rgba(203,144,124,.20);border-radius:8px;padding:10px}.metric-value{font-weight:bold;font-size:16px;color:#fff4ec}.metric-label{font-size:11px;color:var(--muted);margin-top:4px}.camera-placeholder{aspect-ratio:16/9;display:grid;place-items:center;background:#080707;border:1px dashed rgba(213,154,132,.30);border-radius:8px;color:var(--muted);text-align:center;padding:14px}
+.metrics{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:8px}.metric{background:rgba(21,17,18,.92);border:1px solid rgba(203,144,124,.20);border-radius:8px;padding:10px}.metric-value{font-weight:bold;font-size:16px;color:#fff4ec}.metric-label{font-size:11px;color:var(--muted);margin-top:4px}.camera-placeholder{aspect-ratio:16/9;display:grid;place-items:center;background:#080707;border:1px dashed rgba(213,154,132,.30);border-radius:8px;color:var(--muted);text-align:center;padding:14px}.camera-actions{display:grid;gap:10px;margin-top:12px}.button.primary{background:linear-gradient(180deg,#d59a84,#9f6f63);border-color:rgba(240,184,162,.45);font-weight:bold}.button:disabled{opacity:.45;cursor:not-allowed}.capture-status{font-size:13px;color:var(--muted);min-height:18px}
 .group{margin-top:16px}.group:first-child{margin-top:0}.group-title{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;color:#f0b8a2;font-weight:bold}.expression-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(135px,1fr));gap:8px}.expression{min-height:64px;text-align:left;background:rgba(21,17,18,.92);color:#ffe0d1;border:1px solid rgba(203,144,124,.20);border-radius:8px;padding:9px;cursor:pointer}.expression:hover{background:#2b1e1b;border-color:rgba(213,154,132,.46)}.expression.active{background:linear-gradient(180deg,rgba(213,154,132,.34),rgba(64,45,42,.92));border-color:var(--accent-strong);box-shadow:0 0 0 1px rgba(240,184,162,.18)}.expression strong{display:block;font-size:14px}.expression span{display:block;color:var(--muted);font-size:11px;line-height:1.3;margin-top:4px}.events{display:grid;gap:8px;max-height:260px;overflow:auto}.event{border-left:2px solid var(--accent);padding:7px 9px;background:rgba(21,17,18,.72);font-size:13px}.event small{display:block;color:var(--muted);margin-top:3px}
 @media(max-width:920px){.layout{grid-template-columns:1fr}}@media(max-width:620px){body{padding:12px}.topbar{display:block}.brand-logo{width:44px;height:44px}.topbar .button{margin-top:10px}.metrics{grid-template-columns:1fr}.expression-grid{grid-template-columns:repeat(2,minmax(0,1fr))}h1{font-size:27px}}
 </style>
@@ -413,11 +632,18 @@ h1,h2,h3,p{margin-top:0}h1{font-size:32px;margin-bottom:6px;letter-spacing:0;col
         <div class="metric"><div class="metric-value" id="wifiState">Offline</div><div class="metric-label">Wi-Fi</div></div>
         <div class="metric"><div class="metric-value" id="batteryState">-</div><div class="metric-label">Batteria futura</div></div>
         <div class="metric"><div class="metric-value" id="firmwareState">-</div><div class="metric-label">Firmware</div></div>
+        <div class="metric"><div class="metric-value" id="cameraState">-</div><div class="metric-label">Camera</div></div>
+        <div class="metric"><div class="metric-value" id="sdState">-</div><div class="metric-label">microSD ESP</div></div>
+        <div class="metric"><div class="metric-value" id="lastCaptureState">-</div><div class="metric-label">Ultimo scatto</div></div>
       </div>
     </section>
     <section class="card">
       <h2>Camera</h2>
       <div class="camera-placeholder">Anteprima camera non attiva<br><span class="muted">Il modulo volto resta indipendente dalla camera.</span></div>
+      <div class="camera-actions">
+        <button class="button primary" id="captureButton" onclick="capturePhoto()">Scatta foto</button>
+        <div class="capture-status" id="captureState">Pronto per comandi camera quando l'ESP è online.</div>
+      </div>
     </section>
     <section class="card">
       <h2>Eventi</h2>
@@ -606,8 +832,9 @@ function drawFace(id,t,open=1){ctx.clearRect(0,0,512,256);ctx.fillStyle='#050404
 function animate(now){const dt=Math.min(.08,(now-lastTime)/1000);lastTime=now;if(transitionPhase==='closing'){openness=Math.max(0,openness-dt*6);if(openness===0){current=next;transitionPhase='opening'}}else if(transitionPhase==='opening'){openness=Math.min(1,openness+dt*6);if(openness===1)transitionPhase='idle'}drawFace(current,now/1000,openness);requestAnimationFrame(animate)}
 function setPreview(id){if(id!==next){next=id;transitionPhase='closing';expressionStartedAt=performance.now()/1000}const item=labelFor(id);document.getElementById('currentExpression').textContent=item.label;document.getElementById('currentDetail').textContent=item.detail;document.querySelectorAll('.expression').forEach(b=>b.classList.toggle('active',b.dataset.id===id))}
 async function sendExpression(id){const r=await fetch('/api/expression',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({expression:id,source:'dashboard'})});if(!r.ok)throw new Error('Cambio espressione non riuscito');setPreview(id);loadEvents()}
+async function capturePhoto(){const button=document.getElementById('captureButton');const state=document.getElementById('captureState');button.disabled=true;state.textContent='Richiesta scatto in corso...';try{const r=await fetch('/api/camera/capture',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({device_id:'companion_01'})});const data=await r.json();if(!r.ok||data.error)throw new Error(data.error||'Scatto non avviato');setPreview('photo_capture');state.textContent='Comando inviato all ESP32. Attendo salvataggio e upload.';loadEvents()}catch(e){state.textContent='Errore scatto: '+e.message}finally{button.disabled=false;setTimeout(loadStatus,900)}}
 function renderButtons(){const groups={};expressions.forEach(e=>(groups[e.group]??=[]).push(e));document.getElementById('expressionGroups').innerHTML=Object.entries(groups).map(([group,items])=>`<div class="group"><div class="group-title">${group}<span class="pill">${items.length}</span></div><div class="expression-grid">${items.map(e=>`<button class="expression" data-id="${e.id}" onclick="sendExpression('${e.id}')"><strong>${e.label}</strong><span>${e.detail}</span></button>`).join('')}</div></div>`).join('')}
-async function loadStatus(){const data=await(await fetch('/api/status',{cache:'no-store'})).json();expressions=data.expressions;renderButtons();setPreview(data.state.expression);const d=data.state.devices.companion_01||{};const p=document.getElementById('devicePill');p.className=`pill ${d.online?'online':'offline'}`;p.textContent=d.online?'ESP32 online':'ESP32 offline';document.getElementById('wifiState').textContent=d.online?(d.rssi?`${d.rssi} dBm`:'Online'):'Offline';document.getElementById('batteryState').textContent=d.battery_percent??'-';document.getElementById('firmwareState').textContent=d.firmware??'-'}
+async function loadStatus(){const data=await(await fetch('/api/status',{cache:'no-store'})).json();expressions=data.expressions;renderButtons();setPreview(data.state.expression);const d=data.state.devices.companion_01||{};const p=document.getElementById('devicePill');p.className=`pill ${d.online?'online':'offline'}`;p.textContent=d.online?'ESP32 online':'ESP32 offline';document.getElementById('wifiState').textContent=d.online?(d.rssi?`${d.rssi} dBm`:'Online'):'Offline';document.getElementById('batteryState').textContent=d.battery_percent??'-';document.getElementById('firmwareState').textContent=d.firmware??'-';document.getElementById('cameraState').textContent=d.camera??'-';document.getElementById('sdState').textContent=d.sd??'-';document.getElementById('lastCaptureState').textContent=d.last_capture_label??d.last_capture_filename??'-';const last=d.last_command_result;if(last&&last.message){document.getElementById('captureState').textContent=last.ok?`Ultimo scatto: ${last.filename||'completato'}`:`Ultimo scatto: ${last.message}`}}
 async function loadEvents(){const data=await(await fetch('/api/events',{cache:'no-store'})).json();document.getElementById('events').innerHTML=data.items.length?data.items.slice(0,14).map(e=>`<div class="event">${e.message}<small>${e.timestamp}</small></div>`).join(''):'<div class="muted">Nessun evento.</div>'}
 new EventSource('/api/stream').addEventListener('state',event=>{const state=JSON.parse(event.data);setPreview(state.expression);loadStatus()});loadStatus();loadEvents();setInterval(loadStatus,4000);setInterval(loadEvents,10000);requestAnimationFrame(animate);
 </script>

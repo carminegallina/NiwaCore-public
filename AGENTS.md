@@ -120,6 +120,7 @@ Suggested media structure:
 /mnt/niwa-storage/photo
 /mnt/niwa-storage/video
 /mnt/niwa-storage/gopro
+/mnt/niwa-storage/companion
 /mnt/niwa-storage/backstage
 /mnt/niwa-storage/exports
 /mnt/niwa-storage/backup
@@ -262,6 +263,7 @@ curl http://localhost:5052/api/media/photo
 curl 'http://localhost:5052/api/media/photo?page=1&limit=80'
 curl http://localhost:5052/api/media/video
 curl 'http://localhost:5052/api/media/gopro?kind=all'
+curl http://localhost:5052/api/media/companion
 curl http://localhost:5052/api/index/status
 curl -X POST http://localhost:5052/api/index/rebuild
 curl http://localhost:5052/api/previews/status
@@ -353,6 +355,7 @@ Test API:
 curl http://localhost:5058/api/health
 curl http://localhost:5058/api/status
 curl -X POST http://localhost:5058/api/expression -H 'Content-Type: application/json' -d '{"expression":"happy"}'
+curl -X POST http://localhost:5058/api/camera/capture -H 'Content-Type: application/json' -d '{"device_id":"companion_01"}'
 curl http://localhost:5058/api/devices/companion_01/expression
 
 ## NIWA restricted admin commands
@@ -416,6 +419,12 @@ Current Companion OLED note:
   dashboard preview so the physical OLED can match the refined web expressions
 - known next visual task: redesign the Companion `eating` expression; do not
   treat it as completed in the current stable expression pass
+- optional ESP32-CAM capture support has been added to the firmware and
+  Companion Panel; camera and microSD failures must be reported without
+  blocking OLED, Wi-Fi, heartbeat or expression control
+- Companion captures are saved in NIWA Review under `/mnt/niwa-storage/companion`
+  after upload to the Raspberry; physical camera and ESP microSD validation
+  remains pending
 
 ## Important project direction
 
@@ -472,10 +481,11 @@ Advanced:
 
 ## Current stable checkpoint
 
-Latest committed stable code checkpoint before the Companion implementation:
+Latest committed stable code checkpoint before the optional Companion camera
+integration:
 
-d5a58b1 Add ESP32-CAM smoke test firmware
+29339a6 Stabilize Companion OLED expressions
 
 Useful next-thread prompt:
 
-Continue NIWA in C:\Users\utente\Projects\niwa. Read AGENTS.md, PROJECT_HISTORY.md, ROADMAP.md and SYSTEM_SNAPSHOT.md. NIWA Companion now has a separate panel on port 5058 and an animated OLED avatar firmware. Keep ESP32-CAM as an avatar/camera/sensor node and the Raspberry as the local-first backend core. Do not implement fake AI. Next physical step: flash firmware/esp32cam-companion, remove the GPIO0-GND flash link before restart, provision NIWA-AP Wi-Fi locally and test dashboard expression buttons.
+Continue NIWA in C:\Users\utente\Projects\niwa. Read AGENTS.md, PROJECT_HISTORY.md, ROADMAP.md and SYSTEM_SNAPSHOT.md. Stable checkpoint before optional camera work is 29339a6. NIWA Companion has a separate panel on port 5058 and an animated OLED avatar firmware. Keep ESP32-CAM as an avatar/camera/sensor node and the Raspberry as the local-first backend core. Do not implement fake AI. Next physical step: deploy/flash the optional camera capture build, remove the GPIO0-GND flash link before restart, then test camera missing, camera connected, ESP microSD saving and NIWA Review Companion uploads.

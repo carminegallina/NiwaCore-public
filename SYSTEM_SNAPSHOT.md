@@ -277,12 +277,14 @@ Current media roots inside the container:
 /storage/photo
 /storage/video
 /storage/gopro
+/storage/companion
 
 Current media roots on the Raspberry:
 
 /mnt/niwa-storage/photo
 /mnt/niwa-storage/video
 /mnt/niwa-storage/gopro
+/mnt/niwa-storage/companion
 
 RAW preview cache:
 
@@ -312,6 +314,7 @@ Current behavior:
 - validated JPG and MP4 ratings against real imported GoPro media on the Raspberry
 - shows video files from video
 - shows GoPro JPG/video files from gopro
+- shows Companion JPEG captures from companion
 - supports GoPro all/photo/video filter
 - avoids stale async tab responses updating the wrong tab
 - uses logo-inspired dark card styling with copper/rose accents
@@ -330,6 +333,7 @@ curl http://localhost:5052/api/media/photo
 curl 'http://localhost:5052/api/media/photo?page=1&limit=80'
 curl http://localhost:5052/api/media/video
 curl 'http://localhost:5052/api/media/gopro?kind=all'
+curl http://localhost:5052/api/media/companion
 curl http://localhost:5052/api/index/status
 curl -X POST http://localhost:5052/api/index/rebuild
 curl http://localhost:5052/api/previews/status
@@ -547,6 +551,7 @@ Port:
 Expected Docker volume:
 
 /home/niwa/niwa/data:/data
+/mnt/niwa-storage:/storage
 
 Runtime state:
 
@@ -557,9 +562,13 @@ Current behavior:
 - provides an animated browser preview and manual OLED expression controls
 - stores active expression, registered devices and recent events in local JSON
 - accepts ESP32-CAM heartbeat updates and exposes expression polling
+- exposes a dashboard capture command for the ESP32-CAM camera
+- accepts JPEG uploads from the ESP32-CAM and stores them under
+  /mnt/niwa-storage/companion for NIWA Review
 - exposes server-sent events for responsive browser updates
 - keeps battery and camera previews as explicit placeholders
-- keeps photo mode, tracking, scanning and photo flash as manual animations only
+- keeps tracking and scanning as manual animations only; photo capture animation
+  is also used during explicit camera capture commands
 - does not implement fake camera processing, recognition or AI
 - includes local static reference assets for the refined browser expression
   library, including the restored animated `sobbing` tear reference
@@ -576,6 +585,7 @@ API tests:
 curl http://localhost:5058/api/health
 curl http://localhost:5058/api/status
 curl -X POST http://localhost:5058/api/expression -H 'Content-Type: application/json' -d '{"expression":"happy"}'
+curl -X POST http://localhost:5058/api/camera/capture -H 'Content-Type: application/json' -d '{"device_id":"companion_01"}'
 curl http://localhost:5058/api/devices/companion_01/expression
 
 ## Storage
@@ -593,6 +603,7 @@ Current intended folders:
 /mnt/niwa-storage/photo
 /mnt/niwa-storage/video
 /mnt/niwa-storage/gopro
+/mnt/niwa-storage/companion
 /mnt/niwa-storage/backstage
 /mnt/niwa-storage/exports
 /mnt/niwa-storage/backup
@@ -716,6 +727,9 @@ Current validation:
   from generated 128x64 bitmap frames in `companion_oled_bitmaps.h`, derived
   from the Raspberry Companion dashboard preview so the physical OLED and web
   preview stay aligned
+- `firmware/esp32cam-companion` now compiles with optional ESP32-CAM capture and
+  SD_MMC support; camera and microSD failures are reported through heartbeat and
+  must not block OLED expression control
 - `firmware/esp32cam-companion` also supports an ignored local build header,
   `niwa_companion_local_config.h`, for repeated prototype flashes; only
   `niwa_companion_local_config.example.h` is versioned and real credentials
@@ -728,6 +742,8 @@ Current validation:
   not a fixed device address
 - known Companion visual TODO: redesign the `eating` expression in a later pass;
   it is not part of this stable OLED checkpoint
+- physical validation pending: real camera capture, ESP onboard microSD write
+  and coexistence with the current OLED wiring
 
 ## Network notes
 

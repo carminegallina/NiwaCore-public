@@ -74,6 +74,7 @@ Current purpose:
   paired media can keep independent ratings
 - browse Nikon video files from /mnt/niwa-storage/video
 - browse GoPro JPG/video files from /mnt/niwa-storage/gopro
+- browse Companion JPEG captures from /mnt/niwa-storage/companion
 - filter GoPro media by all/photo/video
 
 The current design is intentionally simple:
@@ -322,8 +323,15 @@ Current foundation:
 - keep the browser avatar backed by local reference assets for the refined
   Eilik-inspired expression pass, including base eyes, serene eyes, joyful,
   curious, love, sad, crying, sobbing tears and wonder eyes
-- keep photo mode, tracking, scanning and photo flash as manual animations only:
-  no camera integration or fake AI is implied
+- keep tracking and scanning as manual animations only; `photo_capture` is now
+  also used as the visual feedback for the explicit dashboard capture command,
+  without adding fake recognition or AI behavior
+- add an optional camera capture command path for ESP32-CAM nodes: the dashboard
+  can request a photo, the ESP can save the JPEG to its own microSD when
+  available, upload it to the Raspberry, and NIWA Review indexes the uploaded
+  copy under the Companion section
+- keep camera and ESP microSD as optional runtime capabilities; if either is
+  missing, the ESP must continue OLED, Wi-Fi, heartbeat and expression polling
 - provision Wi-Fi over serial at runtime so credentials are saved only in ESP32
   memory and never committed
 - support an ignored local build config header for repeated ESP32 prototype
@@ -381,10 +389,13 @@ The first physical ESP32-CAM validation has also been completed:
   crying and love
 - the `eating` expression remains queued for a later visual redesign rather
   than being changed in this stable checkpoint
+- ESP32-CAM optional camera capture support now compiles successfully; real
+  camera and onboard microSD validation remains pending
 
 ### Version checkpoints
 
 Recent stable commits:
+- 29339a6 Stabilize Companion OLED expressions
 - e9e098d Extend Review ratings to JPG and video
 - 724ee35 Fix GoPro video thumbnail generation
 - cdb44db Clean interrupted import staging automatically

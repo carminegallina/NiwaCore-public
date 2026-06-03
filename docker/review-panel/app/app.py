@@ -16,6 +16,7 @@ app = Flask(__name__)
 PHOTO_ROOT = Path("/storage/photo")
 VIDEO_ROOT = Path("/storage/video")
 GOPRO_ROOT = Path("/storage/gopro")
+COMPANION_ROOT = Path("/storage/companion")
 CACHE_ROOT = Path("/storage/.niwa_cache/review_previews")
 VIDEO_CACHE_ROOT = Path("/storage/.niwa_cache/review_video_thumbs")
 PREVIEW_STATE_FILE = CACHE_ROOT / "preview_state.json"
@@ -58,6 +59,12 @@ MEDIA_SECTIONS = {
         "root": GOPRO_ROOT,
         "extensions": GOPRO_EXTENSIONS,
         "empty": "Nessun JPG o MP4 trovato nella cartella gopro.",
+    },
+    "companion": {
+        "label": "Companion",
+        "root": COMPANION_ROOT,
+        "extensions": JPEG_EXTENSIONS,
+        "empty": "Nessuno scatto Companion trovato.",
     },
 }
 
@@ -982,6 +989,7 @@ h1{color:#fff4ec}.subtitle{color:var(--muted)}
 <button class="tab active" data-section="photo" onclick="setSection('photo')">Foto</button>
 <button class="tab" data-section="video" onclick="setSection('video')">Video</button>
 <button class="tab" data-section="gopro" onclick="setSection('gopro')">GoPro</button>
+<button class="tab" data-section="companion" onclick="setSection('companion')">Companion</button>
 </div>
 
 <div class="filters filter-row" id="goproFilters">
@@ -1039,7 +1047,8 @@ let TOTAL_ITEMS = 0;
 const SECTION_LABELS = {
     photo: 'foto',
     video: 'video',
-    gopro: 'media GoPro'
+    gopro: 'media GoPro',
+    companion: 'scatti Companion'
 };
 
 function setSection(section){
@@ -1535,6 +1544,8 @@ def api_status():
         "video_root_exists": VIDEO_ROOT.exists(),
         "gopro_root": str(GOPRO_ROOT),
         "gopro_root_exists": GOPRO_ROOT.exists(),
+        "companion_root": str(COMPANION_ROOT),
+        "companion_root_exists": COMPANION_ROOT.exists(),
         "cache_root": str(CACHE_ROOT),
         "exiftool": subprocess.run(
             ["sh", "-c", "command -v exiftool >/dev/null 2>&1"],
