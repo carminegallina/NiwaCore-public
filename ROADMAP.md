@@ -380,8 +380,19 @@ Implementation status:
 - runtime serial Wi-Fi provisioning prepared without committed credentials
 - ignored local Wi-Fi build config prepared for prototype flashing without
   committing real hotspot credentials
+- ESP32 OLED expression rendering now uses generated bitmap frames derived from
+  the Raspberry dashboard renderer, making the physical display match the web
+  preview much more closely
+- physical OLED expression polish completed for the current stable set, with
+  `eating` explicitly left as a future redesign task
 
 Next tasks:
+- redesign the `eating` expression so the hamburger/object composition fits the
+  OLED better
+- integrate optional ESP32-CAM camera capture without breaking avatar, Wi-Fi or
+  dashboard behavior when the camera is not connected
+- add a dashboard capture button that triggers the photo animation and stores
+  captured JPEGs both on the ESP SD card and in NIWA Review
 - register multiple devices with unique IDs and pairing
 - expose image upload, command polling and camera event APIs
 - add SQLite-backed placeholders for subjects and encounter history

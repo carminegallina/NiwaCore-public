@@ -712,6 +712,10 @@ Current validation:
   `SCL -> GPIO14` and `SDA -> GPIO13`
 - `firmware/esp32cam-companion` compiles successfully with animated OLED faces,
   Raspberry expression polling and runtime serial Wi-Fi provisioning
+- `firmware/esp32cam-companion` currently renders OLED expressions primarily
+  from generated 128x64 bitmap frames in `companion_oled_bitmaps.h`, derived
+  from the Raspberry Companion dashboard preview so the physical OLED and web
+  preview stay aligned
 - `firmware/esp32cam-companion` also supports an ignored local build header,
   `niwa_companion_local_config.h`, for repeated prototype flashes; only
   `niwa_companion_local_config.example.h` is versioned and real credentials
@@ -722,6 +726,8 @@ Current validation:
   validated on the physical ESP32-CAM
 - the first validated DHCP address was `10.42.0.101`; treat it as runtime data,
   not a fixed device address
+- known Companion visual TODO: redesign the `eating` expression in a later pass;
+  it is not part of this stable OLED checkpoint
 
 ## Network notes
 

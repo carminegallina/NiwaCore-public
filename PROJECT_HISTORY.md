@@ -373,6 +373,14 @@ The first physical ESP32-CAM validation has also been completed:
   the Raspberry hotspot
 - heartbeat, remote `happy`, manual `tracking`, temporary `blink` and automatic
   return to the previous expression were validated on the physical OLED
+- the Companion OLED avatar was stabilized with firmware-side bitmap frames
+  generated from the Raspberry dashboard renderer, so the ESP display now
+  closely matches the web preview for the current expression set
+- the refined physical OLED pass validated the Eilik-inspired expressions after
+  iterative correction, including joyful, laughing, excited, shocked, sad,
+  crying and love
+- the `eating` expression remains queued for a later visual redesign rather
+  than being changed in this stable checkpoint
 
 ### Version checkpoints
 

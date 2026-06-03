@@ -411,6 +411,12 @@ firmware/esp32cam-companion/niwa_companion_local_config.h
 Only the placeholder example file may be committed. Never stage or commit the
 real local config header because it may contain the NIWA-AP password.
 
+Current Companion OLED note:
+- firmware/esp32cam-companion uses generated bitmap frames from the Raspberry
+  dashboard preview so the physical OLED can match the refined web expressions
+- known next visual task: redesign the Companion `eating` expression; do not
+  treat it as completed in the current stable expression pass
+
 ## Important project direction
 
 NIWA should evolve as modular panels:

@@ -31,6 +31,7 @@
 #include <Preferences.h>
 #include <WiFi.h>
 #include <Wire.h>
+#include <esp_wifi.h>
 
 #if __has_include("niwa_companion_local_config.h")
 #include "niwa_companion_local_config.h"
@@ -55,9 +56,12 @@
 #define NIWA_COMPANION_SERVER_URL "http://10.42.0.1:5058"
 #endif
 
-const char* FIRMWARE_VERSION = "0.3.10-local-wifi";
+#include "companion_oled_bitmaps.h"
+
+const char* FIRMWARE_VERSION = "0.3.12-web-bitmaps";
 const char* DEVICE_ID = "companion_01";
 const char* DEVICE_NAME = "NIWA Companion 01";
+const char* DEVICE_HOSTNAME = "niwa-companion-01";
 const char* DEFAULT_SERVER_URL = NIWA_COMPANION_SERVER_URL;
 const char* LOCAL_WIFI_SSID = NIWA_COMPANION_WIFI_SSID;
 const char* LOCAL_WIFI_PASSWORD = NIWA_COMPANION_WIFI_PASSWORD;
@@ -84,7 +88,13 @@ String serialLine;
 String activeExpression = "idle";
 String targetExpression = "idle";
 String wifiConfigSource = "none";
+String wifiStateLabel = "BOOT";
+String serverStateLabel = "SERVER WAIT";
 int remoteRevision = 0;
+int lastWifiReason = 0;
+int lastWifiChannel = 0;
+int lastWifiRssi = 0;
+int lastHttpStatus = 0;
 int transitionPhase = 0;
 float eyeOpenAmount = 1.0;
 unsigned long lastFrameAt = 0;
@@ -92,7 +102,9 @@ unsigned long lastPollAt = 0;
 unsigned long lastHeartbeatAt = 0;
 unsigned long lastWifiRetryAt = 0;
 unsigned long wifiAttemptStartedAt = 0;
+unsigned long lastServerOkAt = 0;
 bool wifiAttemptInProgress = false;
+bool serverOnline = false;
 
 struct Glyph {
   char character;
@@ -115,11 +127,17 @@ const Glyph FONT[] = {
   {'8', {0x36, 0x49, 0x49, 0x49, 0x36}},
   {'9', {0x06, 0x49, 0x49, 0x29, 0x1E}},
   {'A', {0x7E, 0x11, 0x11, 0x11, 0x7E}},
+  {'B', {0x7F, 0x49, 0x49, 0x49, 0x36}},
   {'C', {0x3E, 0x41, 0x41, 0x41, 0x22}},
+  {'D', {0x7F, 0x41, 0x41, 0x22, 0x1C}},
   {'E', {0x7F, 0x49, 0x49, 0x49, 0x41}},
   {'F', {0x7F, 0x09, 0x09, 0x09, 0x01}},
+  {'G', {0x3E, 0x41, 0x49, 0x49, 0x7A}},
+  {'H', {0x7F, 0x08, 0x08, 0x08, 0x7F}},
   {'I', {0x00, 0x41, 0x7F, 0x41, 0x00}},
+  {'K', {0x7F, 0x08, 0x14, 0x22, 0x41}},
   {'L', {0x7F, 0x40, 0x40, 0x40, 0x40}},
+  {'M', {0x7F, 0x02, 0x0C, 0x02, 0x7F}},
   {'N', {0x7F, 0x02, 0x04, 0x08, 0x7F}},
   {'O', {0x3E, 0x41, 0x41, 0x41, 0x3E}},
   {'P', {0x7F, 0x09, 0x09, 0x09, 0x06}},
@@ -127,7 +145,9 @@ const Glyph FONT[] = {
   {'S', {0x46, 0x49, 0x49, 0x49, 0x31}},
   {'T', {0x01, 0x01, 0x7F, 0x01, 0x01}},
   {'U', {0x3F, 0x40, 0x40, 0x40, 0x3F}},
+  {'V', {0x1F, 0x20, 0x40, 0x20, 0x1F}},
   {'W', {0x7F, 0x20, 0x18, 0x20, 0x7F}},
+  {'Y', {0x07, 0x08, 0x70, 0x08, 0x07}},
   {'Z', {0x61, 0x51, 0x49, 0x45, 0x43}},
 };
 
@@ -532,6 +552,26 @@ void sendFrame() {
   }
 }
 
+bool drawGeneratedExpressionBitmap(const String& expression, unsigned long now) {
+  for (size_t index = 0; index < NIWA_OLED_BITMAP_COUNT; index++) {
+    const NiwaOledBitmapExpression& item = NIWA_OLED_BITMAPS[index];
+    if (expression != item.id) {
+      continue;
+    }
+
+    uint8_t frameIndex = 0;
+    if (item.frame_count > 1) {
+      frameIndex = (now / 520) % item.frame_count;
+    }
+    const uint8_t* bitmap = item.frames[frameIndex];
+    for (size_t offset = 0; offset < OLED_BUFFER_SIZE; offset++) {
+      frameBuffer[offset] = pgm_read_byte(bitmap + offset);
+    }
+    return true;
+  }
+  return false;
+}
+
 void drawEye(int x, int y, int width, int height, int pupilX = 0, int pupilY = 0, bool pupil = false) {
   int radiusX = max(2, width / 2);
   int radiusY = max(1, height / 2);
@@ -726,6 +766,37 @@ void drawWifiMark() {
   }
 }
 
+void drawDiagnosticScreen(unsigned long now) {
+  drawText(4, 3, "NIWA");
+  drawText(4, 15, WiFi.status() == WL_CONNECTED ? "WIFI OK" : wifiStateLabel.c_str());
+  if (WiFi.status() == WL_CONNECTED) {
+    drawText(4, 27, serverStateLabel.c_str());
+  } else if (wifiConfigSource.startsWith("local")) {
+    drawText(4, 27, "SRC LOCAL");
+  } else if (wifiConfigSource == "esp32 memory") {
+    drawText(4, 27, "SRC ESP");
+  } else {
+    drawText(4, 27, "SRC NONE");
+  }
+
+  char detailLine[22];
+  if (WiFi.status() == WL_CONNECTED) {
+    snprintf(detailLine, sizeof(detailLine), "RSSI %d", WiFi.RSSI());
+  } else if (lastWifiChannel > 0) {
+    snprintf(detailLine, sizeof(detailLine), "CH %d RSSI %d", lastWifiChannel, lastWifiRssi);
+  } else if (lastWifiReason) {
+    snprintf(detailLine, sizeof(detailLine), "ERR %d", lastWifiReason);
+  } else {
+    snprintf(detailLine, sizeof(detailLine), "FW 0.3.11");
+  }
+  drawText(4, 39, detailLine);
+
+  int pulse = (now / 280) % 4;
+  for (int index = 0; index < pulse; index++) {
+    fillCircle(104 + index * 8, 54, 2);
+  }
+}
+
 void renderExpression(unsigned long now) {
   clearFrame();
   float seconds = now / 1000.0;
@@ -739,11 +810,28 @@ void renderExpression(unsigned long now) {
   int lookX = round(sin(seconds * 0.7) * 3);
   int lookY = round(cos(seconds * 0.53));
 
-  if (transitionPhase == 1 || naturalBlink < 0.5) {
-    drawReferenceBlink();
+  if (WiFi.status() != WL_CONNECTED || !serverOnline) {
+    drawDiagnosticScreen(now);
     sendFrame();
     return;
   }
+
+  if (transitionPhase == 1 || naturalBlink < 0.5) {
+    if (!drawGeneratedExpressionBitmap("blink", now)) {
+      drawReferenceBlink();
+    }
+    sendFrame();
+    return;
+  }
+
+  if (drawGeneratedExpressionBitmap(activeExpression, now)) {
+    if (activeExpression == "photo_capture" && now % 240 < 100) {
+      memset(frameBuffer, 0xFF, sizeof(frameBuffer));
+    }
+    sendFrame();
+    return;
+  }
+
   if (drawReferenceFace(activeExpression, activeExpression == "laughing" ? bounce : 0)) {
     sendFrame();
     return;
@@ -956,6 +1044,27 @@ bool hasLocalWifiConfig() {
   return LOCAL_WIFI_SSID && LOCAL_WIFI_SSID[0] != '\0';
 }
 
+const char* wifiStatusName(wl_status_t status) {
+  switch (status) {
+    case WL_IDLE_STATUS:
+      return "IDLE";
+    case WL_NO_SSID_AVAIL:
+      return "NO SSID";
+    case WL_SCAN_COMPLETED:
+      return "SCAN OK";
+    case WL_CONNECTED:
+      return "CONNECTED";
+    case WL_CONNECT_FAILED:
+      return "CONNECT FAILED";
+    case WL_CONNECTION_LOST:
+      return "CONNECTION LOST";
+    case WL_DISCONNECTED:
+      return "DISCONNECTED";
+    default:
+      return "UNKNOWN";
+  }
+}
+
 void applyLocalBuildConfig() {
   bool shouldUseLocalWifi = hasLocalWifiConfig() && (NIWA_COMPANION_USE_LOCAL_WIFI || !wifiSsid.length());
   if (shouldUseLocalWifi) {
@@ -975,8 +1084,67 @@ void applyLocalBuildConfig() {
   }
 }
 
+void configureWifiRadio() {
+  WiFi.persistent(false);
+  WiFi.mode(WIFI_STA);
+  WiFi.setSleep(false);
+  WiFi.setAutoReconnect(true);
+  WiFi.setHostname(DEVICE_HOSTNAME);
+  wifi_country_t country = {"IT", 1, 13, WIFI_COUNTRY_POLICY_AUTO};
+  esp_wifi_set_country(&country);
+}
+
+int scanForConfiguredWifi() {
+  lastWifiChannel = 0;
+  lastWifiRssi = 0;
+  if (!wifiSsid.length()) {
+    return 0;
+  }
+
+  wifiStateLabel = "WIFI SCAN";
+  Serial.print("Scansione Wi-Fi per SSID ");
+  Serial.println(wifiSsid);
+  int count = WiFi.scanNetworks(false, true);
+  int bestIndex = -1;
+  int bestRssi = -1000;
+  for (int index = 0; index < count; index++) {
+    if (WiFi.SSID(index) == wifiSsid && WiFi.RSSI(index) > bestRssi) {
+      bestIndex = index;
+      bestRssi = WiFi.RSSI(index);
+    }
+  }
+
+  if (bestIndex >= 0) {
+    lastWifiChannel = WiFi.channel(bestIndex);
+    lastWifiRssi = WiFi.RSSI(bestIndex);
+    Serial.print("NIWA-AP trovato. Canale: ");
+    Serial.print(lastWifiChannel);
+    Serial.print(" RSSI: ");
+    Serial.println(lastWifiRssi);
+  } else {
+    Serial.print("NIWA-AP non trovato nella scansione. Reti viste: ");
+    Serial.println(count);
+  }
+  WiFi.scanDelete();
+  return lastWifiChannel;
+}
+
+void markServerStatus(bool online, int statusCode = 0) {
+  lastHttpStatus = statusCode;
+  serverOnline = online;
+  if (online) {
+    lastServerOkAt = millis();
+    serverStateLabel = "SERVER OK";
+  } else if (statusCode > 0) {
+    serverStateLabel = "SERVER ERR";
+  } else {
+    serverStateLabel = "SERVER WAIT";
+  }
+}
+
 void connectWifi(bool forceRestart = false) {
   if (!wifiSsid.length()) {
+    wifiStateLabel = "NO WIFI";
     Serial.println("Wi-Fi non configurato. Usa lo script di provisioning NIWA.");
     return;
   }
@@ -989,13 +1157,20 @@ void connectWifi(bool forceRestart = false) {
   if (forceRestart) {
     Serial.println("Timeout Wi-Fi: nuovo tentativo pulito.");
     WiFi.disconnect(false);
-    delay(250);
+    delay(350);
   }
+  configureWifiRadio();
+  int channel = scanForConfiguredWifi();
   Serial.print("Connessione Wi-Fi a ");
   Serial.println(wifiSsid);
-  WiFi.mode(WIFI_STA);
-  WiFi.setAutoReconnect(true);
-  WiFi.begin(wifiSsid.c_str(), wifiPassword.c_str());
+  wifiStateLabel = "WIFI CONN";
+  serverOnline = false;
+  serverStateLabel = "SERVER WAIT";
+  if (channel > 0) {
+    WiFi.begin(wifiSsid.c_str(), wifiPassword.c_str(), channel);
+  } else {
+    WiFi.begin(wifiSsid.c_str(), wifiPassword.c_str());
+  }
   lastWifiRetryAt = millis();
   wifiAttemptStartedAt = millis();
   wifiAttemptInProgress = true;
@@ -1004,11 +1179,19 @@ void connectWifi(bool forceRestart = false) {
 void onWifiEvent(WiFiEvent_t event, WiFiEventInfo_t info) {
   if (event == ARDUINO_EVENT_WIFI_STA_GOT_IP) {
     wifiAttemptInProgress = false;
+    wifiStateLabel = "WIFI OK";
+    lastWifiReason = 0;
+    lastWifiRssi = WiFi.RSSI();
+    lastPollAt = millis() - POLL_INTERVAL_MS;
+    lastHeartbeatAt = millis() - HEARTBEAT_INTERVAL_MS;
     Serial.print("Wi-Fi online. IP: ");
     Serial.println(WiFi.localIP());
   } else if (event == ARDUINO_EVENT_WIFI_STA_DISCONNECTED) {
     wifiAttemptInProgress = false;
     wifi_err_reason_t reason = (wifi_err_reason_t)info.wifi_sta_disconnected.reason;
+    lastWifiReason = reason;
+    wifiStateLabel = "WIFI DOWN";
+    markServerStatus(false);
     Serial.print("Wi-Fi disconnesso. Motivo: ");
     Serial.print(reason);
     Serial.print(" - ");
@@ -1029,12 +1212,35 @@ void printStatus() {
   Serial.println(wifiConfigSource);
   Serial.print("Wi-Fi stato: ");
   Serial.println(WiFi.status() == WL_CONNECTED ? "online" : "offline");
+  Serial.print("Wi-Fi dettaglio: ");
+  Serial.println(wifiStatusName(WiFi.status()));
+  Serial.print("Password length: ");
+  Serial.println(wifiPassword.length());
+  Serial.print("Local build config: ");
+  Serial.println(NIWA_COMPANION_HAS_LOCAL_CONFIG ? "presente" : "assente");
+  if (lastWifiChannel > 0) {
+    Serial.print("Canale/RSSI ultimi: ");
+    Serial.print(lastWifiChannel);
+    Serial.print(" / ");
+    Serial.println(lastWifiRssi);
+  }
+  if (lastWifiReason) {
+    Serial.print("Ultimo motivo disconnessione: ");
+    Serial.println(lastWifiReason);
+  }
   if (WiFi.status() == WL_CONNECTED) {
     Serial.print("IP: ");
     Serial.println(WiFi.localIP());
   }
   Serial.print("Server: ");
   Serial.println(serverUrl);
+  Serial.print("Server stato: ");
+  Serial.print(serverStateLabel);
+  if (lastHttpStatus) {
+    Serial.print(" HTTP ");
+    Serial.print(lastHttpStatus);
+  }
+  Serial.println();
   Serial.print("Espressione: ");
   Serial.println(activeExpression);
 }
@@ -1080,6 +1286,22 @@ void handleSerialCommand(String command) {
     Serial.println("Configurazione Wi-Fi rimossa.");
   } else if (command == "STATUS") {
     printStatus();
+  } else if (command == "SCAN_WIFI") {
+    configureWifiRadio();
+    int count = WiFi.scanNetworks(false, true);
+    Serial.print("Reti viste: ");
+    Serial.println(count);
+    for (int index = 0; index < count; index++) {
+      if (WiFi.SSID(index) == wifiSsid) {
+        Serial.print("NIWA-AP visto su canale ");
+        Serial.print(WiFi.channel(index));
+        Serial.print(" RSSI ");
+        Serial.print(WiFi.RSSI(index));
+        Serial.print(" auth ");
+        Serial.println(WiFi.encryptionType(index));
+      }
+    }
+    WiFi.scanDelete();
   } else {
     Serial.println("Comando non riconosciuto.");
   }
@@ -1110,6 +1332,7 @@ void pollExpression() {
   }
   int statusCode = http.GET();
   if (statusCode == HTTP_CODE_OK) {
+    markServerStatus(true, statusCode);
     String body = http.getString();
     String expression = extractJsonString(body, "expression");
     int revision = extractJsonInt(body, "revision", remoteRevision);
@@ -1117,6 +1340,8 @@ void pollExpression() {
       remoteRevision = revision;
       setTargetExpression(expression);
     }
+  } else {
+    markServerStatus(false, statusCode);
   }
   http.end();
 }
@@ -1130,6 +1355,7 @@ void sendHeartbeat() {
   http.setTimeout(1800);
   String url = serverUrl + "/api/devices/" + DEVICE_ID + "/heartbeat";
   if (!http.begin(url)) {
+    markServerStatus(false);
     return;
   }
   http.addHeader("Content-Type", "application/json");
@@ -1143,6 +1369,7 @@ void sendHeartbeat() {
   payload += "}";
   int statusCode = http.POST(payload);
   if (statusCode == HTTP_CODE_OK) {
+    markServerStatus(true, statusCode);
     String body = http.getString();
     String expression = extractJsonString(body, "expression");
     int revision = extractJsonInt(body, "revision", remoteRevision);
@@ -1150,6 +1377,8 @@ void sendHeartbeat() {
       remoteRevision = revision;
       setTargetExpression(expression);
     }
+  } else {
+    markServerStatus(false, statusCode);
   }
   http.end();
 }
