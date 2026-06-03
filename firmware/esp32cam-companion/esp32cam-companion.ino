@@ -21,6 +21,10 @@
   - SAVE_WIFI
   - CLEAR_WIFI
   - STATUS
+
+  Optional local build config:
+  - create niwa_companion_local_config.h next to this sketch
+  - the file is ignored by Git and may contain local Wi-Fi credentials
 */
 
 #include <HTTPClient.h>
@@ -28,10 +32,36 @@
 #include <WiFi.h>
 #include <Wire.h>
 
-const char* FIRMWARE_VERSION = "0.1.0";
+#if __has_include("niwa_companion_local_config.h")
+#include "niwa_companion_local_config.h"
+#define NIWA_COMPANION_HAS_LOCAL_CONFIG 1
+#else
+#define NIWA_COMPANION_HAS_LOCAL_CONFIG 0
+#endif
+
+#ifndef NIWA_COMPANION_USE_LOCAL_WIFI
+#define NIWA_COMPANION_USE_LOCAL_WIFI 0
+#endif
+
+#ifndef NIWA_COMPANION_WIFI_SSID
+#define NIWA_COMPANION_WIFI_SSID ""
+#endif
+
+#ifndef NIWA_COMPANION_WIFI_PASSWORD
+#define NIWA_COMPANION_WIFI_PASSWORD ""
+#endif
+
+#ifndef NIWA_COMPANION_SERVER_URL
+#define NIWA_COMPANION_SERVER_URL "http://10.42.0.1:5058"
+#endif
+
+const char* FIRMWARE_VERSION = "0.3.10-local-wifi";
 const char* DEVICE_ID = "companion_01";
 const char* DEVICE_NAME = "NIWA Companion 01";
-const char* DEFAULT_SERVER_URL = "http://10.42.0.1:5058";
+const char* DEFAULT_SERVER_URL = NIWA_COMPANION_SERVER_URL;
+const char* LOCAL_WIFI_SSID = NIWA_COMPANION_WIFI_SSID;
+const char* LOCAL_WIFI_PASSWORD = NIWA_COMPANION_WIFI_PASSWORD;
+const char* LOCAL_SERVER_URL = NIWA_COMPANION_SERVER_URL;
 
 const int I2C_SDA_PIN = 13;
 const int I2C_SCL_PIN = 14;
@@ -53,6 +83,7 @@ String serverUrl = DEFAULT_SERVER_URL;
 String serialLine;
 String activeExpression = "idle";
 String targetExpression = "idle";
+String wifiConfigSource = "none";
 int remoteRevision = 0;
 int transitionPhase = 0;
 float eyeOpenAmount = 1.0;
@@ -70,7 +101,9 @@ struct Glyph {
 
 const Glyph FONT[] = {
   {' ', {0x00, 0x00, 0x00, 0x00, 0x00}},
+  {'!', {0x00, 0x00, 0x5F, 0x00, 0x00}},
   {'-', {0x08, 0x08, 0x08, 0x08, 0x08}},
+  {'?', {0x02, 0x01, 0x51, 0x09, 0x06}},
   {'0', {0x3E, 0x51, 0x49, 0x45, 0x3E}},
   {'1', {0x00, 0x42, 0x7F, 0x40, 0x00}},
   {'2', {0x42, 0x61, 0x51, 0x49, 0x46}},
@@ -96,6 +129,166 @@ const Glyph FONT[] = {
   {'U', {0x3F, 0x40, 0x40, 0x40, 0x3F}},
   {'W', {0x7F, 0x20, 0x18, 0x20, 0x7F}},
   {'Z', {0x61, 0x51, 0x49, 0x45, 0x43}},
+};
+
+struct PixelSprite {
+  const char* const* rows;
+  uint8_t height;
+};
+
+const char* const SPRITE_ROUND_EYE_ROWS[] = {
+  "   #######   ",
+  "  #########  ",
+  " ########### ",
+  "#############",
+  "#############",
+  "#############",
+  "#############",
+  "#############",
+  "#############",
+  " ########### ",
+  "  #########  ",
+  "   #######   ",
+};
+const PixelSprite SPRITE_ROUND_EYE = {SPRITE_ROUND_EYE_ROWS, 12};
+
+const char* const SPRITE_DOME_EYE_ROWS[] = {
+  "    #####    ",
+  "  #########  ",
+  " ########### ",
+  "#############",
+  "#############",
+  "#############",
+  " ########### ",
+  "  #### ####  ",
+};
+const PixelSprite SPRITE_DOME_EYE = {SPRITE_DOME_EYE_ROWS, 8};
+
+const char* const SPRITE_CHEVRON_ROWS[] = {
+  "##           ",
+  " ###         ",
+  "  ###        ",
+  "   ###       ",
+  "    ###      ",
+  "   ###       ",
+  "  ###        ",
+  " ###         ",
+  "##           ",
+};
+const PixelSprite SPRITE_CHEVRON = {SPRITE_CHEVRON_ROWS, 9};
+
+const char* const SPRITE_ARC_EYE_ROWS[] = {
+  "     ###     ",
+  "   ##   ##   ",
+  "  ##     ##  ",
+  " ##       ## ",
+  "##         ##",
+};
+const PixelSprite SPRITE_ARC_EYE = {SPRITE_ARC_EYE_ROWS, 5};
+
+const char* const SPRITE_W_MOUTH_ROWS[] = {
+  "##         ##",
+  " ##       ## ",
+  "  ##  #  ##  ",
+  "   ### ###   ",
+  "    ## ##    ",
+};
+const PixelSprite SPRITE_W_MOUTH = {SPRITE_W_MOUTH_ROWS, 5};
+
+const char* const SPRITE_TRIANGLE_MOUTH_ROWS[] = {
+  "#############",
+  " ########### ",
+  "  #########  ",
+  "   #######   ",
+  "    #####    ",
+  "     ###     ",
+  "      #      ",
+};
+const PixelSprite SPRITE_TRIANGLE_MOUTH = {SPRITE_TRIANGLE_MOUTH_ROWS, 7};
+
+const char* const SPRITE_SEGMENTED_GRIN_ROWS[] = {
+  " ######################### ",
+  "###########################",
+  "###########################",
+  " ######################### ",
+  "  #######################  ",
+  "   #####################   ",
+  "    ###################    ",
+};
+const PixelSprite SPRITE_SEGMENTED_GRIN = {SPRITE_SEGMENTED_GRIN_ROWS, 7};
+
+const char* const SPRITE_HEART_ROWS[] = {
+  "  ###   ###  ",
+  " ##### ##### ",
+  "#############",
+  "#############",
+  " ########### ",
+  "  #########  ",
+  "   #######   ",
+  "    #####    ",
+  "     ###     ",
+  "      #      ",
+};
+const PixelSprite SPRITE_HEART = {SPRITE_HEART_ROWS, 10};
+
+const char* const SPRITE_PILL_MOUTH_ROWS[] = {
+  "  #########  ",
+  " ########### ",
+  "#############",
+  " ########### ",
+  "  #########  ",
+};
+const PixelSprite SPRITE_PILL_MOUTH = {SPRITE_PILL_MOUTH_ROWS, 5};
+
+const char* const SPRITE_SMUG_EYE_ROWS[] = {
+  "#############",
+  "#############",
+  "####         ",
+  "####         ",
+};
+const PixelSprite SPRITE_SMUG_EYE = {SPRITE_SMUG_EYE_ROWS, 4};
+
+const char* const SPRITE_RING_EYE_ROWS[] = {
+  "  ###  ",
+  " #   # ",
+  "#     #",
+  "#     #",
+  "#     #",
+  " #   # ",
+  "  ###  ",
+};
+const PixelSprite SPRITE_RING_EYE = {SPRITE_RING_EYE_ROWS, 7};
+
+const char* const SPRITE_TRAPEZOID_MOUTH_ROWS[] = {
+  "   #######   ",
+  "   #######   ",
+  "  #########  ",
+  "  #########  ",
+  " ########### ",
+  " ########### ",
+  "#############",
+  "#############",
+  "#############",
+};
+const PixelSprite SPRITE_TRAPEZOID_MOUTH = {SPRITE_TRAPEZOID_MOUTH_ROWS, 9};
+
+const char* const SPRITE_CLOSED_EYE_ROWS[] = {
+  "#############",
+  "  #########  ",
+  "    #####    ",
+};
+const PixelSprite SPRITE_CLOSED_EYE = {SPRITE_CLOSED_EYE_ROWS, 3};
+
+struct EyeSpan {
+  int8_t left;
+  int8_t right;
+};
+
+const EyeSpan BASE_IDLE_EYE_PROFILE[] = {
+  {10, 17}, {8, 19}, {6, 21}, {5, 22}, {4, 23}, {3, 24}, {3, 25}, {2, 25},
+  {2, 26}, {1, 26}, {1, 27}, {0, 27}, {0, 27}, {0, 27}, {0, 27}, {0, 27},
+  {0, 27}, {0, 27}, {0, 27}, {0, 27}, {0, 27}, {0, 26}, {0, 26}, {1, 25},
+  {2, 25}, {3, 24}, {4, 24}, {5, 23}, {7, 21}, {9, 19}, {14, 15},
 };
 
 const uint8_t* glyphFor(char character) {
@@ -151,6 +344,22 @@ void setPixel(int x, int y, bool enabled = true) {
   }
 }
 
+void fillRect(int x, int y, int width, int height, bool enabled);
+
+void drawPixelSprite(const PixelSprite& sprite, int centerX, int topY, int scale = 2, bool mirrored = false) {
+  int width = strlen(sprite.rows[0]);
+  int leftX = centerX - width * scale / 2;
+  for (int row = 0; row < sprite.height; row++) {
+    for (int column = 0; column < width; column++) {
+      int sourceColumn = mirrored ? width - column - 1 : column;
+      if (sprite.rows[row][sourceColumn] != '#') {
+        continue;
+      }
+      fillRect(leftX + column * scale, topY + row * scale, scale, scale, true);
+    }
+  }
+}
+
 void drawLine(int x0, int y0, int x1, int y1, bool enabled = true) {
   int dx = abs(x1 - x0);
   int sx = x0 < x1 ? 1 : -1;
@@ -189,6 +398,22 @@ void fillRect(int x, int y, int width, int height, bool enabled = true) {
   }
 }
 
+void drawBaseIdleEye(int centerX, int topY, bool mirrored = false) {
+  const int eyeWidth = 28;
+  const int leftX = centerX - eyeWidth / 2;
+  const int rows = sizeof(BASE_IDLE_EYE_PROFILE) / sizeof(BASE_IDLE_EYE_PROFILE[0]);
+  for (int row = 0; row < rows; row++) {
+    int localLeft = BASE_IDLE_EYE_PROFILE[row].left;
+    int localRight = BASE_IDLE_EYE_PROFILE[row].right;
+    if (mirrored) {
+      int mirroredLeft = eyeWidth - 1 - localRight;
+      localRight = eyeWidth - 1 - localLeft;
+      localLeft = mirroredLeft;
+    }
+    drawLine(leftX + localLeft, topY + row, leftX + localRight, topY + row);
+  }
+}
+
 void drawCircle(int centerX, int centerY, int radius, bool enabled = true) {
   int x = radius;
   int y = 0;
@@ -220,12 +445,48 @@ void fillCircle(int centerX, int centerY, int radius, bool enabled = true) {
   }
 }
 
+void drawEllipse(int centerX, int centerY, int radiusX, int radiusY, bool enabled = true) {
+  int previousX = centerX + radiusX;
+  int previousY = centerY;
+  for (int degrees = 6; degrees <= 360; degrees += 6) {
+    int x = centerX + cos(degrees * DEG_TO_RAD) * radiusX;
+    int y = centerY + sin(degrees * DEG_TO_RAD) * radiusY;
+    drawLine(previousX, previousY, x, y, enabled);
+    previousX = x;
+    previousY = y;
+  }
+}
+
+void fillEllipse(int centerX, int centerY, int radiusX, int radiusY, bool enabled = true) {
+  radiusX = max(1, radiusX);
+  radiusY = max(1, radiusY);
+  for (int y = -radiusY; y <= radiusY; y++) {
+    float ratio = 1.0 - ((float)(y * y) / (float)(radiusY * radiusY));
+    int span = round(radiusX * sqrt(max(0.0f, ratio)));
+    drawLine(centerX - span, centerY + y, centerX + span, centerY + y, enabled);
+  }
+}
+
 void drawArc(int centerX, int centerY, int radius, int startDegrees, int endDegrees) {
   int previousX = centerX + cos(startDegrees * DEG_TO_RAD) * radius;
   int previousY = centerY + sin(startDegrees * DEG_TO_RAD) * radius;
   for (int degrees = startDegrees + 6; degrees <= endDegrees; degrees += 6) {
     int x = centerX + cos(degrees * DEG_TO_RAD) * radius;
     int y = centerY + sin(degrees * DEG_TO_RAD) * radius;
+    drawLine(previousX, previousY, x, y);
+    previousX = x;
+    previousY = y;
+  }
+}
+
+void drawQuadratic(int startX, int startY, int controlX, int controlY, int endX, int endY) {
+  int previousX = startX;
+  int previousY = startY;
+  for (int step = 1; step <= 16; step++) {
+    float amount = step / 16.0;
+    float inverse = 1.0 - amount;
+    int x = round(inverse * inverse * startX + 2 * inverse * amount * controlX + amount * amount * endX);
+    int y = round(inverse * inverse * startY + 2 * inverse * amount * controlY + amount * amount * endY);
     drawLine(previousX, previousY, x, y);
     previousX = x;
     previousY = y;
@@ -271,11 +532,12 @@ void sendFrame() {
   }
 }
 
-void drawEye(int x, int y, int width, int height, int pupilX = 0, int pupilY = 0, bool pupil = true) {
-  height = max(2, height);
-  fillRect(x - width / 2, y - height / 2, width, height);
-  if (pupil && height > 7) {
-    fillCircle(x + pupilX, y + pupilY, min(5, height / 4), false);
+void drawEye(int x, int y, int width, int height, int pupilX = 0, int pupilY = 0, bool pupil = false) {
+  int radiusX = max(2, width / 2);
+  int radiusY = max(1, height / 2);
+  fillEllipse(x, y, radiusX, radiusY);
+  if (pupil && radiusY > 3) {
+    fillCircle(x + pupilX, y + pupilY, min(4, radiusY / 2), false);
   }
 }
 
@@ -286,6 +548,171 @@ void drawHeart(int x, int y, int size) {
     int span = size - row;
     drawLine(x - span, y + row / 2, x + span, y + row / 2);
   }
+}
+
+void drawSmileMouth(int x, int y, int width = 20, int depth = 5) {
+  drawQuadratic(x - width / 2, y, x, y + depth, x + width / 2, y);
+}
+
+void drawFrownMouth(int x, int y, int width = 20, int depth = 5) {
+  drawQuadratic(x - width / 2, y, x, y - depth, x + width / 2, y);
+}
+
+void drawWMouth(int x, int y, int width = 20, int depth = 5) {
+  drawQuadratic(x - width / 2, y, x - width / 4, y + depth, x, y);
+  drawQuadratic(x, y, x + width / 4, y + depth, x + width / 2, y);
+}
+
+void drawBrow(int x, int y, int tilt, int width = 22) {
+  drawLine(x - width / 2, y - tilt, x + width / 2, y + tilt);
+}
+
+void drawSparkle(int x, int y, int size = 4) {
+  drawLine(x - size, y, x + size, y);
+  drawLine(x, y - size, x, y + size);
+}
+
+void drawDomeEye(int x, int y, int radiusX = 14, int radiusY = 9) {
+  fillEllipse(x, y, radiusX, radiusY);
+  fillRect(x - radiusX - 1, y + 3, radiusX * 2 + 3, radiusY + 2, false);
+  drawQuadratic(x - radiusX, y + 2, x, y + 5, x + radiusX, y + 2);
+}
+
+void drawSqueezedEye(int x, int y, int direction, int width = 20, int height = 10) {
+  int tipX = x + direction * width / 2;
+  int tailX = x - direction * width / 2;
+  drawLine(tailX, y - height / 2, tipX, y);
+  drawLine(tipX, y, tailX, y + height / 2);
+}
+
+void fillTriangleMouth(int x, int y, int width = 16, int height = 14) {
+  int topY = y - height / 2;
+  for (int row = 0; row <= height; row++) {
+    int span = round((width / 2.0) * (1.0 - (float)row / height));
+    drawLine(x - span, topY + row, x + span, topY + row);
+  }
+}
+
+void fillTrapezoidMouth(int x, int y, int topWidth = 12, int bottomWidth = 18, int height = 16) {
+  int topY = y - height / 2;
+  for (int row = 0; row <= height; row++) {
+    int width = topWidth + (bottomWidth - topWidth) * row / height;
+    drawLine(x - width / 2, topY + row, x + width / 2, topY + row);
+  }
+}
+
+void drawSegmentedGrin(int x, int y, int width = 42, int height = 13, int segments = 6) {
+  fillEllipse(x, y, width / 2, height / 2);
+  fillRect(x - width / 2 - 1, y - height / 2 - 1, width + 2, height / 2, false);
+  drawQuadratic(x - width / 2, y - 1, x, y + height / 2 + 2, x + width / 2, y - 1);
+  for (int segment = 1; segment < segments; segment++) {
+    int separatorX = x - width / 2 + width * segment / segments;
+    drawLine(separatorX, y - 1, separatorX, y + height / 2 + 1, false);
+  }
+}
+
+void drawTear(int x, int y) {
+  drawLine(x, y - 4, x - 3, y + 2);
+  drawLine(x - 3, y + 2, x, y + 5);
+  drawLine(x, y + 5, x + 3, y + 2);
+  drawLine(x + 3, y + 2, x, y - 4);
+}
+
+void drawSobbingTearColumn(int centerX, int topY, int height, int phaseOffset = 0) {
+  unsigned long now = millis();
+  for (int row = 0; row < height; row++) {
+    int attach = row < 8 ? row : 8;
+    float flow = (row + phaseOffset) * 0.30f - (now % 1600) / 85.0f;
+    int wave = row < 4 ? 0 : round((sin(flow) * 3.0f + sin(flow * 0.56f + 1.2f) * 1.5f) * attach / 8.0f);
+    int width = 7 + min(row, 14) / 2;
+    if (row > height - 9) {
+      width -= (row - (height - 9)) / 2;
+    }
+    width = max(7, min(width, 15));
+    int x = centerX + wave;
+    drawLine(x - width / 2, topY + row, x + width / 2, topY + row);
+  }
+}
+
+void drawSobbingMouth(int x, int y) {
+  for (int row = -7; row <= 8; row++) {
+    int halfWidth = 29 - abs(row);
+    if (row > -2 && row < 5) {
+      halfWidth += 5;
+    }
+    drawLine(x - halfWidth, y + row, x + halfWidth, y + row);
+  }
+}
+
+void drawStress(int x, int y) {
+  drawLine(x, y, x + 5, y - 5);
+  drawLine(x + 3, y + 4, x + 9, y);
+  drawLine(x + 7, y + 7, x + 12, y + 4);
+}
+
+void drawReferenceBlink(int yOffset = 0) {
+  drawPixelSprite(SPRITE_CLOSED_EYE, 36, 25 + yOffset);
+  drawPixelSprite(SPRITE_CLOSED_EYE, 92, 25 + yOffset);
+}
+
+bool drawReferenceFace(const String& expression, int yOffset = 0) {
+  if (expression == "idle") {
+    drawBaseIdleEye(36, 14 + yOffset);
+    drawBaseIdleEye(92, 14 + yOffset, true);
+  } else if (expression == "serene") {
+    drawPixelSprite(SPRITE_DOME_EYE, 36, 17 + yOffset);
+    drawPixelSprite(SPRITE_DOME_EYE, 92, 17 + yOffset);
+  } else if (expression == "happy") {
+    drawPixelSprite(SPRITE_DOME_EYE, 36, 11 + yOffset);
+    drawPixelSprite(SPRITE_DOME_EYE, 92, 11 + yOffset);
+    drawPixelSprite(SPRITE_W_MOUTH, 64, 42 + yOffset);
+  } else if (expression == "wink") {
+    drawPixelSprite(SPRITE_DOME_EYE, 36, 13 + yOffset);
+    drawPixelSprite(SPRITE_CHEVRON, 92, 12 + yOffset, 2, true);
+    drawPixelSprite(SPRITE_W_MOUTH, 64, 43 + yOffset);
+  } else if (expression == "joyful") {
+    drawPixelSprite(SPRITE_CHEVRON, 36, 11 + yOffset);
+    drawPixelSprite(SPRITE_CHEVRON, 92, 11 + yOffset, 2, true);
+    drawPixelSprite(SPRITE_TRIANGLE_MOUTH, 64, 40 + yOffset);
+  } else if (expression == "laughing") {
+    drawPixelSprite(SPRITE_CHEVRON, 36, 7 + yOffset);
+    drawPixelSprite(SPRITE_CHEVRON, 92, 7 + yOffset, 2, true);
+    drawPixelSprite(SPRITE_SEGMENTED_GRIN, 64, 35 + yOffset);
+    for (int separator = 1; separator < 7; separator++) {
+      int separatorX = 64 - 27 + (54 * separator / 7);
+      drawLine(separatorX, 38 + yOffset, separatorX, 48 + yOffset, false);
+    }
+  } else if (expression == "cheerful") {
+    drawPixelSprite(SPRITE_ARC_EYE, 36, 14 + yOffset);
+    drawPixelSprite(SPRITE_ARC_EYE, 92, 14 + yOffset);
+    drawPixelSprite(SPRITE_TRIANGLE_MOUTH, 64, 39 + yOffset);
+  } else if (expression == "love") {
+    drawPixelSprite(SPRITE_HEART, 36, 7 + yOffset);
+    drawPixelSprite(SPRITE_HEART, 92, 7 + yOffset);
+    drawPixelSprite(SPRITE_PILL_MOUTH, 64, 43 + yOffset);
+  } else if (expression == "sobbing") {
+    int shake = round(sin(millis() / 1000.0f * 11.5f));
+    drawSobbingTearColumn(25, 25 + yOffset + shake, 38, 0);
+    drawSobbingTearColumn(103, 25 + yOffset + shake, 38, 21);
+    drawSobbingMouth(64, 49 + yOffset);
+    drawPixelSprite(SPRITE_CHEVRON, 36, 8 + yOffset + shake);
+    drawPixelSprite(SPRITE_CHEVRON, 92, 8 + yOffset + shake, 2, true);
+  } else if (expression == "smug") {
+    drawPixelSprite(SPRITE_SMUG_EYE, 36, 18 + yOffset);
+    drawPixelSprite(SPRITE_SMUG_EYE, 92, 18 + yOffset, 2, true);
+    drawPixelSprite(SPRITE_W_MOUTH, 64, 39 + yOffset);
+  } else if (expression == "shocked") {
+    drawPixelSprite(SPRITE_RING_EYE, 36, 14 + yOffset);
+    drawPixelSprite(SPRITE_RING_EYE, 92, 14 + yOffset);
+    drawPixelSprite(SPRITE_TRAPEZOID_MOUTH, 64, 38 + yOffset);
+  } else if (expression == "surprised") {
+    drawPixelSprite(SPRITE_ROUND_EYE, 36, 8 + yOffset);
+    drawPixelSprite(SPRITE_ROUND_EYE, 92, 8 + yOffset);
+    fillCircle(64, 52 + yOffset, 4);
+  } else {
+    return false;
+  }
+  return true;
 }
 
 void drawWifiMark() {
@@ -301,66 +728,121 @@ void drawWifiMark() {
 
 void renderExpression(unsigned long now) {
   clearFrame();
-  drawWifiMark();
   float seconds = now / 1000.0;
   int bounce = round(sin(seconds * 2.4) * 2);
   int leftX = 36;
   int rightX = 92;
-  int eyeY = 31 + bounce;
+  int eyeY = 26 + bounce;
+  int mouthY = 50 + bounce;
   float naturalBlink = (now % 4300 > 4200) ? 0.08 : 1.0;
   int eyeHeight = max(2, (int)(24 * eyeOpenAmount * naturalBlink));
+  int lookX = round(sin(seconds * 0.7) * 3);
+  int lookY = round(cos(seconds * 0.53));
 
-  if (activeExpression == "happy") {
-    drawArc(leftX, eyeY + 4, 16, 205, 335);
-    drawArc(rightX, eyeY + 4, 16, 205, 335);
+  if (transitionPhase == 1 || naturalBlink < 0.5) {
+    drawReferenceBlink();
+    sendFrame();
+    return;
+  }
+  if (drawReferenceFace(activeExpression, activeExpression == "laughing" ? bounce : 0)) {
+    sendFrame();
+    return;
+  }
+
+  if (activeExpression == "serene") {
+    drawDomeEye(leftX, eyeY);
+    drawDomeEye(rightX, eyeY);
+  } else if (activeExpression == "happy") {
+    drawDomeEye(leftX, eyeY);
+    drawDomeEye(rightX, eyeY);
+    drawWMouth(64, mouthY, 20, 5);
+  } else if (activeExpression == "joyful") {
+    drawSqueezedEye(leftX, eyeY, -1, 22, 11);
+    drawSqueezedEye(rightX, eyeY, 1, 22, 11);
+    fillTriangleMouth(64, mouthY, 18, 15);
+  } else if (activeExpression == "laughing") {
+    int jump = round(sin(seconds * 7) * 2);
+    drawSqueezedEye(leftX, eyeY + jump, -1, 24, 12);
+    drawSqueezedEye(rightX, eyeY + jump, 1, 24, 12);
+    drawSegmentedGrin(64, mouthY, 46, 14, 7);
+  } else if (activeExpression == "cheerful") {
+    drawQuadratic(leftX - 15, eyeY + 2, leftX, eyeY - 10, leftX + 15, eyeY + 2);
+    drawQuadratic(rightX - 15, eyeY + 2, rightX, eyeY - 10, rightX + 15, eyeY + 2);
+    fillTriangleMouth(64, mouthY, 18, 15);
   } else if (activeExpression == "curious") {
-    drawEye(leftX, eyeY, 29, max(2, (int)(29 * eyeOpenAmount)));
-    drawEye(rightX, eyeY + 3, 20, max(2, (int)(18 * eyeOpenAmount)));
+    drawEye(leftX, eyeY, 31, max(2, (int)(27 * eyeOpenAmount)));
+    drawEye(rightX, eyeY + 3, 21, max(2, (int)(17 * eyeOpenAmount)));
+    drawBrow(leftX, eyeY - 19, -3, 22);
+    drawBrow(rightX, eyeY - 13, 3, 16);
+    drawEllipse(64, mouthY, 4, 5);
+    drawText(112, 8, "?");
   } else if (activeExpression == "excited") {
-    drawEye(leftX, eyeY, 31, eyeHeight);
-    drawEye(rightX, eyeY, 31, eyeHeight);
-    drawLine(8, 9, 15, 16);
-    drawLine(15, 9, 8, 16);
-    drawLine(112, 9, 119, 16);
-    drawLine(119, 9, 112, 16);
+    drawEye(leftX, eyeY, 33, max(2, (int)(27 * eyeOpenAmount * naturalBlink)), 0, 1);
+    drawEye(rightX, eyeY, 33, max(2, (int)(27 * eyeOpenAmount * naturalBlink)), 0, 1);
+    fillEllipse(64, mouthY, 9, 6);
+    drawSparkle(10, 10, 4);
+    drawSparkle(116, 10, 4);
   } else if (activeExpression == "sleepy") {
-    fillRect(leftX - 15, eyeY, 30, 5);
-    fillRect(rightX - 15, eyeY, 30, 5);
+    drawEye(leftX, eyeY, 31, max(2, (int)(9 * eyeOpenAmount)), 0, 1);
+    drawEye(rightX, eyeY, 31, max(2, (int)(9 * eyeOpenAmount)), 0, 1);
+    drawLine(56, mouthY, 72, mouthY);
   } else if (activeExpression == "sleeping" || activeExpression == "fall_asleep") {
-    drawLine(leftX - 15, eyeY, leftX + 15, eyeY + 3);
-    drawLine(rightX - 15, eyeY + 3, rightX + 15, eyeY);
+    drawQuadratic(leftX - 14, eyeY, leftX, eyeY + 4, leftX + 14, eyeY);
+    drawQuadratic(rightX - 14, eyeY, rightX, eyeY + 4, rightX + 14, eyeY);
     drawText(105, 13, "Z");
     drawText(113, 4, "Z");
   } else if (activeExpression == "alert") {
-    drawRect(leftX - 15, eyeY - 16, 30, 32);
-    drawRect(rightX - 15, eyeY - 16, 30, 32);
-    fillCircle(leftX, eyeY, 4);
-    fillCircle(rightX, eyeY, 4);
+    drawEye(leftX, eyeY, 33, max(2, (int)(29 * eyeOpenAmount)), 0, 0);
+    drawEye(rightX, eyeY, 33, max(2, (int)(29 * eyeOpenAmount)), 0, 0);
+    drawBrow(leftX, eyeY - 19, 0, 22);
+    drawBrow(rightX, eyeY - 19, 0, 22);
+    drawEllipse(64, mouthY, 3, 4);
   } else if (activeExpression == "surprised") {
-    drawCircle(leftX, eyeY, 17);
-    drawCircle(rightX, eyeY, 17);
-    fillCircle(leftX, eyeY, 5);
-    fillCircle(rightX, eyeY, 5);
+    drawEye(leftX, eyeY, 33, max(2, (int)(33 * eyeOpenAmount)));
+    drawEye(rightX, eyeY, 33, max(2, (int)(33 * eyeOpenAmount)));
+    fillCircle(64, mouthY, 3);
+    drawText(112, 8, "!");
+  } else if (activeExpression == "shocked") {
+    drawCircle(leftX, eyeY, 4);
+    drawCircle(rightX, eyeY, 4);
+    fillTrapezoidMouth(64, mouthY, 11, 19, 17);
+  } else if (activeExpression == "confused") {
+    drawEye(leftX, eyeY + 2, 29, max(2, (int)(17 * eyeOpenAmount)));
+    drawEye(rightX, eyeY - 1, 25, max(2, (int)(23 * eyeOpenAmount)));
+    drawBrow(leftX, eyeY - 16, 3, 22);
+    drawBrow(rightX, eyeY - 18, -4, 20);
+    drawLine(55, mouthY + 2, 73, mouthY - 2);
+    drawText(112, 8, "?");
+  } else if (activeExpression == "smug") {
+    drawEye(leftX, eyeY, 31, max(2, (int)(10 * eyeOpenAmount)));
+    drawEye(rightX, eyeY, 31, max(2, (int)(10 * eyeOpenAmount)));
+    drawWMouth(64, mouthY, 20, 4);
   } else if (activeExpression == "sad") {
-    drawLine(leftX - 16, eyeY - 10, leftX + 16, eyeY);
-    drawLine(rightX - 16, eyeY, rightX + 16, eyeY - 10);
-    fillCircle(leftX, eyeY + 7, 4);
-    fillCircle(rightX, eyeY + 7, 4);
+    drawBrow(leftX, eyeY - 16, -4, 22);
+    drawBrow(rightX, eyeY - 16, 4, 22);
+    drawEye(leftX, eyeY + 3, 29, max(2, (int)(17 * eyeOpenAmount)));
+    drawEye(rightX, eyeY + 3, 29, max(2, (int)(17 * eyeOpenAmount)));
+    drawFrownMouth(64, mouthY + 4, 20, 5);
+    drawTear(111, 43);
   } else if (activeExpression == "annoyed") {
-    drawLine(leftX - 16, eyeY - 9, leftX + 16, eyeY);
-    drawLine(rightX - 16, eyeY, rightX + 16, eyeY - 9);
-    fillRect(leftX - 15, eyeY + 5, 30, 5);
-    fillRect(rightX - 15, eyeY + 5, 30, 5);
+    drawBrow(leftX, eyeY - 13, 5, 26);
+    drawBrow(rightX, eyeY - 13, -5, 26);
+    drawEye(leftX, eyeY + 3, 31, max(2, (int)(9 * eyeOpenAmount)));
+    drawEye(rightX, eyeY + 3, 31, max(2, (int)(9 * eyeOpenAmount)));
+    drawLine(55, mouthY + 2, 73, mouthY + 2);
+    drawStress(109, 10);
   } else if (activeExpression == "love") {
-    int pulse = (now % 900 < 450) ? 13 : 15;
+    int pulse = (now % 900 < 450) ? 11 : 13;
     drawHeart(leftX, eyeY - 4, pulse);
     drawHeart(rightX, eyeY - 4, pulse);
+    drawSmileMouth(64, mouthY, 18, 4);
   } else if (activeExpression == "thinking") {
-    drawEye(leftX, eyeY, 31, eyeHeight, 4, -4);
-    drawEye(rightX, eyeY, 31, eyeHeight, 4, -4);
+    drawEye(leftX + 4, eyeY - 3, 31, eyeHeight);
+    drawEye(rightX + 4, eyeY - 3, 31, eyeHeight);
     fillCircle(106, 19, 2);
     fillCircle(114, 13, 3);
     fillCircle(123, 6, 4);
+    drawLine(59, mouthY + 2, 69, mouthY - 1);
   } else if (activeExpression == "photo_mode" || activeExpression == "photo_capture") {
     drawRect(leftX - 17, eyeY - 17, 34, 34);
     drawRect(rightX - 17, eyeY - 17, 34, 34);
@@ -374,8 +856,8 @@ void renderExpression(unsigned long now) {
   } else if (activeExpression == "tracking") {
     int pupilX = round(sin(seconds * 2.0) * 7);
     int pupilY = round(cos(seconds * 1.6) * 4);
-    drawEye(leftX, eyeY, 31, eyeHeight, pupilX, pupilY);
-    drawEye(rightX, eyeY, 31, eyeHeight, pupilX, pupilY);
+    drawEye(leftX, eyeY, 31, eyeHeight, pupilX, pupilY, true);
+    drawEye(rightX, eyeY, 31, eyeHeight, pupilX, pupilY, true);
   } else if (activeExpression == "scanning") {
     drawEye(leftX, eyeY, 31, eyeHeight, 0, 0, false);
     drawEye(rightX, eyeY, 31, eyeHeight, 0, 0, false);
@@ -386,19 +868,22 @@ void renderExpression(unsigned long now) {
     drawLine(leftX + 13, eyeY - 13, leftX - 13, eyeY + 13);
     drawLine(rightX - 13, eyeY - 13, rightX + 13, eyeY + 13);
     drawLine(rightX + 13, eyeY - 13, rightX - 13, eyeY + 13);
+    drawLine(55, mouthY + 2, 73, mouthY + 2);
   } else if (activeExpression == "wink") {
-    drawEye(leftX, eyeY, 31, eyeHeight);
-    drawLine(rightX - 15, eyeY, rightX + 15, eyeY);
+    drawDomeEye(leftX, eyeY);
+    drawSqueezedEye(rightX, eyeY, 1, 20, 10);
+    drawWMouth(64, mouthY, 18, 4);
   } else if (activeExpression == "blink") {
-    drawLine(leftX - 15, eyeY, leftX + 15, eyeY);
-    drawLine(rightX - 15, eyeY, rightX + 15, eyeY);
+    drawQuadratic(leftX - 14, eyeY, leftX, eyeY + 3, leftX + 14, eyeY);
+    drawQuadratic(rightX - 14, eyeY, rightX, eyeY + 3, rightX + 14, eyeY);
   } else if (activeExpression == "wake_up") {
     int wakingHeight = max(2, (int)(24 * ((now % 1800) / 1800.0)));
     drawEye(leftX, eyeY, 31, wakingHeight);
     drawEye(rightX, eyeY, 31, wakingHeight);
   } else {
-    drawEye(leftX, eyeY, 31, eyeHeight);
-    drawEye(rightX, eyeY, 31, eyeHeight);
+    drawEye(leftX + lookX, eyeY + lookY, 31, eyeHeight);
+    drawEye(rightX + lookX, eyeY + lookY, 31, eyeHeight);
+    drawSmileMouth(64, mouthY, 14, 3);
   }
   sendFrame();
 }
@@ -467,6 +952,29 @@ int extractJsonInt(const String& json, const String& key, int fallback) {
   return json.substring(start).toInt();
 }
 
+bool hasLocalWifiConfig() {
+  return LOCAL_WIFI_SSID && LOCAL_WIFI_SSID[0] != '\0';
+}
+
+void applyLocalBuildConfig() {
+  bool shouldUseLocalWifi = hasLocalWifiConfig() && (NIWA_COMPANION_USE_LOCAL_WIFI || !wifiSsid.length());
+  if (shouldUseLocalWifi) {
+    wifiSsid = LOCAL_WIFI_SSID;
+    wifiPassword = LOCAL_WIFI_PASSWORD;
+    wifiConfigSource = NIWA_COMPANION_USE_LOCAL_WIFI ? "local firmware config" : "local firmware fallback";
+  } else if (wifiSsid.length()) {
+    wifiConfigSource = "esp32 memory";
+  } else {
+    wifiConfigSource = "none";
+  }
+
+  if (LOCAL_SERVER_URL && LOCAL_SERVER_URL[0] != '\0') {
+    if (NIWA_COMPANION_USE_LOCAL_WIFI || !serverUrl.length()) {
+      serverUrl = LOCAL_SERVER_URL;
+    }
+  }
+}
+
 void connectWifi(bool forceRestart = false) {
   if (!wifiSsid.length()) {
     Serial.println("Wi-Fi non configurato. Usa lo script di provisioning NIWA.");
@@ -517,6 +1025,8 @@ void printStatus() {
   Serial.println(oledAddress ? "online" : "non trovato");
   Serial.print("Wi-Fi SSID: ");
   Serial.println(wifiSsid.length() ? wifiSsid : "(non configurato)");
+  Serial.print("Wi-Fi origine: ");
+  Serial.println(wifiConfigSource);
   Serial.print("Wi-Fi stato: ");
   Serial.println(WiFi.status() == WL_CONNECTED ? "online" : "offline");
   if (WiFi.status() == WL_CONNECTED) {
@@ -551,6 +1061,7 @@ void handleSerialCommand(String command) {
     preferences.putString("password", wifiPassword);
     preferences.putString("server", serverUrl);
     preferences.end();
+    wifiConfigSource = "esp32 memory";
     Serial.println("Configurazione salvata nella memoria ESP32.");
     wifiAttemptInProgress = false;
     WiFi.disconnect(false);
@@ -563,6 +1074,8 @@ void handleSerialCommand(String command) {
     wifiSsid = "";
     wifiPassword = "";
     serverUrl = DEFAULT_SERVER_URL;
+    wifiConfigSource = "none";
+    applyLocalBuildConfig();
     WiFi.disconnect(true);
     Serial.println("Configurazione Wi-Fi rimossa.");
   } else if (command == "STATUS") {
@@ -666,6 +1179,7 @@ void setup() {
   wifiPassword = preferences.getString("password", "");
   serverUrl = preferences.getString("server", DEFAULT_SERVER_URL);
   preferences.end();
+  applyLocalBuildConfig();
   WiFi.onEvent(onWifiEvent);
   connectWifi();
   printStatus();

@@ -314,13 +314,21 @@ Current foundation:
 - store expression state, registered devices and event logs in local JSON
 - expose heartbeat and expression polling APIs for the first avatar node
 - provide real-time dashboard updates through server-sent events
-- render a web preview and an OLED preview for idle, happy, curious, excited,
-  sleepy, sleeping, alert, surprised, sad, annoyed, love, thinking, photo mode,
+- render a web preview and an OLED preview for the growing expression library,
+  including idle, serene, happy, joyful, laughing, cheerful, curious, excited,
+  wonder, surprised, shocked, confused, smug, sad, crying, sobbing, annoyed,
+  angry, love, thinking, sleepy, sleeping, alert, photo mode, eating, drinking,
   tracking, scanning, offline, blink, wink, wake up, fall asleep and photo flash
+- keep the browser avatar backed by local reference assets for the refined
+  Eilik-inspired expression pass, including base eyes, serene eyes, joyful,
+  curious, love, sad, crying, sobbing tears and wonder eyes
 - keep photo mode, tracking, scanning and photo flash as manual animations only:
   no camera integration or fake AI is implied
 - provision Wi-Fi over serial at runtime so credentials are saved only in ESP32
   memory and never committed
+- support an ignored local build config header for repeated ESP32 prototype
+  flashes; it can force local Wi-Fi credentials into a private build, while only
+  a placeholder example is versioned and real credentials remain uncommitted
 - leave face recognition, voice, autonomous behavior and other AI features as
   explicit future work rather than simulating them in the MVP
 - evaluate ESP32-S3 before combining camera, display, microphone, speaker and
@@ -358,6 +366,9 @@ The first physical ESP32-CAM validation has also been completed:
 - the full animated Companion avatar firmware compiles successfully
 - runtime Wi-Fi provisioning was validated against `NIWA-AP` without storing
   the password in the repository
+- optional ignored local Wi-Fi build configuration was added for the Companion
+  prototype so repeated ESP32 flashes can reconnect without manual provisioning,
+  while real credentials still remain outside Git
 - the ESP32-CAM reconnects automatically after restart and receives an IP from
   the Raspberry hotspot
 - heartbeat, remote `happy`, manual `tracking`, temporary `blink` and automatic

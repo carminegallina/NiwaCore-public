@@ -59,6 +59,18 @@ returns to the serial download bootloader instead of running the sketch.
 Wi-Fi credentials must remain local placeholders or runtime configuration.
 Never commit real passwords, tokens or secrets.
 
+For repeated local Companion bench builds, the sketch can also read an ignored
+local header:
+
+```text
+firmware/esp32cam-companion/niwa_companion_local_config.h
+```
+
+Create it from `niwa_companion_local_config.example.h`. When
+`NIWA_COMPANION_USE_LOCAL_WIFI` is set to `1`, those local credentials override
+the ESP32 memory credentials during that build. This is useful after repeated
+flashes, but the real local header must never be staged or committed.
+
 ## NIWA Companion OLED avatar
 
 Compile the animated Companion firmware:
@@ -74,13 +86,14 @@ Upload it after placing the board in the manual flash mode described above:
 ```
 
 After removing the flash link, reconnecting USB and pressing `RST`, provision
-Wi-Fi locally:
+Wi-Fi locally when no ignored local config header is being used:
 
 ```powershell
 .\firmware\tools\niwa-companion-provision.cmd -Port COM4
 ```
 
 The provisioning prompt sends the NIWA-AP password directly over serial and
-stores it only in the ESP32 memory. The repository never stores that password.
-The validated board reconnects automatically after restart once provisioning
-has completed.
+stores it only in the ESP32 memory. The ignored local config header is available
+for prototype builds that need a compiled fallback, but the repository never
+stores the real password. The validated board reconnects automatically after
+restart once credentials are available from either source.

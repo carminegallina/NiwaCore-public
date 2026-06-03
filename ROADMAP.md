@@ -118,6 +118,8 @@ Current status:
 - Photo mode, tracking, scanning and photo flash remain manual visual demos only
 - ESP32-CAM OLED firmware compiled without external display libraries
 - Runtime serial Wi-Fi provisioning without committed credentials
+- Optional ignored local Wi-Fi build config for repeated Companion prototype
+  flashes, with only a placeholder example committed
 - Physical ESP32-CAM connection to NIWA-AP verified
 - Automatic reconnect, heartbeat and remote OLED expression changes verified
 
@@ -376,6 +378,8 @@ Implementation status:
 - animated browser face preview and manual expression buttons implemented
 - dependency-free animated OLED avatar firmware compiled
 - runtime serial Wi-Fi provisioning prepared without committed credentials
+- ignored local Wi-Fi build config prepared for prototype flashing without
+  committing real hotspot credentials
 
 Next tasks:
 - register multiple devices with unique IDs and pairing

@@ -561,6 +561,8 @@ Current behavior:
 - keeps battery and camera previews as explicit placeholders
 - keeps photo mode, tracking, scanning and photo flash as manual animations only
 - does not implement fake camera processing, recognition or AI
+- includes local static reference assets for the refined browser expression
+  library, including the restored animated `sobbing` tear reference
 
 Useful commands:
 
@@ -710,6 +712,10 @@ Current validation:
   `SCL -> GPIO14` and `SDA -> GPIO13`
 - `firmware/esp32cam-companion` compiles successfully with animated OLED faces,
   Raspberry expression polling and runtime serial Wi-Fi provisioning
+- `firmware/esp32cam-companion` also supports an ignored local build header,
+  `niwa_companion_local_config.h`, for repeated prototype flashes; only
+  `niwa_companion_local_config.example.h` is versioned and real credentials
+  must stay uncommitted
 - runtime provisioning against `NIWA-AP` was completed without committing the
   hotspot password
 - automatic Wi-Fi reconnect, heartbeat and remote OLED expression changes were

@@ -403,6 +403,14 @@ place credentials in committed files:
 
 .\firmware\tools\niwa-companion-provision.cmd -Port COM4
 
+For repeated Companion prototype flashes, the firmware may also use the ignored
+local file:
+
+firmware/esp32cam-companion/niwa_companion_local_config.h
+
+Only the placeholder example file may be committed. Never stage or commit the
+real local config header because it may contain the NIWA-AP password.
+
 ## Important project direction
 
 NIWA should evolve as modular panels:
