@@ -127,6 +127,9 @@ Current status:
 - Companion JPEG upload endpoint implemented and routed to NIWA Review
 - ESP32-CAM firmware camera/microSD support compiles and remains optional at
   runtime when the camera or onboard microSD is missing
+- Optional camera capture physically validated on 2026-06-04: ESP32 firmware
+  upload, camera capture, onboard microSD saving, Raspberry upload and NIWA
+  Review Companion indexing all worked
 
 ## Immediate next steps
 
@@ -394,13 +397,10 @@ Implementation status:
 Next tasks:
 - redesign the `eating` expression so the hamburger/object composition fits the
   OLED better
-- physically validate optional ESP32-CAM camera capture with the real camera
-  module connected
-- physically validate ESP onboard microSD saving together with the current OLED
-  wiring; if the SD/OLED pin sharing proves unreliable, choose revised display
-  pins or a later ESP32-S3 board
+- add on-demand low-FPS live preview for the Companion page; the Raspberry/ESP
+  should request and process preview frames only while the page is open/visible
 - register multiple devices with unique IDs and pairing
-- expose image upload, command polling and camera event APIs
+- expand device/camera event APIs only where they support real hardware behavior
 - add SQLite-backed placeholders for subjects and encounter history
 - prepare real-time dashboard updates through WebSocket or Socket.IO
 - store credentials and pairing tokens only at runtime; never commit secrets

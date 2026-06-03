@@ -565,6 +565,9 @@ Current behavior:
 - exposes a dashboard capture command for the ESP32-CAM camera
 - accepts JPEG uploads from the ESP32-CAM and stores them under
   /mnt/niwa-storage/companion for NIWA Review
+- camera capture has been physically validated with the ESP32-CAM: firmware
+  flashed on COM4, camera capture completed, onboard ESP microSD saving worked,
+  Raspberry upload worked and NIWA Review showed the captured files
 - exposes server-sent events for responsive browser updates
 - keeps battery and camera previews as explicit placeholders
 - keeps tracking and scanning as manual animations only; photo capture animation
@@ -742,8 +745,11 @@ Current validation:
   not a fixed device address
 - known Companion visual TODO: redesign the `eating` expression in a later pass;
   it is not part of this stable OLED checkpoint
-- physical validation pending: real camera capture, ESP onboard microSD write
-  and coexistence with the current OLED wiring
+- physical validation completed on 2026-06-04: optional camera capture, ESP
+  onboard microSD write, Raspberry upload and NIWA Review Companion ingestion
+  all worked after flashing the firmware on COM4
+- next firmware/panel task: add on-demand low-FPS live preview requested only
+  while the Companion page is open/visible
 
 ## Network notes
 

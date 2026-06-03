@@ -389,12 +389,17 @@ The first physical ESP32-CAM validation has also been completed:
   crying and love
 - the `eating` expression remains queued for a later visual redesign rather
   than being changed in this stable checkpoint
-- ESP32-CAM optional camera capture support now compiles successfully; real
-  camera and onboard microSD validation remains pending
+- ESP32-CAM optional camera capture support was deployed and physically
+  validated on 2026-06-04: firmware uploaded on COM4, camera capture works,
+  onboard ESP microSD saving works, Raspberry upload works and the captured
+  JPEGs appear in the NIWA Review Companion section
+- the next camera enhancement is an on-demand low-FPS live preview, requested
+  only while the Companion page is open/visible to avoid unnecessary load
 
 ### Version checkpoints
 
 Recent stable commits:
+- fd0f3de Add optional Companion camera capture flow
 - 29339a6 Stabilize Companion OLED expressions
 - e9e098d Extend Review ratings to JPG and video
 - 724ee35 Fix GoPro video thumbnail generation

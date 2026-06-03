@@ -423,8 +423,12 @@ Current Companion OLED note:
   Companion Panel; camera and microSD failures must be reported without
   blocking OLED, Wi-Fi, heartbeat or expression control
 - Companion captures are saved in NIWA Review under `/mnt/niwa-storage/companion`
-  after upload to the Raspberry; physical camera and ESP microSD validation
-  remains pending
+  after upload to the Raspberry
+- physical validation completed on 2026-06-04: firmware uploaded on COM4,
+  camera capture works, ESP onboard microSD saving works, Raspberry upload
+  works and NIWA Review Companion section shows the captured files
+- next camera task: add an on-demand low-FPS live preview that only requests
+  preview frames while the Companion page is open/visible
 
 ## Important project direction
 
@@ -481,11 +485,10 @@ Advanced:
 
 ## Current stable checkpoint
 
-Latest committed stable code checkpoint before the optional Companion camera
-integration:
+Latest validated stable code checkpoint:
 
-29339a6 Stabilize Companion OLED expressions
+fd0f3de Add optional Companion camera capture flow
 
 Useful next-thread prompt:
 
-Continue NIWA in C:\Users\utente\Projects\niwa. Read AGENTS.md, PROJECT_HISTORY.md, ROADMAP.md and SYSTEM_SNAPSHOT.md. Stable checkpoint before optional camera work is 29339a6. NIWA Companion has a separate panel on port 5058 and an animated OLED avatar firmware. Keep ESP32-CAM as an avatar/camera/sensor node and the Raspberry as the local-first backend core. Do not implement fake AI. Next physical step: deploy/flash the optional camera capture build, remove the GPIO0-GND flash link before restart, then test camera missing, camera connected, ESP microSD saving and NIWA Review Companion uploads.
+Continue NIWA in C:\Users\utente\Projects\niwa. Read AGENTS.md, PROJECT_HISTORY.md, ROADMAP.md and SYSTEM_SNAPSHOT.md. Stable validated checkpoint is fd0f3de Add optional Companion camera capture flow, physically validated on 2026-06-04 after flashing ESP32-CAM on COM4. NIWA Companion has a separate panel on port 5058 and an animated OLED avatar firmware. Keep ESP32-CAM as an avatar/camera/sensor node and the Raspberry as the local-first backend core. Do not implement fake AI. Next task: add on-demand low-FPS live camera preview for the Companion page, processing frames only while that page is open/visible.
