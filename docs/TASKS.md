@@ -8,8 +8,10 @@
 - [x] Rinominare branch locale in `main`.
 - [x] Preservare modifiche non committate presenti in sorgente.
 - [x] Aggiornare prompt Codex in `AGENTS.md` al nuovo percorso.
-- [ ] Decidere come gestire le modifiche non committate importate.
-- [ ] Verificare pannelli/firmware dal nuovo percorso.
+- [x] Committare le modifiche importate.
+- [x] Creare repository GitHub privato e pushare `main`.
+- [x] Verificare Companion Panel dal nuovo percorso con `python -m py_compile`.
+- [ ] Verificare firmware su hardware dal nuovo percorso.
 
 ## Sicurezza
 
@@ -22,5 +24,4 @@
 
 - [ ] Preparare screenshot ripuliti.
 - [ ] Scrivere breve case study tecnico.
-- [ ] Definire se futuro repository GitHub deve essere privato o pubblico.
-
+- [x] Repository GitHub privato creato.

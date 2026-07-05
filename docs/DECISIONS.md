@@ -13,6 +13,6 @@
 - Copiate nel target le modifiche non committate presenti in sorgente:
   - `docker/companion-panel/app/app.py`
   - `firmware/esp32cam-companion/esp32cam-companion.ino`
-- Nessun push GitHub eseguito.
+- Repository GitHub privato creato: `https://github.com/carminegallina/NiwaCore`.
+- Push iniziale su `origin/main` completato.
 - Il percorso autorevole per nuove chat Codex/Claude e' `C:\Dev\portfolio\NiwaCore`.
-

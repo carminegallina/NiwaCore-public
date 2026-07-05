@@ -4,6 +4,8 @@
 
 NiwaCore vive in `C:\Dev\portfolio\NiwaCore`. E' un hub locale Raspberry Pi per servizi Docker, storage, dashboard, strumenti foto/video, droni, luci, review media e firmware Companion ESP32-CAM.
 
+Repository GitHub privato autorevole: `https://github.com/carminegallina/NiwaCore.git`. Prima di nuove task, usare `git pull --ff-only origin main`.
+
 ## Ruolo atteso di Claude
 
 Claude puo' aiutare con:
@@ -48,5 +50,5 @@ Per task grandi:
 3. Proporre piano, rischi e file coinvolti.
 4. Implementare per step.
 5. Eseguire verifiche locali possibili.
-6. Non pushare senza conferma esplicita.
-
+6. Non pushare senza riepilogo o richiesta esplicita.
+7. Non rendere pubblico o cambiare visibilita' del repository senza conferma esplicita.
