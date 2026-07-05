@@ -1,4 +1,4 @@
-from flask import Flask, Response, jsonify, request
+from flask import Flask, Response, jsonify, request, send_file
 from pathlib import Path
 import copy
 import json
@@ -16,12 +16,16 @@ DATA_ROOT = Path(os.environ.get("NIWA_COMPANION_DATA_ROOT", "/data"))
 STORAGE_ROOT = Path(os.environ.get("NIWA_COMPANION_STORAGE_ROOT", "/storage"))
 STATE_FILE = DATA_ROOT / "companion_state.json"
 EVENTS_FILE = DATA_ROOT / "companion_events.json"
+LIVE_PREVIEW_FILE = DATA_ROOT / "companion_live_preview.jpg"
 COMPANION_CAPTURE_ROOT = STORAGE_ROOT / "companion"
 REVIEW_REBUILD_URL = os.environ.get("NIWA_COMPANION_REVIEW_REBUILD_URL", "http://127.0.0.1:5052/api/index/rebuild")
 STATE_LOCK = threading.Lock()
 EVENT_LIMIT = 240
 ONLINE_SECONDS = 35
 MAX_UPLOAD_BYTES = 8 * 1024 * 1024
+MAX_PREVIEW_BYTES = 1024 * 1024
+LIVE_PREVIEW_COMMAND_TTL = 4.0
+LIVE_PREVIEW_MAX_AGE = 8.0
 
 EXPRESSIONS = [
     {"id": "idle", "label": "Idle", "group": "Emozioni", "detail": "Occhi morbidi, battito naturale e piccoli sguardi."},
@@ -243,6 +247,43 @@ def save_uploaded_capture(device_id, command_id, original_name, data):
     return target_path
 
 
+def live_preview_info():
+    if not LIVE_PREVIEW_FILE.exists():
+        return {
+            "available": False,
+            "fresh": False,
+            "age_seconds": None,
+            "updated": None,
+            "url": None,
+        }
+
+    mtime = LIVE_PREVIEW_FILE.stat().st_mtime
+    age = max(0, now_ts() - mtime)
+    return {
+        "available": True,
+        "fresh": age <= LIVE_PREVIEW_MAX_AGE,
+        "age_seconds": round(age, 2),
+        "updated": time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(mtime)),
+        "url": f"/api/camera/live.jpg?t={int(mtime)}",
+    }
+
+
+def save_live_preview(data):
+    if len(data) > MAX_PREVIEW_BYTES:
+        raise ValueError("Frame preview troppo grande.")
+    if not data.startswith(b"\xff\xd8"):
+        raise ValueError("Il frame preview non sembra un JPEG.")
+
+    DATA_ROOT.mkdir(parents=True, exist_ok=True)
+    temp_path = LIVE_PREVIEW_FILE.with_suffix(".jpg.tmp")
+    with open(temp_path, "wb") as handle:
+        handle.write(data)
+        handle.flush()
+        os.fsync(handle.fileno())
+    temp_path.replace(LIVE_PREVIEW_FILE)
+    return LIVE_PREVIEW_FILE
+
+
 def public_device(device):
     result = copy.deepcopy(device)
     last_seen = result.get("last_seen")
@@ -387,6 +428,60 @@ def api_camera_capture():
     })
 
 
+@app.route("/api/camera/live/request", methods=["POST"])
+def api_camera_live_request():
+    payload = request.get_json(silent=True) or {}
+    device_id = str(payload.get("device_id") or "").strip() or None
+
+    with STATE_LOCK:
+        state = load_state()
+        device_id = device_id or state.get("active_device") or "companion_01"
+        device = state["devices"].setdefault(device_id, {
+            "id": device_id,
+            "name": device_id,
+            "paired": False,
+        })
+
+        if not public_device(device).get("online"):
+            return jsonify({
+                "error": "ESP32 offline: anteprima non disponibile.",
+                "preview": live_preview_info(),
+            }), 409
+
+        pending = device.get("pending_command")
+        if pending and pending.get("type") == "capture_photo":
+            return jsonify({
+                "ok": True,
+                "queued": False,
+                "busy": True,
+                "preview": live_preview_info(),
+            })
+
+        if (
+            pending
+            and pending.get("type") == "capture_preview"
+            and now_ts() - float(pending.get("created_ts", 0)) <= LIVE_PREVIEW_COMMAND_TTL
+        ):
+            command = pending
+        else:
+            command = {
+                "id": f"preview_{int(now_ts() * 1000)}",
+                "type": "capture_preview",
+                "created": now_label(),
+                "created_ts": now_ts(),
+            }
+            device["pending_command"] = command
+            device["last_preview_request"] = now_label()
+            save_state(state)
+
+    return jsonify({
+        "ok": True,
+        "queued": True,
+        "command": command,
+        "preview": live_preview_info(),
+    })
+
+
 @app.route("/api/devices/register", methods=["POST"])
 def api_register_device():
     payload = request.get_json(silent=True) or {}
@@ -449,10 +544,12 @@ def api_device_expression(device_id):
         state = load_state()
         device = state.get("devices", {}).get(device_id, {})
         command = device.get("pending_command")
-        if command and now_ts() - float(command.get("created_ts", 0)) > 60:
+        command_ttl = LIVE_PREVIEW_COMMAND_TTL if command and command.get("type") == "capture_preview" else 60
+        if command and now_ts() - float(command.get("created_ts", 0)) > command_ttl:
             device.pop("pending_command", None)
             save_state(state)
-            append_event("camera", f"Comando scatto scaduto per {device_id}", device_id=device_id)
+            if command.get("type") != "capture_preview":
+                append_event("camera", f"Comando scatto scaduto per {device_id}", device_id=device_id)
             command = None
     return jsonify({
         "ok": True,
@@ -509,6 +606,55 @@ def api_device_upload_image(device_id):
         "path": str(relative),
         "bytes": len(data),
     })
+
+
+@app.route("/api/devices/<device_id>/preview-frame", methods=["POST"])
+def api_device_preview_frame(device_id):
+    command_id = request.headers.get("X-NIWA-Command-ID", "").strip()
+    if request.content_length and request.content_length > MAX_PREVIEW_BYTES:
+        return jsonify({"error": "Frame preview troppo grande."}), 413
+    data = request.get_data(cache=False)
+
+    if not data:
+        return jsonify({"error": "Nessun frame preview ricevuto."}), 400
+
+    try:
+        save_live_preview(data)
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
+    except OSError as exc:
+        return jsonify({"error": str(exc)}), 500
+
+    with STATE_LOCK:
+        state = load_state()
+        device = state["devices"].setdefault(device_id, {"id": device_id, "name": device_id, "paired": False})
+        pending = device.get("pending_command")
+        if pending and pending.get("id") == command_id:
+            device.pop("pending_command", None)
+        device["last_preview_label"] = now_label()
+        device["last_preview_bytes"] = len(data)
+        device["live_preview"] = "online"
+        save_state(state)
+
+    return jsonify({
+        "ok": True,
+        "preview": live_preview_info(),
+        "bytes": len(data),
+    })
+
+
+@app.route("/api/camera/live.jpg")
+def api_camera_live_jpg():
+    if not LIVE_PREVIEW_FILE.exists():
+        return Response(status=404)
+    response = send_file(LIVE_PREVIEW_FILE, mimetype="image/jpeg", conditional=False)
+    response.headers["Cache-Control"] = "no-store, max-age=0"
+    return response
+
+
+@app.route("/api/camera/live/status")
+def api_camera_live_status():
+    return jsonify({"ok": True, "preview": live_preview_info()})
 
 
 @app.route("/api/devices/<device_id>/command-result", methods=["POST"])
@@ -600,7 +746,7 @@ body{margin:0;background:radial-gradient(circle at 18% -5%,rgba(213,154,132,.22)
 h1,h2,h3,p{margin-top:0}h1{font-size:32px;margin-bottom:6px;letter-spacing:0;color:#fff4ec}h2{font-size:18px;margin-bottom:12px}h3{font-size:15px;margin-bottom:8px}
 .topbar{display:flex;justify-content:space-between;gap:14px;align-items:flex-start;margin-bottom:18px}.brand-heading{display:flex;align-items:center;gap:12px}.brand-logo{width:52px;height:52px;border-radius:50%;border:1px solid rgba(213,154,132,.42);background:#f2dfcf;box-shadow:0 16px 34px rgba(0,0,0,.28)}.subtitle,.muted{color:var(--muted);line-height:1.45}.button{display:inline-flex;align-items:center;justify-content:center;background:rgba(64,45,42,.92);color:#fff;text-decoration:none;border:1px solid var(--line);border-radius:8px;padding:10px 12px;min-height:40px;cursor:pointer}.button:hover{background:rgba(87,61,56,.96);border-color:rgba(213,154,132,.46)}
 .layout{display:grid;grid-template-columns:minmax(320px,.95fr) minmax(420px,1.4fr);gap:14px;align-items:start}.card{background:linear-gradient(180deg,rgba(42,31,29,.94),rgba(18,14,14,.96));border:1px solid var(--line);border-radius:8px;padding:16px;box-shadow:0 18px 34px rgba(0,0,0,.25)}.stack{display:grid;gap:14px}.face-stage{display:grid;place-items:center;background:#050404;border:1px solid rgba(213,154,132,.24);border-radius:8px;overflow:hidden;aspect-ratio:2/1}.face-stage canvas{width:100%;height:100%;display:block}.face-meta{display:flex;justify-content:space-between;gap:10px;align-items:center;margin-top:12px}.expression-label{font-size:22px;font-weight:bold;color:#fff4ec}.pill{display:inline-flex;align-items:center;border:1px solid var(--line);border-radius:999px;padding:5px 8px;font-size:12px;color:#ffe0d1;background:rgba(64,45,42,.72)}.pill.online{color:#86efac;border-color:rgba(34,197,94,.36);background:rgba(34,197,94,.12)}.pill.offline{color:#fde68a;border-color:rgba(250,204,21,.36);background:rgba(250,204,21,.10)}
-.metrics{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:8px}.metric{background:rgba(21,17,18,.92);border:1px solid rgba(203,144,124,.20);border-radius:8px;padding:10px}.metric-value{font-weight:bold;font-size:16px;color:#fff4ec}.metric-label{font-size:11px;color:var(--muted);margin-top:4px}.camera-placeholder{aspect-ratio:16/9;display:grid;place-items:center;background:#080707;border:1px dashed rgba(213,154,132,.30);border-radius:8px;color:var(--muted);text-align:center;padding:14px}.camera-actions{display:grid;gap:10px;margin-top:12px}.button.primary{background:linear-gradient(180deg,#d59a84,#9f6f63);border-color:rgba(240,184,162,.45);font-weight:bold}.button:disabled{opacity:.45;cursor:not-allowed}.capture-status{font-size:13px;color:var(--muted);min-height:18px}
+.metrics{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:8px}.metric{background:rgba(21,17,18,.92);border:1px solid rgba(203,144,124,.20);border-radius:8px;padding:10px}.metric-value{font-weight:bold;font-size:16px;color:#fff4ec}.metric-label{font-size:11px;color:var(--muted);margin-top:4px}.camera-live{position:relative;aspect-ratio:16/9;display:grid;place-items:center;background:#080707;border:1px solid rgba(213,154,132,.24);border-radius:8px;overflow:hidden;color:var(--muted);text-align:center}.camera-live img{width:100%;height:100%;object-fit:contain;background:#050404;display:none}.camera-live.has-frame img{display:block}.camera-live.has-frame .camera-live-empty{display:none}.camera-live-badge{position:absolute;left:10px;top:10px}.camera-actions{display:grid;gap:10px;margin-top:12px}.button.primary{background:linear-gradient(180deg,#d59a84,#9f6f63);border-color:rgba(240,184,162,.45);font-weight:bold}.button:disabled{opacity:.45;cursor:not-allowed}.capture-status{font-size:13px;color:var(--muted);min-height:18px}
 .group{margin-top:16px}.group:first-child{margin-top:0}.group-title{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;color:#f0b8a2;font-weight:bold}.expression-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(135px,1fr));gap:8px}.expression{min-height:64px;text-align:left;background:rgba(21,17,18,.92);color:#ffe0d1;border:1px solid rgba(203,144,124,.20);border-radius:8px;padding:9px;cursor:pointer}.expression:hover{background:#2b1e1b;border-color:rgba(213,154,132,.46)}.expression.active{background:linear-gradient(180deg,rgba(213,154,132,.34),rgba(64,45,42,.92));border-color:var(--accent-strong);box-shadow:0 0 0 1px rgba(240,184,162,.18)}.expression strong{display:block;font-size:14px}.expression span{display:block;color:var(--muted);font-size:11px;line-height:1.3;margin-top:4px}.events{display:grid;gap:8px;max-height:260px;overflow:auto}.event{border-left:2px solid var(--accent);padding:7px 9px;background:rgba(21,17,18,.72);font-size:13px}.event small{display:block;color:var(--muted);margin-top:3px}
 @media(max-width:920px){.layout{grid-template-columns:1fr}}@media(max-width:620px){body{padding:12px}.topbar{display:block}.brand-logo{width:44px;height:44px}.topbar .button{margin-top:10px}.metrics{grid-template-columns:1fr}.expression-grid{grid-template-columns:repeat(2,minmax(0,1fr))}h1{font-size:27px}}
 </style>
@@ -639,7 +785,11 @@ h1,h2,h3,p{margin-top:0}h1{font-size:32px;margin-bottom:6px;letter-spacing:0;col
     </section>
     <section class="card">
       <h2>Camera</h2>
-      <div class="camera-placeholder">Anteprima camera non attiva<br><span class="muted">Il modulo volto resta indipendente dalla camera.</span></div>
+      <div class="camera-live" id="cameraLive">
+        <img id="cameraLiveImage" alt="">
+        <div class="camera-live-empty">Anteprima live in attesa<br><span class="muted">Si aggiorna solo mentre questa pagina è visibile.</span></div>
+        <span class="pill offline camera-live-badge" id="livePill">Live in attesa</span>
+      </div>
       <div class="camera-actions">
         <button class="button primary" id="captureButton" onclick="capturePhoto()">Scatta foto</button>
         <div class="capture-status" id="captureState">Pronto per comandi camera quando l'ESP è online.</div>
@@ -832,11 +982,18 @@ function drawFace(id,t,open=1){ctx.clearRect(0,0,512,256);ctx.fillStyle='#050404
 function animate(now){const dt=Math.min(.08,(now-lastTime)/1000);lastTime=now;if(transitionPhase==='closing'){openness=Math.max(0,openness-dt*6);if(openness===0){current=next;transitionPhase='opening'}}else if(transitionPhase==='opening'){openness=Math.min(1,openness+dt*6);if(openness===1)transitionPhase='idle'}drawFace(current,now/1000,openness);requestAnimationFrame(animate)}
 function setPreview(id){if(id!==next){next=id;transitionPhase='closing';expressionStartedAt=performance.now()/1000}const item=labelFor(id);document.getElementById('currentExpression').textContent=item.label;document.getElementById('currentDetail').textContent=item.detail;document.querySelectorAll('.expression').forEach(b=>b.classList.toggle('active',b.dataset.id===id))}
 async function sendExpression(id){const r=await fetch('/api/expression',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({expression:id,source:'dashboard'})});if(!r.ok)throw new Error('Cambio espressione non riuscito');setPreview(id);loadEvents()}
+let livePreviewTimer=null;let livePreviewBusy=false;let livePreviewFrames=0;
+function setLiveStatus(text,online=false){const pill=document.getElementById('livePill');pill.className=`pill ${online?'online':'offline'} camera-live-badge`;pill.textContent=text}
+function refreshLiveImage(preview){if(!preview||!preview.available)return;const box=document.getElementById('cameraLive');const image=document.getElementById('cameraLiveImage');image.src=`/api/camera/live.jpg?t=${Date.now()}`;box.classList.add('has-frame');livePreviewFrames+=1;setLiveStatus(`Live ${livePreviewFrames}`,Boolean(preview.fresh))}
+async function livePreviewTick(){if(document.hidden||livePreviewBusy)return;livePreviewBusy=true;try{const r=await fetch('/api/camera/live/request',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({device_id:'companion_01'})});const data=await r.json().catch(()=>({}));if(data.preview&&data.preview.available){refreshLiveImage(data.preview)}if(!r.ok||data.error){setLiveStatus('Live offline',false);return}if(data.busy){setLiveStatus('Scatto in corso',true);return}setLiveStatus('Live richiesta',true);setTimeout(async()=>{try{const status=await(await fetch('/api/camera/live/status',{cache:'no-store'})).json();refreshLiveImage(status.preview)}catch(e){}},900)}catch(e){setLiveStatus('Live errore',false)}finally{livePreviewBusy=false}}
+function startLivePreview(){if(livePreviewTimer||document.hidden)return;setLiveStatus('Live avvio',false);livePreviewTick();livePreviewTimer=setInterval(livePreviewTick,2200)}
+function stopLivePreview(){if(livePreviewTimer){clearInterval(livePreviewTimer);livePreviewTimer=null}setLiveStatus('Live pausa',false)}
+document.addEventListener('visibilitychange',()=>{document.hidden?stopLivePreview():startLivePreview()});
 async function capturePhoto(){const button=document.getElementById('captureButton');const state=document.getElementById('captureState');button.disabled=true;state.textContent='Richiesta scatto in corso...';try{const r=await fetch('/api/camera/capture',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({device_id:'companion_01'})});const data=await r.json();if(!r.ok||data.error)throw new Error(data.error||'Scatto non avviato');setPreview('photo_capture');state.textContent='Comando inviato all ESP32. Attendo salvataggio e upload.';loadEvents()}catch(e){state.textContent='Errore scatto: '+e.message}finally{button.disabled=false;setTimeout(loadStatus,900)}}
 function renderButtons(){const groups={};expressions.forEach(e=>(groups[e.group]??=[]).push(e));document.getElementById('expressionGroups').innerHTML=Object.entries(groups).map(([group,items])=>`<div class="group"><div class="group-title">${group}<span class="pill">${items.length}</span></div><div class="expression-grid">${items.map(e=>`<button class="expression" data-id="${e.id}" onclick="sendExpression('${e.id}')"><strong>${e.label}</strong><span>${e.detail}</span></button>`).join('')}</div></div>`).join('')}
 async function loadStatus(){const data=await(await fetch('/api/status',{cache:'no-store'})).json();expressions=data.expressions;renderButtons();setPreview(data.state.expression);const d=data.state.devices.companion_01||{};const p=document.getElementById('devicePill');p.className=`pill ${d.online?'online':'offline'}`;p.textContent=d.online?'ESP32 online':'ESP32 offline';document.getElementById('wifiState').textContent=d.online?(d.rssi?`${d.rssi} dBm`:'Online'):'Offline';document.getElementById('batteryState').textContent=d.battery_percent??'-';document.getElementById('firmwareState').textContent=d.firmware??'-';document.getElementById('cameraState').textContent=d.camera??'-';document.getElementById('sdState').textContent=d.sd??'-';document.getElementById('lastCaptureState').textContent=d.last_capture_label??d.last_capture_filename??'-';const last=d.last_command_result;if(last&&last.message){document.getElementById('captureState').textContent=last.ok?`Ultimo scatto: ${last.filename||'completato'}`:`Ultimo scatto: ${last.message}`}}
 async function loadEvents(){const data=await(await fetch('/api/events',{cache:'no-store'})).json();document.getElementById('events').innerHTML=data.items.length?data.items.slice(0,14).map(e=>`<div class="event">${e.message}<small>${e.timestamp}</small></div>`).join(''):'<div class="muted">Nessun evento.</div>'}
-new EventSource('/api/stream').addEventListener('state',event=>{const state=JSON.parse(event.data);setPreview(state.expression);loadStatus()});loadStatus();loadEvents();setInterval(loadStatus,4000);setInterval(loadEvents,10000);requestAnimationFrame(animate);
+new EventSource('/api/stream').addEventListener('state',event=>{const state=JSON.parse(event.data);setPreview(state.expression);loadStatus()});loadStatus();loadEvents();setInterval(loadStatus,4000);setInterval(loadEvents,10000);startLivePreview();requestAnimationFrame(animate);
 </script>
 </body>
 </html>

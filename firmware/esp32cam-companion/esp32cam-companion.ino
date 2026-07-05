@@ -61,7 +61,7 @@
 
 #include "companion_oled_bitmaps.h"
 
-const char* FIRMWARE_VERSION = "0.4.0-camera-capture";
+const char* FIRMWARE_VERSION = "0.4.1-live-preview";
 const char* DEVICE_ID = "companion_01";
 const char* DEVICE_NAME = "NIWA Companion 01";
 const char* DEVICE_HOSTNAME = "niwa-companion-01";
@@ -1155,6 +1155,21 @@ void initializeCamera() {
   Serial.println("Camera ESP32-CAM online.");
 }
 
+void configureCameraFrame(bool previewMode) {
+  sensor_t* sensor = esp_camera_sensor_get();
+  if (!sensor) {
+    return;
+  }
+  if (previewMode) {
+    sensor->set_framesize(sensor, FRAMESIZE_QVGA);
+    sensor->set_quality(sensor, 20);
+  } else {
+    sensor->set_framesize(sensor, psramFound() ? FRAMESIZE_SVGA : FRAMESIZE_VGA);
+    sensor->set_quality(sensor, psramFound() ? 12 : 14);
+  }
+  delay(80);
+}
+
 bool initializeStorage(bool verbose = true) {
   if (sdOnline) {
     return true;
@@ -1236,6 +1251,27 @@ bool uploadCapture(const String& commandId, const String& filename, const uint8_
   return ok;
 }
 
+bool uploadPreviewFrame(const String& commandId, const uint8_t* data, size_t length) {
+  if (WiFi.status() != WL_CONNECTED || !serverUrl.length()) {
+    return false;
+  }
+
+  HTTPClient http;
+  http.setConnectTimeout(1600);
+  http.setTimeout(3200);
+  String url = serverUrl + "/api/devices/" + DEVICE_ID + "/preview-frame";
+  if (!http.begin(url)) {
+    return false;
+  }
+  http.addHeader("Content-Type", "image/jpeg");
+  http.addHeader("X-NIWA-Command-ID", commandId);
+  int statusCode = http.POST((uint8_t*)data, length);
+  bool ok = statusCode >= 200 && statusCode < 300;
+  markServerStatus(statusCode > 0, statusCode);
+  http.end();
+  return ok;
+}
+
 void reportCommandResult(
   const String& commandId,
   bool ok,
@@ -1291,6 +1327,7 @@ void handleCaptureCommand(const String& commandId) {
     return;
   }
 
+  configureCameraFrame(false);
   camera_fb_t* frame = esp_camera_fb_get();
   if (!frame) {
     lastCaptureStatus = "capture failed";
@@ -1309,6 +1346,37 @@ void handleCaptureCommand(const String& commandId) {
   bool ok = sdSaved || uploadOk;
   String message = ok ? "Scatto gestito." : "Scatto non salvato.";
   reportCommandResult(commandId, ok, sdSaved, uploadOk, filename, message);
+  captureBusy = false;
+}
+
+void handlePreviewCommand(const String& commandId) {
+  if (captureBusy || !commandId.length() || commandId == lastHandledCommandId) {
+    return;
+  }
+
+  captureBusy = true;
+  lastHandledCommandId = commandId;
+
+  if (!cameraOnline) {
+    initializeCamera();
+  }
+
+  if (!cameraOnline) {
+    captureBusy = false;
+    return;
+  }
+
+  configureCameraFrame(true);
+  camera_fb_t* frame = esp_camera_fb_get();
+  if (!frame) {
+    configureCameraFrame(false);
+    captureBusy = false;
+    return;
+  }
+
+  uploadPreviewFrame(commandId, frame->buf, frame->len);
+  esp_camera_fb_return(frame);
+  configureCameraFrame(false);
   captureBusy = false;
 }
 
@@ -1622,6 +1690,8 @@ void pollExpression() {
     String commandId = extractJsonString(body, "command_id");
     if (commandType == "capture_photo" && commandId.length()) {
       handleCaptureCommand(commandId);
+    } else if (commandType == "capture_preview" && commandId.length()) {
+      handlePreviewCommand(commandId);
     }
   } else {
     markServerStatus(false, statusCode);
