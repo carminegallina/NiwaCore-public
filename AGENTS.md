@@ -1,8 +1,8 @@
-# NIWA HUB - Agent Instructions
+# NiwaCore - Agent Instructions
 
 ## Project identity
 
-NIWA HUB is a Raspberry Pi based portable creator station for photography, video, drone work, events, fairs, cosplay shoots, file review, local storage and future automation.
+NiwaCore is a Raspberry Pi based portable creator station for photography, video, drone work, events, fairs, cosplay shoots, file review, local storage and future automation.
 
 It is not only a NAS. It is a local-first creator workflow platform.
 
@@ -491,4 +491,4 @@ fd0f3de Add optional Companion camera capture flow
 
 Useful next-thread prompt:
 
-Continue NIWA in C:\Dev\portfolio\niwacore. Read AGENTS.md, PROJECT_HISTORY.md, ROADMAP.md and SYSTEM_SNAPSHOT.md. Stable validated checkpoint is fd0f3de Add optional Companion camera capture flow, physically validated on 2026-06-04 after flashing ESP32-CAM on COM4. NIWA Companion has a separate panel on port 5058 and an animated OLED avatar firmware. Keep ESP32-CAM as an avatar/camera/sensor node and the Raspberry as the local-first backend core. Do not implement fake AI. Next task: add on-demand low-FPS live camera preview for the Companion page, processing frames only while that page is open/visible.
+Continue NIWA in C:\Dev\portfolio\NiwaCore. Read AGENTS.md, PROJECT_HISTORY.md, ROADMAP.md and SYSTEM_SNAPSHOT.md. Stable validated checkpoint is fd0f3de Add optional Companion camera capture flow, physically validated on 2026-06-04 after flashing ESP32-CAM on COM4. NIWA Companion has a separate panel on port 5058 and an animated OLED avatar firmware. Keep ESP32-CAM as an avatar/camera/sensor node and the Raspberry as the local-first backend core. Do not implement fake AI. Next task: add on-demand low-FPS live camera preview for the Companion page, processing frames only while that page is open/visible.

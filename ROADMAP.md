@@ -1,4 +1,4 @@
-# NIWA HUB - Roadmap
+# NiwaCore - Roadmap
 
 ## Current stable modules
 

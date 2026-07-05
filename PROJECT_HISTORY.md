@@ -1,4 +1,4 @@
-# NIWA HUB - Project History
+# NiwaCore - Project History
 
 ## Origin
 

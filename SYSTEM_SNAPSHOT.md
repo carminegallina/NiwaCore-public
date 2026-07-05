@@ -1,4 +1,4 @@
-# NIWA HUB - System Snapshot
+# NiwaCore - System Snapshot
 
 ## Main paths
 

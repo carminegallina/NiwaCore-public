@@ -2,7 +2,7 @@
 
 ## Contesto progetto
 
-NiwaCore / NIWA HUB vive in `C:\Dev\portfolio\niwacore`. E' un hub locale Raspberry Pi per servizi Docker, storage, dashboard, strumenti foto/video, droni, luci, review media e firmware Companion ESP32-CAM.
+NiwaCore vive in `C:\Dev\portfolio\NiwaCore`. E' un hub locale Raspberry Pi per servizi Docker, storage, dashboard, strumenti foto/video, droni, luci, review media e firmware Companion ESP32-CAM.
 
 ## Ruolo atteso di Claude
 

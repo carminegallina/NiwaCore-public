@@ -18,7 +18,7 @@ if [[ ! -f "${SOURCE}" ]]; then
 fi
 
 cat > "${TEMP_SUDOERS}" <<'EOF'
-# NIWA HUB restricted administration wrapper.
+# NiwaCore restricted administration wrapper.
 # The root-owned wrapper validates every accepted action and service name.
 niwa ALL=(root) NOPASSWD: /usr/local/sbin/niwa-admin
 EOF

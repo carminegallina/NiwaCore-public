@@ -1,4 +1,4 @@
-# NiwaCore / NIWA HUB
+# NiwaCore
 
 Local-first Raspberry Pi hub for photo/video workflows, storage, dashboards, Docker services, media review, drone tools, lighting tools and ESP32-CAM Companion experiments.
 
@@ -31,7 +31,7 @@ NiwaCore centralizza servizi locali utili a creator e fotografi in un sistema Ra
 
 Migrato nel portfolio in:
 
-`C:\Dev\portfolio\niwacore`
+`C:\Dev\portfolio\NiwaCore`
 
 Sorgente precedente:
 
