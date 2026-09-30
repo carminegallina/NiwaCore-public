@@ -417,6 +417,27 @@ Recent stable commits:
 - da1d984 Add NIWA Lights and robust weather fallbacks
 - bda870f Add place autocomplete and unified panel styling
 
+## Nikon Z6 II bridge, 2026-07 to 2026-09
+
+NIWA Import gained a `/api/bridge/v1` endpoint family with a locally generated
+token, and a new ESP32-S3 firmware imports NEF/JPG/JPEG over USB PTP and uploads
+them over the hotspot.
+
+Two problems cost most of the debugging time and are worth remembering:
+
+- the provisioned Wi-Fi PSK had been stored truncated at 7 characters, below the
+  WPA2 minimum of 8. The board reported only `disconnected`; the Raspberry told
+  the real story with `AP-STA-POSSIBLE-PSK-MISMATCH`. `STATUS` now prints the
+  stored password length and the provisioning launcher refuses anything shorter
+  than 8 characters.
+- the bridge joins Wi-Fi only when it has something to upload, so `STATUS` shows
+  `disconnected` whenever no camera is attached. That looked like a failure for a
+  whole session. `WIFI_CONNECT` now forces a connection attempt on demand.
+
+The USB side remains open: a direct USB-C to USB-C cable never enumerates the
+camera because nothing presents the CC pull-up that hands the host role to the
+board.
+
 ## Current philosophy
 
 Prioritize:

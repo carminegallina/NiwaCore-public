@@ -406,6 +406,11 @@ place credentials in committed files:
 
 .\firmware\tools\niwa-companion-provision.cmd -Port COM4
 
+For the Nikon Z6 II ESP32-S3 bridge, provisioning uses the equivalent launcher,
+which also pulls the bridge token from the Raspberry over SSH:
+
+.\firmware\tools\niwa-bridge-provision.cmd -Port COM4
+
 For repeated Companion prototype flashes, the firmware may also use the ignored
 local file:
 
@@ -492,3 +497,5 @@ fd0f3de Add optional Companion camera capture flow
 Useful next-thread prompt:
 
 Continue NIWA in C:\Dev\portfolio\NiwaCore. Read AGENTS.md, PROJECT_HISTORY.md, ROADMAP.md and SYSTEM_SNAPSHOT.md. Stable validated checkpoint is fd0f3de Add optional Companion camera capture flow, physically validated on 2026-06-04 after flashing ESP32-CAM on COM4. NIWA Companion has a separate panel on port 5058 and an animated OLED avatar firmware. Keep ESP32-CAM as an avatar/camera/sensor node and the Raspberry as the local-first backend core. Do not implement fake AI. Next task: add on-demand low-FPS live camera preview for the Companion page, processing frames only while that page is open/visible.
+
+## Imported Claude Cowork project instructions
