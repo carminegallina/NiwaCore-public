@@ -62,6 +62,7 @@ install_import_service() {
   install -d -m 0755 "${IMPORT_TARGET}/static"
   install -d -m 0755 /mnt/niwa-import
   install -d -m 0755 /mnt/niwa-storage/.niwa_import_staging
+  install -d -m 0755 /mnt/niwa-storage/.niwa_bridge_staging
   install -m 0755 "${IMPORT_SOURCE}/niwa_import.py" "${IMPORT_TARGET}/niwa_import.py"
   install -m 0644 "${IMPORT_SOURCE}/static/niwa-logo.png" "${IMPORT_TARGET}/static/niwa-logo.png"
   install -m 0644 "${IMPORT_SOURCE}/niwa-import.service" /etc/systemd/system/niwa-import.service

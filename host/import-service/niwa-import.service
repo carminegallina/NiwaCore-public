@@ -7,6 +7,7 @@ RequiresMountsFor=/mnt/niwa-storage
 Type=simple
 User=root
 WorkingDirectory=/opt/niwa-import
+EnvironmentFile=-/etc/niwa-import.env
 ExecStart=/usr/bin/python3 /opt/niwa-import/niwa_import.py
 Restart=on-failure
 RestartSec=4

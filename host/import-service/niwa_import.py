@@ -3,10 +3,15 @@ from datetime import datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib import request as urlrequest
+from urllib.parse import urlsplit
 import argparse
 import hashlib
+import hmac
+import ipaddress
 import json
 import os
+import re
+import secrets
 import shutil
 import subprocess
 import threading
@@ -14,19 +19,43 @@ import time
 import traceback
 
 
-APP_VERSION = "0.2.0"
+APP_VERSION = "0.3.0"
 PORT = int(os.environ.get("NIWA_IMPORT_PORT", "5057"))
 PROJECT_ROOT = Path(os.environ.get("NIWA_PROJECT_ROOT", "/home/niwa/niwa"))
 DATA_ROOT = Path(os.environ.get("NIWA_DATA_ROOT", str(PROJECT_ROOT / "data")))
 STORAGE_ROOT = Path(os.environ.get("NIWA_STORAGE_ROOT", "/mnt/niwa-storage"))
 MOUNT_ROOT = Path(os.environ.get("NIWA_IMPORT_MOUNT_ROOT", "/mnt/niwa-import"))
 STAGING_ROOT = STORAGE_ROOT / ".niwa_import_staging"
+BRIDGE_STAGING_ROOT = STORAGE_ROOT / ".niwa_bridge_staging"
 STAGING_RETENTION_SECONDS = int(os.environ.get("NIWA_IMPORT_STAGING_RETENTION_SECONDS", str(24 * 3600)))
 STAGING_CLEANUP_INTERVAL_SECONDS = int(os.environ.get("NIWA_IMPORT_STAGING_CLEANUP_INTERVAL_SECONDS", str(3600)))
+BRIDGE_MAX_FILE_SIZE = int(os.environ.get("NIWA_BRIDGE_MAX_FILE_SIZE", str(2 * 1024 * 1024 * 1024)))
+BRIDGE_MAX_CHUNK_SIZE = int(os.environ.get("NIWA_BRIDGE_MAX_CHUNK_SIZE", str(512 * 1024)))
+BRIDGE_STAGING_RETENTION_SECONDS = int(
+    os.environ.get("NIWA_BRIDGE_STAGING_RETENTION_SECONDS", str(7 * 24 * 3600))
+)
+BRIDGE_MAX_ACTIVE_SESSIONS = int(
+    os.environ.get("NIWA_BRIDGE_MAX_ACTIVE_SESSIONS", "8")
+)
+BRIDGE_MAX_SESSION_OBJECTS = int(
+    os.environ.get("NIWA_BRIDGE_MAX_SESSION_OBJECTS", "2000")
+)
+BRIDGE_MAX_SESSION_HISTORY = int(
+    os.environ.get("NIWA_BRIDGE_MAX_SESSION_HISTORY", "100")
+)
+BRIDGE_MIN_FREE_BYTES = int(
+    os.environ.get("NIWA_BRIDGE_MIN_FREE_BYTES", str(256 * 1024 * 1024))
+)
+BRIDGE_SOCKET_TIMEOUT_SECONDS = int(
+    os.environ.get("NIWA_BRIDGE_SOCKET_TIMEOUT_SECONDS", "30")
+)
+BRIDGE_TOKEN = os.environ.get("NIWA_BRIDGE_TOKEN", "").strip()
 
 CONFIG_FILE = DATA_ROOT / "import_sources.json"
 JOBS_FILE = DATA_ROOT / "import_jobs.json"
 HASHES_FILE = DATA_ROOT / "import_hashes.json"
+BRIDGE_SESSIONS_FILE = DATA_ROOT / "bridge_sessions.json"
+BRIDGE_TOKEN_FILE = DATA_ROOT / "bridge_token"
 
 DEFAULT_CONFIG = {
     "version": 1,
@@ -51,12 +80,24 @@ IGNORED_DIRECTORIES = {
     "$RECYCLE.BIN", ".Spotlight-V100", ".Trashes", "System Volume Information",
 }
 PROFILES = {"camera", "gopro"}
+BRIDGE_ALLOWED_EXTENSIONS = {".nef", ".jpg", ".jpeg"}
+BRIDGE_CONTENT_RANGE = re.compile(r"^bytes ([0-9]+)-([0-9]+)/([0-9]+)$")
+BRIDGE_ROUTE_ID = r"([A-Za-z0-9_-]{8,96})"
 
 STATE_LOCK = threading.Lock()
 JOBS_LOCK = threading.Lock()
+INGEST_LOCK = threading.Lock()
+BRIDGE_LOCK = threading.RLock()
 ACTIVE_JOB = None
 LAST_SCAN_ERROR = None
 SEEN_APPROVED_DEVICES = set()
+
+
+class ApiError(RuntimeError):
+    def __init__(self, message, status=400, **details):
+        super().__init__(message)
+        self.status = status
+        self.details = details
 
 
 def now_label():
@@ -137,12 +178,12 @@ def save_job(job):
 
 
 def load_hashes():
-    payload = load_json(HASHES_FILE, {"version": 2, "files": {}, "sources": {}})
+    payload = load_json(HASHES_FILE, {"version": 3, "files": {}, "sources": {}})
     if not isinstance(payload, dict) or not isinstance(payload.get("files"), dict):
-        return {"version": 2, "files": {}, "sources": {}}
+        return {"version": 3, "files": {}, "sources": {}}
     if not isinstance(payload.get("sources"), dict):
         payload["sources"] = {}
-    payload["version"] = 2
+    payload["version"] = 3
     return payload
 
 
@@ -463,15 +504,23 @@ def cached_duplicate(source_path, key, source_inventory, destinations):
         and cached.get("mtime_ns") == signature["mtime_ns"]
     ):
         destination = Path(cached.get("destination", ""))
+        digest = cached.get("digest")
         if (
             destination.exists()
             and cached.get("quick_hash") == signature["quick_hash"]
+            and isinstance(digest, str)
+            and sha256_file(destination) == digest
         ):
-            return signature, destination, cached.get("digest")
+            return signature, destination, digest
 
     for destination, digest in destinations.get(key, []):
         try:
-            if destination.exists() and quick_fingerprint(destination)["quick_hash"] == signature["quick_hash"]:
+            if (
+                destination.exists()
+                and quick_fingerprint(destination)["quick_hash"]
+                == signature["quick_hash"]
+                and sha256_file(destination) == digest
+            ):
                 return signature, destination, digest
         except OSError:
             continue
@@ -517,7 +566,22 @@ def unique_destination(destination, digest):
         return destination, False
     if sha256_file(destination) == digest:
         return destination, True
-    return destination.with_name(f"{destination.stem}_conflict_{digest[:8]}{destination.suffix}"), False
+    conflict = destination.with_name(
+        f"{destination.stem}_conflict_{digest[:8]}{destination.suffix}"
+    )
+    if not conflict.exists():
+        return conflict, False
+    if sha256_file(conflict) == digest:
+        return conflict, True
+    for index in range(2, 1000):
+        numbered = destination.with_name(
+            f"{destination.stem}_conflict_{digest[:8]}_{index}{destination.suffix}"
+        )
+        if not numbered.exists():
+            return numbered, False
+        if sha256_file(numbered) == digest:
+            return numbered, True
+    raise RuntimeError(f"Troppi conflitti di nome per {destination.name}")
 
 
 def publish_verified_file(staged_path, destination, digest):
@@ -572,10 +636,16 @@ def staging_cleanup_loop():
         with STATE_LOCK:
             active_job_id = ACTIVE_JOB.get("id") if ACTIVE_JOB else None
         cleanup_old_staging(active_job_id=active_job_id)
+        cleanup_old_bridge_staging()
         time.sleep(STAGING_CLEANUP_INTERVAL_SECONDS)
 
 
 def run_import(device, profile, trigger):
+    with INGEST_LOCK:
+        return run_import_locked(device, profile, trigger)
+
+
+def run_import_locked(device, profile, trigger):
     global ACTIVE_JOB
     job = {
         "id": iso_job_id(device["id"]),
@@ -665,7 +735,12 @@ def run_import(device, profile, trigger):
         save_job(job)
         for item in staged_files:
             known = hashes["files"].get(item["digest"])
-            if known and Path(known).exists():
+            known_path = Path(known) if known else None
+            if (
+                known_path
+                and known_path.is_file()
+                and sha256_file(known_path) == item["digest"]
+            ):
                 item["staged"].unlink(missing_ok=True)
                 job["duplicate_files"] += 1
                 remember_source_file(
@@ -673,7 +748,7 @@ def run_import(device, profile, trigger):
                     item["inventory_key"],
                     item["signature"],
                     item["digest"],
-                    Path(known),
+                    known_path,
                 )
                 continue
             destination, duplicate = publish_verified_file(
@@ -718,6 +793,1167 @@ def run_import(device, profile, trigger):
         save_job(job)
         with STATE_LOCK:
             ACTIVE_JOB = None
+
+
+def bridge_auth_required():
+    return bool(BRIDGE_TOKEN)
+
+
+def bridge_validate_token(token):
+    if (
+        not isinstance(token, str)
+        or len(token) < 32
+        or len(token) > 256
+        or any(character.isspace() or ord(character) < 33 for character in token)
+    ):
+        raise RuntimeError(
+            "NIWA bridge token non valido: usa almeno 32 caratteri senza spazi."
+        )
+    return token
+
+
+def ensure_bridge_token():
+    global BRIDGE_TOKEN
+    with BRIDGE_LOCK:
+        if BRIDGE_TOKEN:
+            return bridge_validate_token(BRIDGE_TOKEN)
+        DATA_ROOT.mkdir(parents=True, exist_ok=True)
+        if BRIDGE_TOKEN_FILE.is_symlink():
+            raise RuntimeError("Il file token bridge non puo essere un link simbolico.")
+        try:
+            token = BRIDGE_TOKEN_FILE.read_text(encoding="utf-8").strip()
+        except FileNotFoundError:
+            token = secrets.token_hex(32)
+            temporary = BRIDGE_TOKEN_FILE.with_name(
+                f".{BRIDGE_TOKEN_FILE.name}.{os.getpid()}.{secrets.token_hex(4)}"
+            )
+            descriptor = os.open(
+                str(temporary),
+                os.O_WRONLY | os.O_CREAT | os.O_EXCL,
+                0o600,
+            )
+            try:
+                with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
+                    handle.write(token + "\n")
+                    handle.flush()
+                    os.fsync(handle.fileno())
+            except Exception:
+                try:
+                    temporary.unlink()
+                except OSError:
+                    pass
+                raise
+            os.replace(temporary, BRIDGE_TOKEN_FILE)
+            fsync_directory(BRIDGE_TOKEN_FILE.parent)
+        except OSError as error:
+            raise RuntimeError(f"Impossibile leggere il token bridge: {error}") from error
+        token = bridge_validate_token(token)
+        try:
+            os.chmod(BRIDGE_TOKEN_FILE, 0o600)
+        except OSError as error:
+            raise RuntimeError(
+                f"Impossibile proteggere il file token bridge: {error}"
+            ) from error
+        BRIDGE_TOKEN = token
+        return token
+
+
+def bridge_authorization_valid(header_value):
+    if not bridge_auth_required():
+        return True
+    prefix = "Bearer "
+    if not isinstance(header_value, str) or not header_value.startswith(prefix):
+        return False
+    supplied = header_value[len(prefix):].strip()
+    return bool(supplied) and hmac.compare_digest(supplied, BRIDGE_TOKEN)
+
+
+def bridge_loopback_address(address):
+    try:
+        return ipaddress.ip_address(str(address).split("%", 1)[0]).is_loopback
+    except ValueError:
+        return False
+
+
+def bridge_load_sessions():
+    payload = load_json(BRIDGE_SESSIONS_FILE, {"version": 1, "sessions": {}})
+    if not isinstance(payload, dict) or not isinstance(payload.get("sessions"), dict):
+        return {"version": 1, "sessions": {}}
+    payload["version"] = 1
+    return payload
+
+
+def bridge_save_sessions(payload):
+    sessions = payload.get("sessions", {})
+    if isinstance(sessions, dict) and len(sessions) > BRIDGE_MAX_SESSION_HISTORY:
+        active = {
+            session_id: session
+            for session_id, session in sessions.items()
+            if session.get("status") in {"active", "completing"}
+        }
+        terminal = [
+            (session_id, session)
+            for session_id, session in sessions.items()
+            if session_id not in active
+        ]
+        terminal.sort(
+            key=lambda value: value[1].get("updated_at", ""),
+            reverse=True,
+        )
+        remaining = max(0, BRIDGE_MAX_SESSION_HISTORY - len(active))
+        payload["sessions"] = {
+            **active,
+            **dict(terminal[:remaining]),
+        }
+    atomic_json_write(BRIDGE_SESSIONS_FILE, payload)
+
+
+def bridge_path_is_within(path, root):
+    try:
+        Path(path).resolve().relative_to(Path(root).resolve())
+        return True
+    except (OSError, ValueError):
+        return False
+
+
+def bridge_text(value, label, required=True, maximum=180):
+    if value is None and not required:
+        return ""
+    if not isinstance(value, (str, int)):
+        raise ApiError(f"{label} non valido.")
+    text = str(value).strip()
+    if required and not text:
+        raise ApiError(f"{label} mancante.")
+    if len(text) > maximum or any(ord(character) < 32 for character in text):
+        raise ApiError(f"{label} non valido.")
+    return text
+
+
+def bridge_sha256(value, required=False):
+    if (value is None or value == "") and not required:
+        return None
+    digest = bridge_text(value, "SHA-256", maximum=64).lower()
+    if not re.fullmatch(r"[0-9a-f]{64}", digest):
+        raise ApiError("SHA-256 non valido.")
+    return digest
+
+
+def bridge_file_size(value):
+    if isinstance(value, bool):
+        raise ApiError("Dimensione file non valida.")
+    try:
+        size = int(value)
+    except (TypeError, ValueError):
+        raise ApiError("Dimensione file non valida.") from None
+    if size <= 0:
+        raise ApiError("La dimensione del file deve essere maggiore di zero.")
+    if size > BRIDGE_MAX_FILE_SIZE:
+        raise ApiError(
+            "File oltre il limite configurato.",
+            status=413,
+            max_file_size=BRIDGE_MAX_FILE_SIZE,
+        )
+    return size
+
+
+def bridge_filename(value):
+    filename = bridge_text(value, "Nome file", maximum=220)
+    if filename in {".", ".."} or "/" in filename or "\\" in filename:
+        raise ApiError("Il nome file deve essere un nome semplice, senza cartelle.")
+    if Path(filename).suffix.lower() not in BRIDGE_ALLOWED_EXTENSIONS:
+        raise ApiError("Formato non supportato: sono ammessi NEF, JPG e JPEG.")
+    return filename
+
+
+def bridge_ptp_datetime(value, label):
+    text = bridge_text(
+        value,
+        label,
+        required=False,
+        maximum=32,
+    )
+    if not text:
+        return None
+    match = re.fullmatch(
+        r"([0-9]{8}T[0-9]{6})(?:\.[0-9]+)?Z?",
+        text,
+    )
+    if not match:
+        raise ApiError(
+            f"{label} non valido: usa YYYYMMDDThhmmss[.frazione][Z]."
+        )
+    normalized = match.group(1)
+    try:
+        datetime.strptime(normalized, "%Y%m%dT%H%M%S")
+    except ValueError:
+        raise ApiError(f"{label} non valido: data inesistente.") from None
+    return normalized
+
+
+def bridge_apply_item_mtime(path, item):
+    ptp_timestamp = item.get("captured_at") or item.get("modified_at")
+    if not ptp_timestamp:
+        return
+    timestamp = datetime.strptime(ptp_timestamp, "%Y%m%dT%H%M%S").timestamp()
+    stat = path.stat()
+    os.utime(path, (stat.st_atime, timestamp))
+
+
+def bridge_staged_path(session, item):
+    staged_name = item.get("staged_name")
+    if not staged_name:
+        raise ApiError("Nome staging mancante.", status=500)
+    path = BRIDGE_STAGING_ROOT / session["id"] / staged_name
+    if not bridge_path_is_within(path, BRIDGE_STAGING_ROOT):
+        raise ApiError("Percorso staging non valido.", status=500)
+    if path.exists():
+        return path
+    upload_id = item.get("upload_id")
+    if upload_id:
+        for suffix in (".partial", ".verified"):
+            candidate = BRIDGE_STAGING_ROOT / session["id"] / f"{upload_id}{suffix}"
+            if (
+                candidate != path
+                and bridge_path_is_within(candidate, BRIDGE_STAGING_ROOT)
+                and candidate.is_file()
+            ):
+                item["staged_name"] = candidate.name
+                return candidate
+    return path
+
+
+def bridge_published_candidate(wanted, digest):
+    candidates = [
+        wanted,
+        wanted.with_name(
+            f"{wanted.stem}_conflict_{digest[:8]}{wanted.suffix}"
+        ),
+    ]
+    candidates.extend(
+        wanted.with_name(
+            f"{wanted.stem}_conflict_{digest[:8]}_{index}{wanted.suffix}"
+        )
+        for index in range(2, 1000)
+    )
+    for candidate in candidates:
+        if (
+            bridge_path_is_within(candidate, STORAGE_ROOT)
+            and candidate.is_file()
+            and sha256_file(candidate) == digest
+        ):
+            return candidate
+    return None
+
+
+def bridge_destination_for_api(path_string):
+    path = Path(path_string)
+    try:
+        return str(path.relative_to(STORAGE_ROOT)).replace(os.sep, "/")
+    except ValueError:
+        return None
+
+
+def bridge_inventory_source_key(session):
+    identity = f"bridge|{session.get('source_id', '')}"
+    return hashlib.sha1(identity.encode("utf-8")).hexdigest()
+
+
+def bridge_inventory_file_key(source_key):
+    digest = hashlib.sha1(source_key.encode("utf-8")).hexdigest()
+    return f"photo|bridge|{digest}"
+
+
+def bridge_existing_destination(hashes, digest):
+    destination_string = hashes.get("files", {}).get(digest)
+    if not destination_string:
+        return None
+    destination = Path(destination_string)
+    if (
+        bridge_path_is_within(destination, STORAGE_ROOT)
+        and destination.is_file()
+        and sha256_file(destination) == digest
+    ):
+        return destination
+    return None
+
+
+def bridge_quick_duplicate(hashes, session, source_key, size, quick_hash):
+    if not quick_hash:
+        return None, None
+    source_inventory = hashes.get("sources", {}).get(
+        bridge_inventory_source_key(session),
+        {},
+    )
+    if not isinstance(source_inventory, dict):
+        return None, None
+    cached = source_inventory.get(bridge_inventory_file_key(source_key))
+    if not isinstance(cached, dict) or cached.get("source_key") != source_key:
+        return None, None
+    try:
+        cached_size = int(cached.get("size", -1))
+    except (TypeError, ValueError):
+        return None, None
+    if cached_size != size or cached.get("quick_hash") != quick_hash:
+        return None, None
+    try:
+        digest = bridge_sha256(cached.get("digest"), required=False)
+    except ApiError:
+        return None, None
+    destination_string = cached.get("destination")
+    if not digest or not destination_string:
+        return None, None
+    destination = Path(destination_string)
+    if (
+        bridge_path_is_within(destination, STORAGE_ROOT)
+        and destination.is_file()
+        and sha256_file(destination) == digest
+    ):
+        return destination, digest
+    return None, None
+
+
+def bridge_remember_source(hashes, session, item, digest, destination):
+    quick_hash = item.get("quick_hash")
+    source_key = item.get("source_key")
+    if not quick_hash or not source_key:
+        return
+    inventory = hashes["sources"].setdefault(
+        bridge_inventory_source_key(session),
+        {},
+    )
+    inventory[bridge_inventory_file_key(source_key)] = {
+        "size": item["size"],
+        "mtime_ns": 0,
+        "quick_hash": quick_hash,
+        "digest": digest,
+        "destination": str(destination),
+        "source_key": source_key,
+        "filename": item["filename"],
+        "updated_at": now_label(),
+    }
+
+
+def bridge_public_item(item):
+    return {
+        "object_id": item["object_id"],
+        "source_key": item["source_key"],
+        "filename": item["filename"],
+        "size": item["size"],
+        "quick_hash": item.get("quick_hash"),
+        "captured_at": item.get("captured_at"),
+        "modified_at": item.get("modified_at"),
+        "sha256": item.get("digest") or item.get("expected_sha256"),
+        "upload_id": item.get("upload_id"),
+        "offset": item.get("received", 0),
+        "status": item["status"],
+        "duplicate": bool(item.get("duplicate")),
+        "destination": bridge_destination_for_api(item.get("destination", ""))
+        if item.get("destination")
+        else None,
+    }
+
+
+def bridge_public_session(session, include_objects=True):
+    objects = list(session.get("objects", {}).values())
+    payload = {
+        "id": session["id"],
+        "status": session["status"],
+        "source_id": session["source_id"],
+        "camera_model": session.get("camera_model"),
+        "created_at": session["created_at"],
+        "updated_at": session["updated_at"],
+        "finished_at": session.get("finished_at"),
+        "total_objects": len(objects),
+        "published_objects": sum(
+            item.get("status") == "published" for item in objects
+        ),
+        "duplicate_objects": sum(
+            item.get("status") in {"skipped", "duplicate"} for item in objects
+        ),
+        "verified_objects": sum(
+            item.get("status") == "verified" for item in objects
+        ),
+        "uploading_objects": sum(
+            item.get("status") == "uploading" for item in objects
+        ),
+        "review_rebuild": session.get("review_rebuild"),
+        "last_error": session.get("last_error"),
+    }
+    if include_objects:
+        payload["objects"] = [bridge_public_item(item) for item in objects]
+    return payload
+
+
+def bridge_create_session(payload):
+    source_id = (
+        payload.get("source_id")
+        or payload.get("camera_serial")
+        or payload.get("device_id")
+        or payload.get("camera_model")
+        or "nikon-z6ii"
+    )
+    source_id = bridge_text(source_id, "Identificativo sorgente", maximum=180)
+    camera_model = bridge_text(
+        payload.get("camera_model", "Nikon Z6 II"),
+        "Modello camera",
+        required=False,
+        maximum=120,
+    )
+    client_id = bridge_text(
+        payload.get("client_id", ""),
+        "Identificativo client",
+        required=False,
+        maximum=120,
+    )
+    with BRIDGE_LOCK:
+        sessions = bridge_load_sessions()
+        resumable = [
+            session
+            for session in sessions["sessions"].values()
+            if (
+                session.get("status") in {"active", "completing"}
+                and session.get("source_id") == source_id
+                and session.get("client_id", "") == client_id
+            )
+        ]
+        if resumable:
+            session = max(
+                resumable,
+                key=lambda value: value.get("created_at", ""),
+            )
+            if session.get("status") == "completing":
+                session["status"] = "active"
+                session["updated_at"] = now_label()
+                session["last_error"] = (
+                    "Sessione ripresa dopo un'interruzione durante la pubblicazione."
+                )
+                bridge_save_sessions(sessions)
+            return {
+                "ok": True,
+                "session_id": session["id"],
+                "status": session["status"],
+                "resumed": True,
+                "chunk_size": BRIDGE_MAX_CHUNK_SIZE,
+                "max_file_size": BRIDGE_MAX_FILE_SIZE,
+            }
+        active_sessions = sum(
+            session.get("status") in {"active", "completing"}
+            for session in sessions["sessions"].values()
+        )
+        if active_sessions >= BRIDGE_MAX_ACTIVE_SESSIONS:
+            raise ApiError(
+                "Troppe sessioni bridge attive.",
+                status=429,
+                max_active_sessions=BRIDGE_MAX_ACTIVE_SESSIONS,
+            )
+        session_id = (
+            f"{datetime.now().strftime('%Y%m%d-%H%M%S')}-"
+            f"{secrets.token_hex(4)}"
+        )
+        session = {
+            "id": session_id,
+            "status": "active",
+            "source_id": source_id,
+            "camera_model": camera_model,
+            "client_id": client_id,
+            "created_at": now_label(),
+            "updated_at": now_label(),
+            "finished_at": None,
+            "folder": f"esp32-{session_id}",
+            "objects": {},
+            "review_rebuild": None,
+            "last_error": None,
+        }
+        sessions["sessions"][session_id] = session
+        BRIDGE_STAGING_ROOT.mkdir(parents=True, exist_ok=True)
+        (BRIDGE_STAGING_ROOT / session_id).mkdir(parents=True, exist_ok=False)
+        fsync_directory(BRIDGE_STAGING_ROOT)
+        bridge_save_sessions(sessions)
+        return {
+            "ok": True,
+            "session_id": session_id,
+            "status": "active",
+            "resumed": False,
+            "chunk_size": BRIDGE_MAX_CHUNK_SIZE,
+            "max_file_size": BRIDGE_MAX_FILE_SIZE,
+        }
+
+
+def bridge_get_session(session_id):
+    with BRIDGE_LOCK:
+        session = bridge_load_sessions()["sessions"].get(session_id)
+        if not session:
+            raise ApiError("Sessione bridge non trovata.", status=404)
+        return {"ok": True, "session": bridge_public_session(session)}
+
+
+def bridge_find_upload(sessions, upload_id):
+    for session in sessions.get("sessions", {}).values():
+        for item in session.get("objects", {}).values():
+            if item.get("upload_id") == upload_id:
+                return session, item
+    raise ApiError("Upload bridge non trovato.", status=404)
+
+
+def bridge_upload_response(session, item):
+    staged_path = bridge_staged_path(session, item)
+    offset = staged_path.stat().st_size if staged_path.exists() else 0
+    return {
+        "ok": True,
+        "action": "upload",
+        "session_id": session["id"],
+        "object_id": item["object_id"],
+        "upload_id": item["upload_id"],
+        "offset": offset,
+        "size": item["size"],
+        "chunk_size": BRIDGE_MAX_CHUNK_SIZE,
+    }
+
+
+def bridge_skip_response(session, item, reason="duplicate"):
+    return {
+        "ok": True,
+        "action": "skip",
+        "reason": reason,
+        "session_id": session["id"],
+        "object_id": item["object_id"],
+        "size": item["size"],
+        "sha256": item.get("digest"),
+        "destination": bridge_destination_for_api(item.get("destination", ""))
+        if item.get("destination")
+        else None,
+    }
+
+
+def bridge_reserved_upload_bytes(sessions):
+    reserved = 0
+    for session in sessions.get("sessions", {}).values():
+        if session.get("status") not in {"active", "completing"}:
+            continue
+        for item in session.get("objects", {}).values():
+            if item.get("status") != "uploading":
+                continue
+            try:
+                staged_path = bridge_staged_path(session, item)
+                received = staged_path.stat().st_size if staged_path.exists() else 0
+                reserved += max(0, int(item["size"]) - received)
+            except (ApiError, OSError, TypeError, ValueError):
+                reserved += max(0, int(item.get("size") or 0))
+    return reserved
+
+
+def bridge_require_upload_space(sessions, requested_size):
+    try:
+        free_bytes = shutil.disk_usage(STORAGE_ROOT).free
+    except OSError as error:
+        raise ApiError(
+            f"Spazio storage non verificabile: {error}",
+            status=503,
+        ) from error
+    reserved_bytes = bridge_reserved_upload_bytes(sessions)
+    required_bytes = requested_size + reserved_bytes + BRIDGE_MIN_FREE_BYTES
+    if free_bytes < required_bytes:
+        raise ApiError(
+            "Spazio SSD insufficiente per il nuovo upload.",
+            status=507,
+            free_bytes=free_bytes,
+            reserved_bytes=reserved_bytes,
+            requested_bytes=requested_size,
+            minimum_free_bytes=BRIDGE_MIN_FREE_BYTES,
+        )
+
+
+def bridge_preflight(session_id, payload):
+    object_id = bridge_text(payload.get("object_id"), "Object ID", maximum=128)
+    source_key = bridge_text(
+        payload.get("source_key") or object_id,
+        "Source key",
+        maximum=300,
+    )
+    filename = bridge_filename(payload.get("filename"))
+    size = bridge_file_size(payload.get("size"))
+    quick_hash = bridge_sha256(payload.get("quick_hash"), required=False)
+    expected_sha256 = bridge_sha256(payload.get("sha256"), required=False)
+    captured_at = bridge_ptp_datetime(payload.get("captured_at"), "captured_at")
+    modified_at = bridge_ptp_datetime(payload.get("modified_at"), "modified_at")
+
+    with INGEST_LOCK:
+        with BRIDGE_LOCK:
+            sessions = bridge_load_sessions()
+            session = sessions["sessions"].get(session_id)
+            if not session:
+                raise ApiError("Sessione bridge non trovata.", status=404)
+            if session.get("status") != "active":
+                raise ApiError("La sessione bridge non e attiva.", status=409)
+
+            existing = session.get("objects", {}).get(object_id)
+            if existing:
+                if (
+                    existing.get("filename") != filename
+                    or existing.get("size") != size
+                    or existing.get("source_key") != source_key
+                    or existing.get("captured_at") != captured_at
+                    or existing.get("modified_at") != modified_at
+                ):
+                    raise ApiError(
+                        "Object ID gia usato con metadati differenti.",
+                        status=409,
+                    )
+                if expected_sha256 and existing.get("expected_sha256") not in {
+                    None,
+                    expected_sha256,
+                }:
+                    raise ApiError(
+                        "Object ID gia usato con SHA-256 differente.",
+                        status=409,
+                    )
+                if (
+                    quick_hash
+                    and existing.get("quick_hash")
+                    and existing.get("quick_hash") != quick_hash
+                ):
+                    raise ApiError(
+                        "Object ID gia usato con quick hash differente.",
+                        status=409,
+                    )
+                if existing.get("status") in {"skipped", "published", "duplicate"}:
+                    return bridge_skip_response(session, existing)
+                if existing.get("status") == "verified":
+                    return bridge_skip_response(
+                        session,
+                        existing,
+                        reason="verified_waiting_session_complete",
+                    )
+                response = bridge_upload_response(session, existing)
+                session["updated_at"] = now_label()
+                bridge_save_sessions(sessions)
+                return response
+
+            if len(session.get("objects", {})) >= BRIDGE_MAX_SESSION_OBJECTS:
+                raise ApiError(
+                    "Limite oggetti della sessione raggiunto.",
+                    status=413,
+                    max_session_objects=BRIDGE_MAX_SESSION_OBJECTS,
+                )
+
+            hashes = load_hashes()
+            destination = None
+            digest = None
+            duplicate_reason = None
+            if expected_sha256:
+                destination = bridge_existing_destination(hashes, expected_sha256)
+                if destination:
+                    digest = expected_sha256
+                    duplicate_reason = "sha256"
+            if not destination and quick_hash:
+                destination, digest = bridge_quick_duplicate(
+                    hashes,
+                    session,
+                    source_key,
+                    size,
+                    quick_hash,
+                )
+                if destination:
+                    duplicate_reason = "quick_hash"
+
+            if not destination:
+                bridge_require_upload_space(sessions, size)
+            item = {
+                "object_id": object_id,
+                "source_key": source_key,
+                "filename": filename,
+                "size": size,
+                "quick_hash": quick_hash,
+                "captured_at": captured_at,
+                "modified_at": modified_at,
+                "expected_sha256": expected_sha256,
+                "digest": digest,
+                "upload_id": None,
+                "staged_name": None,
+                "received": size if destination else 0,
+                "status": "skipped" if destination else "uploading",
+                "duplicate": bool(destination),
+                "duplicate_reason": duplicate_reason,
+                "destination": str(destination) if destination else None,
+                "created_at": now_label(),
+                "updated_at": now_label(),
+            }
+            session["objects"][object_id] = item
+            session["updated_at"] = now_label()
+
+            if destination:
+                bridge_save_sessions(sessions)
+                return bridge_skip_response(
+                    session,
+                    item,
+                    reason=duplicate_reason,
+                )
+
+            for _attempt in range(8):
+                upload_id = secrets.token_urlsafe(18).replace("-", "_")
+                staged_name = f"{upload_id}.partial"
+                staged_path = BRIDGE_STAGING_ROOT / session_id / staged_name
+                try:
+                    with open(staged_path, "xb") as handle:
+                        handle.flush()
+                        os.fsync(handle.fileno())
+                    break
+                except FileExistsError:
+                    continue
+            else:
+                raise ApiError("Impossibile allocare lo staging.", status=500)
+
+            item["upload_id"] = upload_id
+            item["staged_name"] = staged_name
+            fsync_directory(staged_path.parent)
+            bridge_save_sessions(sessions)
+            return bridge_upload_response(session, item)
+
+
+def bridge_get_upload(upload_id):
+    with BRIDGE_LOCK:
+        sessions = bridge_load_sessions()
+        session, item = bridge_find_upload(sessions, upload_id)
+        public_item = bridge_public_item(item)
+        if item["status"] == "uploading":
+            staged_path = bridge_staged_path(session, item)
+            public_item["offset"] = (
+                staged_path.stat().st_size if staged_path.exists() else 0
+            )
+        return {
+            "ok": True,
+            "session_id": session["id"],
+            "upload": public_item,
+            "chunk_size": BRIDGE_MAX_CHUNK_SIZE,
+        }
+
+
+def bridge_receive_chunk(upload_id, start, end, total, data):
+    if not isinstance(data, bytes):
+        raise ApiError("Chunk non valido.")
+    if len(data) > BRIDGE_MAX_CHUNK_SIZE:
+        raise ApiError(
+            "Chunk oltre il limite configurato.",
+            status=413,
+            max_chunk_size=BRIDGE_MAX_CHUNK_SIZE,
+        )
+    if start < 0 or end < start or total <= 0 or end + 1 > total:
+        raise ApiError("Content-Range non valido.")
+    if len(data) != end - start + 1:
+        raise ApiError("Content-Length e Content-Range non coincidono.")
+
+    with BRIDGE_LOCK:
+        sessions = bridge_load_sessions()
+        session, item = bridge_find_upload(sessions, upload_id)
+        if session.get("status") != "active":
+            raise ApiError("La sessione bridge non e attiva.", status=409)
+        if item.get("status") != "uploading":
+            if item.get("status") == "verified":
+                return {
+                    "ok": True,
+                    "upload_id": upload_id,
+                    "offset": item["size"],
+                    "size": item["size"],
+                    "complete": True,
+                    "status": "verified",
+                }
+            raise ApiError("L'upload non accetta altri chunk.", status=409)
+        if total != item["size"]:
+            raise ApiError("La dimensione totale non coincide col preflight.", status=409)
+
+        staged_path = bridge_staged_path(session, item)
+        actual_offset = staged_path.stat().st_size if staged_path.exists() else 0
+        if start != actual_offset:
+            raise ApiError(
+                "Offset non valido: riprendi dall'offset indicato.",
+                status=409,
+                expected_offset=actual_offset,
+            )
+
+        staged_path.parent.mkdir(parents=True, exist_ok=True)
+        with open(staged_path, "r+b") as handle:
+            handle.seek(0, os.SEEK_END)
+            if handle.tell() != actual_offset:
+                raise ApiError(
+                    "Lo staging e cambiato durante l'upload.",
+                    status=409,
+                    expected_offset=handle.tell(),
+                )
+            handle.write(data)
+            handle.flush()
+            os.fsync(handle.fileno())
+        offset = end + 1
+        return {
+            "ok": True,
+            "upload_id": upload_id,
+            "offset": offset,
+            "size": total,
+            "complete": offset == total,
+            "status": "uploading",
+        }
+
+
+def bridge_reset_staged_upload(staged_path, item, session, sessions, message):
+    with open(staged_path, "wb") as handle:
+        handle.flush()
+        os.fsync(handle.fileno())
+    item["received"] = 0
+    item["digest"] = None
+    item["updated_at"] = now_label()
+    item["last_error"] = message
+    session["updated_at"] = now_label()
+    bridge_save_sessions(sessions)
+    raise ApiError(message, status=422, expected_offset=0)
+
+
+def bridge_complete_upload(upload_id, payload):
+    supplied_sha256 = bridge_sha256(payload.get("sha256"), required=False)
+    with BRIDGE_LOCK:
+        sessions = bridge_load_sessions()
+        session, item = bridge_find_upload(sessions, upload_id)
+        if item.get("status") in {"verified", "published", "duplicate"}:
+            return {
+                "ok": True,
+                "action": "verified",
+                "upload_id": upload_id,
+                "sha256": item.get("digest"),
+                "status": item.get("status"),
+            }
+        if session.get("status") != "active" or item.get("status") != "uploading":
+            raise ApiError("L'upload non puo essere completato.", status=409)
+        expected_sha256 = item.get("expected_sha256")
+        if (
+            supplied_sha256
+            and expected_sha256
+            and supplied_sha256 != expected_sha256
+        ):
+            raise ApiError("SHA-256 dichiarato diverso dal preflight.", status=409)
+
+        staged_path = bridge_staged_path(session, item)
+        actual_size = staged_path.stat().st_size if staged_path.exists() else 0
+        if actual_size != item["size"]:
+            raise ApiError(
+                "Upload incompleto.",
+                status=409,
+                expected_offset=actual_size,
+                expected_size=item["size"],
+            )
+
+        digest = sha256_file(staged_path)
+        authoritative_expected = supplied_sha256 or expected_sha256
+        if authoritative_expected and digest != authoritative_expected:
+            bridge_reset_staged_upload(
+                staged_path,
+                item,
+                session,
+                sessions,
+                "Checksum SHA-256 non valido; upload azzerato.",
+            )
+        quick_hash = item.get("quick_hash")
+        if quick_hash and quick_fingerprint(staged_path)["quick_hash"] != quick_hash:
+            bridge_reset_staged_upload(
+                staged_path,
+                item,
+                session,
+                sessions,
+                "Quick hash non valido; upload azzerato.",
+            )
+
+        bridge_apply_item_mtime(staged_path, item)
+        with open(staged_path, "r+b") as handle:
+            handle.flush()
+            os.fsync(handle.fileno())
+        item["received"] = item["size"]
+        item["digest"] = digest
+        item["status"] = "verified"
+        item["last_error"] = None
+        item["updated_at"] = now_label()
+        session["updated_at"] = now_label()
+        bridge_save_sessions(sessions)
+        return {
+            "ok": True,
+            "action": "verified",
+            "upload_id": upload_id,
+            "sha256": digest,
+            "size": item["size"],
+            "status": "verified",
+        }
+
+
+def bridge_complete_session(session_id):
+    with INGEST_LOCK:
+        with BRIDGE_LOCK:
+            sessions = bridge_load_sessions()
+            session = sessions["sessions"].get(session_id)
+            if not session:
+                raise ApiError("Sessione bridge non trovata.", status=404)
+            if session.get("status") == "completed":
+                return {
+                    "ok": True,
+                    "session": bridge_public_session(
+                        session,
+                        include_objects=False,
+                    ),
+                }
+            if session.get("status") not in {"active", "completing"}:
+                raise ApiError("La sessione bridge non puo essere completata.", status=409)
+
+            incomplete = [
+                item["object_id"]
+                for item in session.get("objects", {}).values()
+                if item.get("status")
+                not in {"skipped", "verified", "published", "duplicate"}
+            ]
+            if incomplete:
+                raise ApiError(
+                    "La sessione contiene upload non completati.",
+                    status=409,
+                    incomplete_objects=incomplete[:20],
+                )
+
+            session["status"] = "completing"
+            session["updated_at"] = now_label()
+            session["last_error"] = None
+            bridge_save_sessions(sessions)
+            hashes = load_hashes()
+
+            try:
+                for item in session.get("objects", {}).values():
+                    if item["status"] in {"published", "duplicate"}:
+                        continue
+                    digest = item.get("digest")
+                    if not digest:
+                        raise RuntimeError(
+                            f"Checksum mancante per {item['filename']}"
+                        )
+
+                    if item["status"] == "skipped":
+                        known_destination = bridge_existing_destination(
+                            hashes,
+                            digest,
+                        )
+                        destination = known_destination
+                        if not destination:
+                            recorded = Path(item.get("destination") or "")
+                            if (
+                                recorded.is_file()
+                                and bridge_path_is_within(recorded, STORAGE_ROOT)
+                                and sha256_file(recorded) == digest
+                            ):
+                                destination = recorded
+                        if not destination:
+                            raise ApiError(
+                                "Il duplicato saltato non e piu valido. "
+                                "Annulla questa sessione e avviane una nuova "
+                                "per trasferire nuovamente il file.",
+                                status=409,
+                                restart_session=True,
+                                object_id=item["object_id"],
+                            )
+                        item["destination"] = str(destination)
+                        item["duplicate"] = True
+                        bridge_remember_source(
+                            hashes,
+                            session,
+                            item,
+                            digest,
+                            destination,
+                        )
+                        continue
+
+                    staged_path = bridge_staged_path(session, item)
+                    wanted = (
+                        STORAGE_ROOT
+                        / "photo"
+                        / "imports"
+                        / session["folder"]
+                        / item["filename"]
+                    )
+                    known_destination = bridge_existing_destination(hashes, digest)
+                    if known_destination:
+                        staged_path.unlink(missing_ok=True)
+                        destination = known_destination
+                        duplicate = True
+                    elif staged_path.is_file():
+                        bridge_apply_item_mtime(staged_path, item)
+                        destination, duplicate = publish_verified_file(
+                            staged_path,
+                            wanted,
+                            digest,
+                        )
+                    else:
+                        recorded = Path(item.get("destination") or "")
+                        if (
+                            recorded.is_file()
+                            and bridge_path_is_within(recorded, STORAGE_ROOT)
+                            and sha256_file(recorded) == digest
+                        ):
+                            destination = recorded
+                            duplicate = bool(item.get("duplicate"))
+                        else:
+                            recovered = bridge_published_candidate(wanted, digest)
+                            if not recovered:
+                                raise RuntimeError(
+                                    f"Staging verificato mancante: {item['filename']}"
+                                )
+                            destination = recovered
+                            duplicate = bool(item.get("duplicate"))
+
+                    hashes["files"][digest] = str(destination)
+                    item["destination"] = str(destination)
+                    item["duplicate"] = duplicate
+                    item["status"] = "duplicate" if duplicate else "published"
+                    item["updated_at"] = now_label()
+                    bridge_remember_source(
+                        hashes,
+                        session,
+                        item,
+                        digest,
+                        destination,
+                    )
+                    save_hashes(hashes)
+                    session["updated_at"] = now_label()
+                    bridge_save_sessions(sessions)
+
+                save_hashes(hashes)
+                if hasattr(os, "sync"):
+                    os.sync()
+                has_new_publications = any(
+                    item.get("status") == "published"
+                    for item in session.get("objects", {}).values()
+                )
+                session["review_rebuild"] = (
+                    review_rebuild() if has_new_publications else False
+                )
+                session["status"] = "completed"
+                session["finished_at"] = now_label()
+                session["updated_at"] = now_label()
+                session["last_error"] = None
+                cleanup_completed_staging(BRIDGE_STAGING_ROOT / session_id)
+                bridge_save_sessions(sessions)
+                return {
+                    "ok": True,
+                    "session": bridge_public_session(
+                        session,
+                        include_objects=False,
+                    ),
+                }
+            except Exception as error:
+                session["status"] = "active"
+                session["last_error"] = str(error)
+                session["updated_at"] = now_label()
+                bridge_save_sessions(sessions)
+                raise
+
+
+def bridge_abort_session(session_id):
+    with BRIDGE_LOCK:
+        sessions = bridge_load_sessions()
+        session = sessions["sessions"].get(session_id)
+        if not session:
+            raise ApiError("Sessione bridge non trovata.", status=404)
+        if session.get("status") == "completed":
+            raise ApiError("Una sessione completata non puo essere annullata.", status=409)
+        session["status"] = "aborted"
+        session["finished_at"] = now_label()
+        session["updated_at"] = now_label()
+        cleanup_completed_staging(BRIDGE_STAGING_ROOT / session_id)
+        bridge_save_sessions(sessions)
+        return {
+            "ok": True,
+            "session": bridge_public_session(session, include_objects=False),
+        }
+
+
+def cleanup_old_bridge_staging(max_age_seconds=BRIDGE_STAGING_RETENTION_SECONDS):
+    if not BRIDGE_STAGING_ROOT.exists():
+        return 0
+    cutoff = time.time() - max_age_seconds
+    removed = 0
+    with BRIDGE_LOCK:
+        sessions = bridge_load_sessions()
+        changed = False
+        for directory in BRIDGE_STAGING_ROOT.iterdir():
+            if not directory.is_dir():
+                continue
+            session = sessions["sessions"].get(directory.name)
+            if session and session.get("status") in {"completed", "aborted", "expired"}:
+                cleanup_completed_staging(directory)
+                removed += int(not directory.exists())
+                continue
+            try:
+                session_updated_at = (
+                    datetime.strptime(
+                        session.get("updated_at", ""),
+                        "%Y-%m-%d %H:%M:%S",
+                    ).timestamp()
+                    if session
+                    else directory.stat().st_mtime
+                )
+            except (OSError, TypeError, ValueError):
+                try:
+                    session_updated_at = directory.stat().st_mtime
+                except OSError:
+                    continue
+            staging_updated_at = session_updated_at
+            try:
+                staging_updated_at = max(
+                    [directory.stat().st_mtime]
+                    + [
+                        child.stat().st_mtime
+                        for child in directory.iterdir()
+                        if child.is_file()
+                    ]
+                )
+            except OSError:
+                pass
+            updated_at = max(session_updated_at, staging_updated_at)
+            if updated_at >= cutoff:
+                continue
+            cleanup_completed_staging(directory)
+            if directory.exists():
+                continue
+            removed += 1
+            if session and session.get("status") in {"active", "completing"}:
+                session["status"] = "expired"
+                session["finished_at"] = now_label()
+                session["updated_at"] = now_label()
+                session["last_error"] = (
+                    "Sessione scaduta: staging inattivo rimosso automaticamente."
+                )
+                changed = True
+        if changed:
+            bridge_save_sessions(sessions)
+    return removed
+
+
+def bridge_status_payload():
+    with BRIDGE_LOCK:
+        sessions = list(bridge_load_sessions()["sessions"].values())
+        sessions.sort(key=lambda value: value.get("created_at", ""), reverse=True)
+        try:
+            free_bytes = shutil.disk_usage(STORAGE_ROOT).free
+        except OSError:
+            free_bytes = None
+        return {
+            "ok": True,
+            "service": "niwa-import-bridge",
+            "version": APP_VERSION,
+            "api_version": 1,
+            "auth_required": bridge_auth_required(),
+            "allowed_extensions": sorted(BRIDGE_ALLOWED_EXTENSIONS),
+            "chunk_size": BRIDGE_MAX_CHUNK_SIZE,
+            "max_file_size": BRIDGE_MAX_FILE_SIZE,
+            "storage_free_bytes": free_bytes,
+            "active_sessions": sum(
+                session.get("status") in {"active", "completing"}
+                for session in sessions
+            ),
+            "sessions": [
+                bridge_public_session(session, include_objects=False)
+                for session in sessions[:12]
+            ],
+        }
 
 
 def start_import(device_id, profile=None, trigger="manual"):
@@ -803,6 +2039,10 @@ def status_payload():
         "approved_sources": load_config().get("sources", []),
         "active_job": active,
         "jobs": jobs[:12],
+        "bridge": {
+            "auth_required": bridge_auth_required(),
+            "active_sessions": bridge_status_payload()["active_sessions"],
+        },
     }
 
 
@@ -913,15 +2153,24 @@ load();setInterval(load,4000);
 
 
 class Handler(BaseHTTPRequestHandler):
+    def setup(self):
+        super().setup()
+        self.connection.settimeout(max(5, BRIDGE_SOCKET_TIMEOUT_SECONDS))
+
     def log_message(self, pattern, *args):
         print(f"[{now_label()}] {self.address_string()} {pattern % args}", flush=True)
 
-    def send_json(self, payload, status=200):
+    def send_json(self, payload, status=200, headers=None, cors=True):
         body = json.dumps(payload, ensure_ascii=True).encode("utf-8")
         self.send_response(status)
         self.send_header("Content-Type", "application/json; charset=utf-8")
         self.send_header("Content-Length", str(len(body)))
-        self.send_header("Access-Control-Allow-Origin", "*")
+        if cors:
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.send_header("Access-Control-Allow-Headers", "Authorization, Content-Type, Content-Range")
+            self.send_header("Access-Control-Allow-Methods", "GET, POST, PUT, OPTIONS")
+        for key, value in (headers or {}).items():
+            self.send_header(key, value)
         self.end_headers()
         self.wfile.write(body)
 
@@ -934,26 +2183,93 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(payload)
 
     def read_json(self):
-        length = int(self.headers.get("Content-Length", "0") or 0)
+        try:
+            length = int(self.headers.get("Content-Length", "0") or 0)
+        except ValueError:
+            raise ApiError("Content-Length non valido.") from None
+        if length < 0:
+            raise ApiError("Content-Length non valido.")
         if length > 1024 * 64:
-            raise RuntimeError("Richiesta troppo grande.")
+            raise ApiError("Richiesta troppo grande.", status=413)
         raw = self.rfile.read(length) if length else b"{}"
         payload = json.loads(raw.decode("utf-8"))
         if not isinstance(payload, dict):
             raise RuntimeError("Payload non valido.")
         return payload
 
+    def require_bridge_auth(self):
+        if not bridge_authorization_valid(self.headers.get("Authorization", "")):
+            raise ApiError("Token bridge mancante o non valido.", status=401)
+
+    def send_error_payload(self, error):
+        status = error.status if isinstance(error, ApiError) else 400
+        payload = {"error": str(error)}
+        if isinstance(error, ApiError):
+            payload.update(error.details)
+        headers = {"WWW-Authenticate": "Bearer"} if status == 401 else None
+        self.send_json(payload, status, headers=headers)
+
+    def do_OPTIONS(self):
+        self.send_response(204)
+        self.send_header("Content-Length", "0")
+        self.send_header("Access-Control-Allow-Origin", "*")
+        self.send_header("Access-Control-Allow-Headers", "Authorization, Content-Type, Content-Range")
+        self.send_header("Access-Control-Allow-Methods", "GET, POST, PUT, OPTIONS")
+        self.end_headers()
+
     def do_GET(self):
-        if self.path == "/":
+        path = urlsplit(self.path).path
+        try:
+            if path.startswith("/api/bridge/v1/"):
+                if path == "/api/bridge/v1/provision/token":
+                    if not bridge_loopback_address(self.client_address[0]):
+                        raise ApiError(
+                            "Provisioning token disponibile solo via loopback.",
+                            status=403,
+                        )
+                    self.send_json(
+                        {
+                            "ok": True,
+                            "token": ensure_bridge_token(),
+                        },
+                        headers={"Cache-Control": "no-store"},
+                        cors=False,
+                    )
+                    return
+                self.require_bridge_auth()
+                if path == "/api/bridge/v1/status":
+                    self.send_json(bridge_status_payload())
+                    return
+                match = re.fullmatch(
+                    rf"/api/bridge/v1/sessions/{BRIDGE_ROUTE_ID}",
+                    path,
+                )
+                if match:
+                    self.send_json(bridge_get_session(match.group(1)))
+                    return
+                match = re.fullmatch(
+                    rf"/api/bridge/v1/uploads/{BRIDGE_ROUTE_ID}",
+                    path,
+                )
+                if match:
+                    self.send_json(bridge_get_upload(match.group(1)))
+                    return
+                self.send_json({"error": "Endpoint bridge non trovato."}, 404)
+                return
+        except Exception as error:
+            self.send_error_payload(error)
+            return
+
+        if path == "/":
             self.send_html(INDEX_HTML)
             return
-        if self.path == "/api/health":
+        if path == "/api/health":
             self.send_json({"ok": True, "service": "niwa-import", "version": APP_VERSION})
             return
-        if self.path == "/api/status":
+        if path == "/api/status":
             self.send_json(status_payload())
             return
-        if self.path == "/static/niwa-logo.png":
+        if path == "/static/niwa-logo.png":
             logo = Path(__file__).resolve().parent / "static" / "niwa-logo.png"
             if logo.exists():
                 payload = logo.read_bytes()
@@ -970,8 +2286,46 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_POST(self):
         try:
+            path = urlsplit(self.path).path
+            if path.startswith("/api/bridge/v1/"):
+                self.require_bridge_auth()
             payload = self.read_json()
-            if self.path == "/api/sources/approve":
+            if path.startswith("/api/bridge/v1/"):
+                if path == "/api/bridge/v1/sessions":
+                    self.send_json(bridge_create_session(payload), 201)
+                    return
+                match = re.fullmatch(
+                    rf"/api/bridge/v1/sessions/{BRIDGE_ROUTE_ID}/objects/preflight",
+                    path,
+                )
+                if match:
+                    self.send_json(bridge_preflight(match.group(1), payload))
+                    return
+                match = re.fullmatch(
+                    rf"/api/bridge/v1/uploads/{BRIDGE_ROUTE_ID}/complete",
+                    path,
+                )
+                if match:
+                    self.send_json(bridge_complete_upload(match.group(1), payload))
+                    return
+                match = re.fullmatch(
+                    rf"/api/bridge/v1/sessions/{BRIDGE_ROUTE_ID}/complete",
+                    path,
+                )
+                if match:
+                    self.send_json(bridge_complete_session(match.group(1)))
+                    return
+                match = re.fullmatch(
+                    rf"/api/bridge/v1/sessions/{BRIDGE_ROUTE_ID}/abort",
+                    path,
+                )
+                if match:
+                    self.send_json(bridge_abort_session(match.group(1)))
+                    return
+                self.send_json({"error": "Endpoint bridge non trovato."}, 404)
+                return
+
+            if path == "/api/sources/approve":
                 approve_source(
                     payload.get("device_id", ""),
                     payload.get("profile", ""),
@@ -979,11 +2333,11 @@ class Handler(BaseHTTPRequestHandler):
                 )
                 self.send_json({"ok": True})
                 return
-            if self.path == "/api/sources/forget":
+            if path == "/api/sources/forget":
                 forget_source(payload.get("device_id", ""))
                 self.send_json({"ok": True})
                 return
-            if self.path == "/api/imports/start":
+            if path == "/api/imports/start":
                 start_import(
                     payload.get("device_id", ""),
                     payload.get("profile"),
@@ -993,20 +2347,76 @@ class Handler(BaseHTTPRequestHandler):
                 return
             self.send_json({"error": "Endpoint non trovato."}, 404)
         except Exception as error:
-            self.send_json({"error": str(error)}, 400)
+            self.send_error_payload(error)
+
+    def do_PUT(self):
+        try:
+            path = urlsplit(self.path).path
+            match = re.fullmatch(
+                rf"/api/bridge/v1/uploads/{BRIDGE_ROUTE_ID}",
+                path,
+            )
+            if not match:
+                self.send_json({"error": "Endpoint non trovato."}, 404)
+                return
+            self.require_bridge_auth()
+            content_range = self.headers.get("Content-Range", "")
+            range_match = BRIDGE_CONTENT_RANGE.fullmatch(content_range)
+            if not range_match:
+                raise ApiError("Header Content-Range mancante o non valido.")
+            start, end, total = (int(value) for value in range_match.groups())
+            try:
+                content_length = int(self.headers.get("Content-Length", ""))
+            except ValueError:
+                raise ApiError("Header Content-Length mancante o non valido.") from None
+            expected_length = end - start + 1
+            if content_length != expected_length:
+                raise ApiError("Content-Length e Content-Range non coincidono.")
+            if content_length < 1 or content_length > BRIDGE_MAX_CHUNK_SIZE:
+                raise ApiError(
+                    "Chunk oltre il limite configurato.",
+                    status=413,
+                    max_chunk_size=BRIDGE_MAX_CHUNK_SIZE,
+                )
+            chunks = []
+            remaining = content_length
+            while remaining:
+                chunk = self.rfile.read(min(remaining, 64 * 1024))
+                if not chunk:
+                    raise ApiError("Corpo del chunk incompleto.")
+                chunks.append(chunk)
+                remaining -= len(chunk)
+            response = bridge_receive_chunk(
+                match.group(1),
+                start,
+                end,
+                total,
+                b"".join(chunks),
+            )
+            self.send_json(response)
+        except Exception as error:
+            self.send_error_payload(error)
 
 
 def serve():
     DATA_ROOT.mkdir(parents=True, exist_ok=True)
     MOUNT_ROOT.mkdir(parents=True, exist_ok=True)
     STAGING_ROOT.mkdir(parents=True, exist_ok=True)
+    BRIDGE_STAGING_ROOT.mkdir(parents=True, exist_ok=True)
+    ensure_bridge_token()
     cleanup_old_staging()
+    cleanup_old_bridge_staging()
     monitor = threading.Thread(target=auto_import_loop, daemon=True)
     monitor.start()
     staging_cleanup = threading.Thread(target=staging_cleanup_loop, daemon=True)
     staging_cleanup.start()
     server = ThreadingHTTPServer(("0.0.0.0", PORT), Handler)
     print(f"NIWA Import {APP_VERSION} listening on 0.0.0.0:{PORT}", flush=True)
+    print(
+        "NIWA Bridge API /api/bridge/v1 "
+        "(token required; local provisioning on /api/bridge/v1/provision/token)",
+        flush=True,
+    )
     server.serve_forever()
 
 

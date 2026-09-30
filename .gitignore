@@ -15,6 +15,7 @@ logs/
 *.pem
 .codex_ssh/
 firmware/esp32cam-companion/niwa_companion_local_config.h
+/data/bridge_token
 
 # OS / editor
 .DS_Store
