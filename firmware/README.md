@@ -185,6 +185,29 @@ outside Git and can be read only from a loopback request on the Raspberry:
 curl -s http://127.0.0.1:5057/api/bridge/v1/provision/token
 ```
 
+### USB host status, 2026-10-02
+
+Still unresolved, but narrowed down a lot. What has been ruled out by direct
+test, so it does not need retesting:
+
+- camera, data cable and passive OTG adapter: the whole chain enumerates the
+  Z6 II on a Windows PC (`VID_04B0&PID_044C`, class WPD)
+- the board itself: flashed as a USB device with `CDCOnBoot=cdc`, the left port
+  enumerates on a PC as `VID_303A&PID_1001` serial `E072A1A9CA84` and creates a
+  COM port, so its data lines reach the chip
+- bus power: a phone connected through the OTG adapter on the left port charges,
+  so VBUS is supplied with real current
+- both `USBMode=default` and `USBMode=hwcdc` builds, and both insertion
+  orientations of the OTG adapter
+
+What fails: in host mode nothing is ever enumerated - not the camera, not a USB
+flash drive, not a phone. The firmware prints `[USB] Root port power: ESP_OK`
+and then stays on `USB camera : waiting` with no USB error at all.
+
+Next step: a minimal USB host sketch, no PTP and no Wi-Fi, to tell a firmware
+problem apart from a host-mode problem on the port. A first attempt did not
+compile yet.
+
 The physical setup uses the right USB-C `COM` port for serial/power and the
 left USB-C `USB` port with the validated passive OTG adapter and Nikon data
 cable. Keep the rear `USB-OTG` bridge closed and the front `IN-OUT` bridge
