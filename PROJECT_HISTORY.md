@@ -434,9 +434,37 @@ Two problems cost most of the debugging time and are worth remembering:
   `disconnected` whenever no camera is attached. That looked like a failure for a
   whole session. `WIFI_CONNECT` now forces a connection attempt on demand.
 
-The USB side remains open: a direct USB-C to USB-C cable never enumerates the
-camera because nothing presents the CC pull-up that hands the host role to the
-board.
+At that checkpoint a direct USB-C to USB-C cable did not enumerate the camera.
+The suspected CC-role explanation was not conclusively measured; subsequent
+adapter tests and software diagnosis are recorded below.
+
+## Nikon bridge USB enumeration correction, 2026-10-03
+
+The previous hardware-failure conclusion was reconsidered against the installed
+toolchain. Arduino ESP32 `3.3.11` (ESP-IDF `5.5.5`) was found both in the local
+runtime and the previous bridge build metadata, despite older notes naming
+`3.3.0`. Its USB enumeration filter is enabled, and the firmware's null
+`enum_filter_cb` cancels every device before configuration. The official
+Espressif source and documentation confirm this behavior; links are in
+`firmware/README.md`.
+
+Firmware `1.0.1` adds an allow-all `allowUsbEnumeration` callback and prints
+firmware/core/IDF versions at startup. The earlier one-device/zero-address
+observation is consistent with this software rejection, and warnings were
+compiled out of the supplied libraries. Neither that count nor serial silence
+proves a defective board. The reported bench test requires both `USB-OTG` and
+`IN-OUT` bridges closed; contradictory open-jumper instructions were corrected.
+
+The fix was compiled and flashed on the existing HW-678 through `COM4`, with
+NVS credentials preserved. A Kingston flash drive then enumerated as
+`0951:1666`, reached the firmware's device-open path and correctly reported that
+it was not a PTP camera. This physically verifies USB host operation and confirms
+the software cause. The build used 1,116,694 bytes of flash (35%) and 46,812 bytes
+of global RAM.
+
+A Nikon PTP session and a real upload remain to be validated for the user's
+2026-10-08 deadline, using the existing adapter chain without buying another
+component or connecting the Nikon directly to the Raspberry.
 
 ## Current philosophy
 

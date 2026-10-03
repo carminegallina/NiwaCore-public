@@ -133,6 +133,24 @@ Current status:
 
 ## Immediate next steps
 
+### Nikon Z6 II bridge: validate the existing hardware before 2026-10-08
+
+The installed Arduino ESP32 3.3.11 enables a USB enumeration filter that rejects
+devices when the callback is null. Firmware 1.0.1 adds `allowUsbEnumeration` and
+startup version diagnostics. It was flashed on COM4 with NVS preserved, and a
+Kingston flash drive (`0951:1666`) enumerated successfully on 2026-10-03. This
+confirms HW-678 USB host operation and supersedes the hardware-failure diagnosis.
+
+Next checks:
+- verify Nikon USB enumeration and PTP session through the existing passive
+  OTG adapter and A-to-C cable, with both board bridges closed
+- verify a real NEF/JPG/JPEG upload to NIWA Import and visibility in NIWA Review
+- verify duplicate skipping, reconnect and a new shot while attached
+- keep the existing hardware and avoid a direct Nikon-to-Raspberry connection;
+  assess event readiness only after those checks pass
+
+Evidence and the test sequence are recorded in `firmware/README.md`.
+
 ### 1. Documentation and stable snapshots
 
 Goal:

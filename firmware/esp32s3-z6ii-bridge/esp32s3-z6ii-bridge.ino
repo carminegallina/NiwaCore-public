@@ -8,7 +8,7 @@
     LEFT  USB-C = passive OTG adapter + Nikon data cable
     RIGHT USB-C = PC / COM / Serial Monitor
     Rear USB-OTG solder bridge = CLOSED
-    Front IN-OUT bridge       = OPEN
+    Front IN-OUT bridge       = CLOSED (VBUS path, verified on this board)
 
   The firmware never deletes or changes camera files. It imports NEF/JPG/JPEG,
   computes the same quick fingerprint used by NIWA Import, asks the Raspberry
@@ -39,12 +39,13 @@
 #include <Preferences.h>
 #include <WiFi.h>
 #include <vector>
+#include "esp_arduino_version.h"
 #include "esp_err.h"
 #include "esp_log.h"
 #include "mbedtls/sha256.h"
 #include "usb/usb_host.h"
 
-static constexpr char FIRMWARE_VERSION[] = "1.0.0";
+static constexpr char FIRMWARE_VERSION[] = "1.0.1";
 static constexpr char DEFAULT_WIFI_SSID[] = "NIWA-AP";
 static constexpr char DEFAULT_SERVER_URL[] =
   "http://10.42.0.1:5057/api/bridge/v1";
@@ -1767,6 +1768,15 @@ static void clientEventCallback(const usb_host_client_event_msg_t *event,
   }
 }
 
+static bool allowUsbEnumeration(const usb_device_desc_t *descriptor,
+                                uint8_t *configurationValue) {
+  (void)descriptor;
+  // Arduino-ESP32 3.3.11 enables the IDF enum filter. A null callback rejects
+  // every device silently. Keep the first configuration used by this bridge.
+  *configurationValue = 1;
+  return true;
+}
+
 static void hostLibraryTask(void *argument) {
   (void)argument;
   while (true) {
@@ -1836,17 +1846,21 @@ void setup() {
   Serial.println(F("============================================"));
   Serial.println(F("Camera files are read-only; nothing is deleted."));
   Serial.println(F("Send STATUS or HELP at 115200 baud."));
+  Serial.printf("[NIWA] Firmware %s; Arduino-ESP32 %s; ESP-IDF %s.\n",
+                FIRMWARE_VERSION, ESP_ARDUINO_VERSION_STR, ESP.getSdkVersion());
 
   usb_host_config_t configuration = {};
   configuration.skip_phy_setup = false;
   configuration.root_port_unpowered = true;
   configuration.intr_flags = ESP_INTR_FLAG_LEVEL1;
+  configuration.enum_filter_cb = allowUsbEnumeration;
   const esp_err_t result = usb_host_install(&configuration);
   if (result != ESP_OK) {
     Serial.printf("[USB] Host install: %s.\n", esp_err_to_name(result));
     return;
   }
 
+  Serial.println(F("[USB] Allow-all enumeration filter installed."));
   BaseType_t created = xTaskCreatePinnedToCore(
     hostLibraryTask, "niwa_usb_library", 4096,
     nullptr, 4, nullptr, 0

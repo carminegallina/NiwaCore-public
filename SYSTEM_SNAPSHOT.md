@@ -710,12 +710,28 @@ ESP32-S3 N16R8 / HW-678 firmware in `firmware/esp32s3-z6ii-bridge`, client id
 - provisioning launcher: `firmware/tools/niwa-bridge-provision.cmd`
 - camera files are treated as read-only; only NEF/JPG/JPEG are imported
 
-Validation status as of 2026-09-30:
+Validation status as of 2026-10-03:
 
 - Wi-Fi validated: the board joins `NIWA-AP` and takes `10.42.0.100`
-- USB validated only up to bus power: the camera is not enumerated over a direct
-  USB-C to USB-C cable, a passive OTG adapter plus an USB-A to USB-C cable is
-  still missing. See `firmware/README.md` for the full diagnosis.
+- the passive OTG adapter and A-to-C cable are available; that camera chain
+  enumerated on Windows, and the ESP32 left port worked in USB device mode
+- previous host tests detected a device object but no configured address
+- installed Arduino ESP32 `3.3.11` / ESP-IDF `5.5.5` and previous build metadata
+  confirm an enabled enumeration filter; the firmware's null callback rejected
+  devices, invalidating the former categorical hardware-failure conclusion
+- firmware `1.0.1` adds `allowUsbEnumeration` and startup version diagnostics;
+  flashed through COM4 with NVS credentials preserved
+- physical USB enumeration passed with a Kingston flash drive (`0951:1666`);
+  HW-678 USB host works and the software cause is confirmed
+- Nikon PTP and a real upload remain pending
+- bench setup: right COM port for PC serial/power, left USB port for passive
+  OTG adapter plus A-to-C Nikon cable, `USB-OTG` and `IN-OUT` bridges closed
+- target date is 2026-10-08 using existing hardware and no direct Nikon-to-Pi
+  connection; see `firmware/README.md` for evidence and the next test sequence
+- latest LAN check: `niwahub.station` resolves to `192.168.1.101`; earlier
+  `.25` addresses elsewhere in this snapshot describe the previous LAN state
+- NIWA Import `/api/health` returned OK, version `0.3.0`; bridge status requires
+  authentication and reported zero active sessions before the Nikon test
 
 ## ESP32 firmware tooling
 
@@ -731,7 +747,8 @@ an ignored local project folder:
 .arduino-build
 
 Current validation:
-- standard Arduino IDE runtime already contains `esp32:esp32 3.3.0`
+- standard Arduino IDE runtime contains `esp32:esp32 3.3.11` as verified on
+  2026-10-03; earlier Lights/Companion validation used the then-recorded 3.3.0
 - `firmware/tools/niwa-arduino.cmd -Action compile` completed successfully for
   the existing NIWA Lights firmware
 - build output is written under the ignored `.arduino-build` folder

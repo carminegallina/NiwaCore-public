@@ -387,10 +387,10 @@ Arduino IDE is installed on the Windows PC. Use the versioned launcher:
 
 The launcher uses the Arduino CLI bundled with Arduino IDE and reuses the
 standard `%LOCALAPPDATA%\Arduino15` runtime. Build output stays under the
-ignored `.arduino-build` project folder. The Windows PC already has
-`esp32:esp32 3.3.0`, and the existing NIWA Lights firmware has been compiled
-successfully through the launcher. Core setup is only needed if the Arduino
-installation changes:
+ignored `.arduino-build` project folder. As verified on 2026-10-03, the Windows
+PC has `esp32:esp32 3.3.11` (ESP-IDF 5.5.5); the earlier 3.3.0 note is historical.
+The existing NIWA Lights firmware has been compiled successfully through the
+launcher. Core setup is only needed if the Arduino installation changes:
 
 .\firmware\tools\niwa-arduino.cmd -Action setup
 
@@ -410,6 +410,21 @@ For the Nikon Z6 II ESP32-S3 bridge, provisioning uses the equivalent launcher,
 which also pulls the bridge token from the Raspberry over SSH:
 
 .\firmware\tools\niwa-bridge-provision.cmd -Port COM4
+
+Current Nikon bridge state (2026-10-03):
+- target date: 2026-10-08, using existing hardware without a direct Nikon-to-Pi cable
+- previous builds used Arduino ESP32 3.3.11, whose enabled USB enumeration
+  filter rejects every device when `enum_filter_cb` is null
+- firmware 1.0.1 adds `allowUsbEnumeration` and startup version diagnostics;
+  flashed on COM4 with NVS credentials preserved
+- physical USB host enumeration passed with a Kingston flash drive
+  (`0951:1666`), confirming the software cause; HW-678 host operation works
+- Nikon PTP and real upload validation remain pending; the earlier conclusion
+  that HW-678 cannot act as USB host is superseded
+- use the right COM port for PC serial/power and left USB port with the
+  existing passive OTG adapter plus A-to-C Nikon data cable
+- keep rear `USB-OTG` and front `IN-OUT` bridges closed, matching reported tests
+- see `firmware/README.md` for evidence and the physical validation sequence
 
 For repeated Companion prototype flashes, the firmware may also use the ignored
 local file:

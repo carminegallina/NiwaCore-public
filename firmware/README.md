@@ -106,8 +106,10 @@ The complete bridge firmware is in:
 firmware/esp32s3-z6ii-bridge/esp32s3-z6ii-bridge.ino
 ```
 
-It targets the HW-678 ESP32-S3 N16R8 board and uses only libraries bundled with
-ESP32 core `3.3.0`. Compile it with:
+It targets the HW-678 ESP32-S3 N16R8 board and uses only bundled libraries.
+On 2026-10-03 the installed Arduino ESP32 core and the previous bridge build
+were verified as `3.3.11` (ESP-IDF `5.5.5`), superseding the earlier `3.3.0`
+environment note. Compile it with:
 
 ```powershell
 .\firmware\tools\niwa-arduino.cmd -Action compile `
@@ -185,86 +187,92 @@ outside Git and can be read only from a loopback request on the Raspberry:
 curl -s http://127.0.0.1:5057/api/bridge/v1/provision/token
 ```
 
-### USB host status, 2026-10-02
+### USB host fixed and physically validated, 2026-10-03
 
-Still unresolved, but narrowed down a lot. What has been ruled out by direct
-test, so it does not need retesting:
+A software cause was identified before replacing the HW-678 board. The installed
+Arduino ESP32 core is `3.3.11`, and the previous `.arduino-build/build.options.json`
+also references that version. Its precompiled ESP32-S3 libraries enable
+`CONFIG_USB_HOST_ENABLE_ENUM_FILTER_CALLBACK=y`. The earlier firmware left
+`usb_host_config_t::enum_filter_cb` null, which causes ESP-IDF `5.5.5` to cancel
+enumeration of every device. The former conclusion that this board cannot act
+as a USB host was not established by the tests and is superseded by this finding.
 
-- camera, data cable and passive OTG adapter: the whole chain enumerates the
-  Z6 II on a Windows PC (`VID_04B0&PID_044C`, class WPD)
-- the board itself: flashed as a USB device with `CDCOnBoot=cdc`, the left port
-  enumerates on a PC as `VID_303A&PID_1001` serial `E072A1A9CA84` and creates a
-  COM port, so its data lines reach the chip
-- bus power: a phone connected through the OTG adapter on the left port charges,
-  so VBUS is supplied with real current
-- both `USBMode=default` and `USBMode=hwcdc` builds, and both insertion
-  orientations of the OTG adapter
+Firmware `1.0.1` registers `allowUsbEnumeration`, permits enumeration with the
+first configuration, and prints firmware, Arduino core and ESP-IDF versions at
+startup. It was compiled and flashed to the existing HW-678 on `COM4`, preserving
+NVS provisioning. After reset, the attached Kingston flash drive enumerated:
 
-What fails: in host mode nothing is ever enumerated - not the camera, not a USB
-flash drive, not a phone. The firmware prints `[USB] Root port power: ESP_OK`
-and then stays on `USB camera : waiting` with no USB error at all.
-
-The minimal USB host sketch settled it. It reports `usb_host_lib_info()` and
-`usb_host_device_addr_list_fill()` every five seconds, and in every single
-configuration the result is the same:
-
-    [info] dispositivi: 1, client: 1      <- the device attaches, the library sees it
-    [list] gia' presenti: 0               <- enumeration never completes
-
-The count follows the device honestly: 0 with the port empty, 1 as soon as
-anything is plugged in, so attach detection works and there is no phantom
-pull-up. But no device ever becomes available to clients, so the NEW_DEV event
-is never delivered and `USB camera` stays on `waiting` forever.
-
-Tried, all with the same result: USB flash drive, phone and a low-power
-wireless dongle; both insertion orientations of the OTG adapter; `USBMode`
-`default` and `hwcdc`; the NIWA firmware and the minimal sketch.
-
-The `IN-OUT` solder jumper is the VBUS path to the host port and must stay
-closed. Opening it stops the device being detected at all, the count drops to
-0, and nothing can be enumerated. It is not the cause of the enumeration
-failure: with the jumper closed the device is detected and still never
-enumerates.
-
-Conclusion as of 2026-10-03: this board cannot act as a USB host. Everything
-else in the chain is proven good. The fix is a different board - ideally one
-with a USB-A host connector and a real VBUS switch, such as the Espressif
-ESP32-S3-USB-OTG devkit, or failing that another ESP32-S3 devkit, which is the
-one variable never swapped. The firmware needs no change, only reflashing and
-a new provisioning run.
-
-The physical setup uses the right USB-C `COM` port for serial/power and the
-left USB-C `USB` port with the validated passive OTG adapter and Nikon data
-cable. Keep the rear `USB-OTG` bridge closed and the front `IN-OUT` bridge
-open. The firmware only reads NEF/JPG/JPEG objects and never modifies camera
-files.
-
-The passive OTG adapter is required. A plain USB-C to USB-C cable straight
-from the board to the camera does not work: neither end claims the host role,
-so the camera never attaches. Verified on 2026-09-30 - with a C-to-C data
-cable the board stays on `USB camera : waiting` with no enumeration event and
-no USB error, while the very same cable enumerates the camera correctly on a
-Windows PC (`VID_04B0&PID_044C`, class WPD).
-
-Total silence on the serial monitor always means the board saw no device
-attach electrically, so the cause is physical. Bisect it by plugging the same
-cable from the camera into the Windows PC:
-
-```powershell
-Get-PnpDevice -PresentOnly | Where-Object { $_.InstanceId -match 'VID_04B0' }
+```text
+[USB] Opening device address 1...
+[USB] VID:PID 0951:1666.
+[USB] Complete PTP bulk interface not found.
+[USB] Device is not a PTP camera.
 ```
 
-If the camera appears there, cable and camera are fine and the fault is in the
-host side of the board.
+The non-PTP result is expected for a flash drive. This proves USB host operation
+on the existing board and confirms the software cause of the enumeration block.
+The build used 1,116,694 bytes of flash (35%) and 46,812 bytes of global RAM.
+Nikon PTP and real upload validation remain pending. The user's target date is
+2026-10-08, with existing hardware and without a direct Nikon-to-Raspberry cable.
 
-Confirmed diagnosis for the C-to-C case: VBUS is fine but the host role is
-missing. With the `USB-OTG` bridge closed the board does power the bus - a
-sleeping Z6 II wakes up its screen the moment the cable is plugged in - yet it
-never presents the CC pull-up that tells the camera a host is attached, so the
-camera treats the link as a charger and never enumerates. Reversing the cable
-changes nothing because the pull-up is missing on both ends. The working chain
-uses a USB-A to USB-C cable into the camera, since an A-to-C cable carries the
-56k pull-up by specification:
+Primary references:
 
-    ESP32 left USB-C -> passive OTG adapter (C male to A female)
-                     -> USB-A to USB-C cable -> Nikon Z6 II
+- [Arduino ESP32 USB documentation](https://github.com/espressif/arduino-esp32/blob/master/docs/en/api/usb.rst): the callback requirement since core 3.3.11.
+- [ESP-IDF 5.5.5 enumeration source](https://github.com/espressif/esp-idf/blob/v5.5.5/components/usb/enum.c#L220): a null callback leaves `enum_proceed` false and cancels enumeration.
+- [Arduino ESP32 issue #12778](https://github.com/espressif/arduino-esp32/issues/12778): the same symptom and an allow-all callback workaround.
+
+Earlier observations remain useful, but do not prove a defective host:
+
+- The camera, data cable and passive OTG adapter enumerate the Z6 II on Windows
+  as `VID_04B0&PID_044C` (WPD).
+- In USB device mode (`CDCOnBoot=cdc`), the board's left port enumerates on a PC
+  as `VID_303A&PID_1001`, serial `E072A1A9CA84`, confirming data connectivity in
+  that mode.
+- A phone charges from the host port, confirming that VBUS supplies current;
+  this alone does not verify USB data transfers or voltage under every load.
+- The old firmware and minimal sketch did not enumerate a camera, flash drive,
+  phone or low-power wireless dongle. Both adapter orientations and `USBMode`
+  values `default` and `hwcdc` were tried.
+- The minimal sketch reported one device object but zero available addresses
+  while attached, returning to zero objects when unplugged. ESP-IDF counts
+  device objects before successful configuration; the address list only
+  includes fully configured devices. This is consistent with cancelled
+  enumeration, not proof of hardware failure.
+- A direct C-to-C connection did not enumerate in the old tests. Use the
+  existing adapter chain for the next test; those logs alone did not establish
+  a CC-role or electrical root cause.
+
+The missing warning is also explained: the cancellation uses `ESP_LOGW`, while
+the installed precompiled libraries set `CONFIG_LOG_MAXIMUM_LEVEL=1` (errors
+only). Raising the sketch log level cannot restore warnings compiled out of
+those libraries. Serial silence is therefore not proof of an electrical fault.
+
+Physical setup, viewed from the component side with ports at the bottom:
+
+- RIGHT USB-C `COM`: PC serial and power.
+- LEFT USB-C `USB`: passive OTG adapter (C male to A female), then USB-A to USB-C
+  data cable to the Nikon Z6 II.
+- Rear `USB-OTG` bridge: closed.
+- Front `IN-OUT` bridge: closed, matching the reported bench test. Opening it
+  removed device detection; the earlier instruction to leave it open was
+  contradictory and has been corrected.
+
+Validation sequence:
+
+1. Compile/upload firmware `1.0.1` using the FQBN above and the detected serial
+   port; keep `EraseFlash=none` so runtime provisioning is retained. This was
+   completed on `COM4` on 2026-10-03.
+2. Confirm the startup line reports firmware `1.0.1`, Arduino core and ESP-IDF
+   versions, then `[USB] READY - connect the powered-on Nikon.`
+3. Connect the powered-on camera through the existing adapter chain. Look for
+   `[USB] Opening device address ...`, `VID:PID 04B0:044C` and
+   `[PTP] Session opened.` A non-PTP test device may enumerate successfully and
+   then correctly report `Device is not a PTP camera.` This non-PTP enumeration
+   test has passed with the Kingston flash drive; the Nikon test is next.
+4. Verify one real NEF/JPG/JPEG import reaches NIWA Import and NIWA Review,
+   without modifying the source. Then verify duplicate skipping, reconnect and
+   a new shot while attached before considering the bridge event-ready.
+
+If the Nikon still fails after the corrected firmware/version is confirmed,
+record the new logs and continue camera/PTP diagnosis. Replacing the board is
+not required to obtain working USB host enumeration.
