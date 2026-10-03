@@ -204,9 +204,30 @@ What fails: in host mode nothing is ever enumerated - not the camera, not a USB
 flash drive, not a phone. The firmware prints `[USB] Root port power: ESP_OK`
 and then stays on `USB camera : waiting` with no USB error at all.
 
-Next step: a minimal USB host sketch, no PTP and no Wi-Fi, to tell a firmware
-problem apart from a host-mode problem on the port. A first attempt did not
-compile yet.
+The minimal USB host sketch settled it. It reports `usb_host_lib_info()` and
+`usb_host_device_addr_list_fill()` every five seconds, and in every single
+configuration the result is the same:
+
+    [info] dispositivi: 1, client: 1      <- the device attaches, the library sees it
+    [list] gia' presenti: 0               <- enumeration never completes
+
+The count follows the device honestly: 0 with the port empty, 1 as soon as
+anything is plugged in, so attach detection works and there is no phantom
+pull-up. But no device ever becomes available to clients, so the NEW_DEV event
+is never delivered and `USB camera` stays on `waiting` forever.
+
+Tried, all with the same result: USB flash drive, phone and a low-power
+wireless dongle; both insertion orientations of the OTG adapter; `USBMode`
+`default` and `hwcdc`; the NIWA firmware and the minimal sketch; the `IN-OUT`
+solder jumper both closed and open. The device stays detected with `IN-OUT`
+open, so that jumper is not the VBUS path.
+
+Conclusion as of 2026-10-03: this board cannot act as a USB host. Everything
+else in the chain is proven good. The fix is a different board - ideally one
+with a USB-A host connector and a real VBUS switch, such as the Espressif
+ESP32-S3-USB-OTG devkit, or failing that another ESP32-S3 devkit, which is the
+one variable never swapped. The firmware needs no change, only reflashing and
+a new provisioning run.
 
 The physical setup uses the right USB-C `COM` port for serial/power and the
 left USB-C `USB` port with the validated passive OTG adapter and Nikon data
