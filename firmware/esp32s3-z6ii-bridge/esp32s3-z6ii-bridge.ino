@@ -45,7 +45,7 @@
 #include "mbedtls/sha256.h"
 #include "usb/usb_host.h"
 
-static constexpr char FIRMWARE_VERSION[] = "1.0.1";
+static constexpr char FIRMWARE_VERSION[] = "1.0.2";
 static constexpr char DEFAULT_WIFI_SSID[] = "NIWA-AP";
 static constexpr char DEFAULT_SERVER_URL[] =
   "http://10.42.0.1:5057/api/bridge/v1";
@@ -1391,6 +1391,8 @@ static bool uploadObject(const ObjectInfo &object,
   while (offset < object.size && !gDeviceGone) {
     const uint32_t requested =
       min(preflight.chunkSize, object.size - offset);
+    // Per-chunk timings show whether the camera or the Wi-Fi is the bottleneck.
+    const uint32_t readStarted = millis();
     if (!getPartialObject(object.handle, offset, requested, chunk) ||
         chunk.empty() || chunk.size() > requested) {
       Serial.printf("[PTP] Read failed for %s at %lu.\n",
@@ -1406,22 +1408,27 @@ static bool uploadObject(const ObjectInfo &object,
       mbedtls_sha256_update(&hashContext, chunk.data(), chunk.size());
     }
 
+    const uint32_t readMs = millis() - readStarted;
     uint32_t nextOffset = offset;
+    const uint32_t sendStarted = millis();
     if (!putChunk(preflight.uploadId, offset, object.size,
                   chunk, nextOffset) ||
         nextOffset != offset + chunk.size()) {
       success = false;
       break;
     }
+    const uint32_t sendMs = millis() - sendStarted;
     offset = nextOffset;
     const unsigned percent =
       object.size ? static_cast<unsigned>(
         (static_cast<uint64_t>(offset) * 100ULL) / object.size
       ) : 100;
-    Serial.printf("[UPLOAD] %s: %u%% (%lu/%lu).\n",
+    Serial.printf("[UPLOAD] %s: %u%% (%lu/%lu), usb %lu ms, wifi %lu ms.\n",
                   object.filename.c_str(), percent,
                   static_cast<unsigned long>(offset),
-                  static_cast<unsigned long>(object.size));
+                  static_cast<unsigned long>(object.size),
+                  static_cast<unsigned long>(readMs),
+                  static_cast<unsigned long>(sendMs));
   }
 
   String fullHash;
