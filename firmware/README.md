@@ -218,9 +218,13 @@ is never delivered and `USB camera` stays on `waiting` forever.
 
 Tried, all with the same result: USB flash drive, phone and a low-power
 wireless dongle; both insertion orientations of the OTG adapter; `USBMode`
-`default` and `hwcdc`; the NIWA firmware and the minimal sketch; the `IN-OUT`
-solder jumper both closed and open. The device stays detected with `IN-OUT`
-open, so that jumper is not the VBUS path.
+`default` and `hwcdc`; the NIWA firmware and the minimal sketch.
+
+The `IN-OUT` solder jumper is the VBUS path to the host port and must stay
+closed. Opening it stops the device being detected at all, the count drops to
+0, and nothing can be enumerated. It is not the cause of the enumeration
+failure: with the jumper closed the device is detected and still never
+enumerates.
 
 Conclusion as of 2026-10-03: this board cannot act as a USB host. Everything
 else in the chain is proven good. The fix is a different board - ideally one
