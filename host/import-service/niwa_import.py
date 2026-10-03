@@ -1607,6 +1607,14 @@ def bridge_reset_staged_upload(staged_path, item, session, sessions, message):
 
 
 def bridge_complete_upload(upload_id, payload):
+    result = bridge_verify_upload(upload_id, payload)
+    status = bridge_publish_ready_uploads(result.pop("session_id"), upload_id)
+    if status:
+        result["status"] = status
+    return result
+
+
+def bridge_verify_upload(upload_id, payload):
     supplied_sha256 = bridge_sha256(payload.get("sha256"), required=False)
     with BRIDGE_LOCK:
         sessions = bridge_load_sessions()
@@ -1616,6 +1624,7 @@ def bridge_complete_upload(upload_id, payload):
                 "ok": True,
                 "action": "verified",
                 "upload_id": upload_id,
+                "session_id": session["id"],
                 "sha256": item.get("digest"),
                 "status": item.get("status"),
             }
@@ -1674,10 +1683,105 @@ def bridge_complete_upload(upload_id, payload):
             "ok": True,
             "action": "verified",
             "upload_id": upload_id,
+            "session_id": session["id"],
             "sha256": digest,
             "size": item["size"],
             "status": "verified",
         }
+
+
+def bridge_publish_ready_uploads(session_id, upload_id):
+    """Move the verified uploads of an active session into photo/imports now.
+
+    Runs after every verified upload, so each photo shows up on the Raspberry as
+    soon as it lands instead of waiting for the session to close. If an SD-card
+    import holds the ingest lock, publication is left to the next upload or to
+    session completion: the verified copy stays safe in staging meanwhile.
+    """
+    if not INGEST_LOCK.acquire(timeout=5):
+        return None
+    try:
+        with BRIDGE_LOCK:
+            sessions = bridge_load_sessions()
+            session = sessions["sessions"].get(session_id)
+            if not session or session.get("status") != "active":
+                return None
+            hashes = load_hashes()
+            published_any = False
+            for item in session.get("objects", {}).values():
+                if item.get("status") != "verified":
+                    continue
+                try:
+                    bridge_publish_verified_item(session, item, hashes)
+                except Exception as error:
+                    item["last_error"] = f"Pubblicazione rimandata: {error}"
+                    item["updated_at"] = now_label()
+                    bridge_save_sessions(sessions)
+                    continue
+                published_any = published_any or item["status"] == "published"
+                save_hashes(hashes)
+                session["updated_at"] = now_label()
+                bridge_save_sessions(sessions)
+            _, current = bridge_find_upload(sessions, upload_id)
+            status = current.get("status")
+    finally:
+        INGEST_LOCK.release()
+    if published_any:
+        # Off the request path: a slow Review panel must not hold the ESP32.
+        threading.Thread(target=review_rebuild, daemon=True).start()
+    return status
+
+
+def bridge_publish_verified_item(session, item, hashes):
+    """Publish one verified bridge upload and record it in the hash index."""
+    digest = item.get("digest")
+    if not digest:
+        raise RuntimeError(f"Checksum mancante per {item['filename']}")
+    staged_path = bridge_staged_path(session, item)
+    wanted = (
+        STORAGE_ROOT
+        / "photo"
+        / "imports"
+        / session["folder"]
+        / item["filename"]
+    )
+    known_destination = bridge_existing_destination(hashes, digest)
+    if known_destination:
+        staged_path.unlink(missing_ok=True)
+        destination = known_destination
+        duplicate = True
+    elif staged_path.is_file():
+        bridge_apply_item_mtime(staged_path, item)
+        destination, duplicate = publish_verified_file(
+            staged_path,
+            wanted,
+            digest,
+        )
+    else:
+        recorded = Path(item.get("destination") or "")
+        if (
+            recorded.is_file()
+            and bridge_path_is_within(recorded, STORAGE_ROOT)
+            and sha256_file(recorded) == digest
+        ):
+            destination = recorded
+            duplicate = bool(item.get("duplicate"))
+        else:
+            recovered = bridge_published_candidate(wanted, digest)
+            if not recovered:
+                raise RuntimeError(
+                    f"Staging verificato mancante: {item['filename']}"
+                )
+            destination = recovered
+            duplicate = bool(item.get("duplicate"))
+
+    hashes["files"][digest] = str(destination)
+    item["destination"] = str(destination)
+    item["duplicate"] = duplicate
+    item["status"] = "duplicate" if duplicate else "published"
+    item["last_error"] = None
+    item["updated_at"] = now_label()
+    bridge_remember_source(hashes, session, item, digest, destination)
 
 
 def bridge_complete_session(session_id):
@@ -1761,56 +1865,7 @@ def bridge_complete_session(session_id):
                         )
                         continue
 
-                    staged_path = bridge_staged_path(session, item)
-                    wanted = (
-                        STORAGE_ROOT
-                        / "photo"
-                        / "imports"
-                        / session["folder"]
-                        / item["filename"]
-                    )
-                    known_destination = bridge_existing_destination(hashes, digest)
-                    if known_destination:
-                        staged_path.unlink(missing_ok=True)
-                        destination = known_destination
-                        duplicate = True
-                    elif staged_path.is_file():
-                        bridge_apply_item_mtime(staged_path, item)
-                        destination, duplicate = publish_verified_file(
-                            staged_path,
-                            wanted,
-                            digest,
-                        )
-                    else:
-                        recorded = Path(item.get("destination") or "")
-                        if (
-                            recorded.is_file()
-                            and bridge_path_is_within(recorded, STORAGE_ROOT)
-                            and sha256_file(recorded) == digest
-                        ):
-                            destination = recorded
-                            duplicate = bool(item.get("duplicate"))
-                        else:
-                            recovered = bridge_published_candidate(wanted, digest)
-                            if not recovered:
-                                raise RuntimeError(
-                                    f"Staging verificato mancante: {item['filename']}"
-                                )
-                            destination = recovered
-                            duplicate = bool(item.get("duplicate"))
-
-                    hashes["files"][digest] = str(destination)
-                    item["destination"] = str(destination)
-                    item["duplicate"] = duplicate
-                    item["status"] = "duplicate" if duplicate else "published"
-                    item["updated_at"] = now_label()
-                    bridge_remember_source(
-                        hashes,
-                        session,
-                        item,
-                        digest,
-                        destination,
-                    )
+                    bridge_publish_verified_item(session, item, hashes)
                     save_hashes(hashes)
                     session["updated_at"] = now_label()
                     bridge_save_sessions(sessions)

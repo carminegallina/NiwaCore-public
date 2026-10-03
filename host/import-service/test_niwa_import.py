@@ -4,6 +4,7 @@ import importlib.util
 import os
 import time
 import unittest
+from unittest import mock
 
 
 MODULE_PATH = Path(__file__).with_name("niwa_import.py")
@@ -320,7 +321,7 @@ class NiwaImportTests(unittest.TestCase):
         self.assertTrue(approved["auto_import"])
         self.assertEqual(approved["source"]["identity_method"], "reader_card_fingerprint")
 
-    def test_bridge_resumes_verifies_then_publishes_atomically(self):
+    def test_bridge_resumes_verifies_and_publishes_each_upload_at_once(self):
         content = (b"NEF-test-block-" * 12000) + b"end"
         sample = self.root / "sample.NEF"
         sample.write_bytes(content)
@@ -377,11 +378,17 @@ class NiwaImportTests(unittest.TestCase):
             {"sha256": digest},
         )
         self.assertEqual(verified["sha256"], digest)
-        self.assertEqual(list((self.storage / "photo").rglob("*.NEF")), [])
+        self.assertEqual(verified["status"], "published")
+        self.assertNotIn("session_id", verified)
+        # Visible on the Raspberry right away, before the session closes.
+        published = list((self.storage / "photo").rglob("DSC_0001.NEF"))
+        self.assertEqual(len(published), 1)
+        self.assertEqual(published[0].read_bytes(), content)
 
         completed = niwa_import.bridge_complete_session(session_id)
         self.assertEqual(completed["session"]["status"], "completed")
         self.assertNotIn("objects", completed["session"])
+        # Closing the session must not publish a second copy.
         published = list((self.storage / "photo").rglob("DSC_0001.NEF"))
         self.assertEqual(len(published), 1)
         self.assertEqual(published[0].read_bytes(), content)
@@ -422,7 +429,7 @@ class NiwaImportTests(unittest.TestCase):
             {"sha256": digest},
         )
 
-        self.assertEqual(verified["status"], "verified")
+        self.assertEqual(verified["status"], "published")
         repaired = niwa_import.bridge_load_sessions()["sessions"][
             created["session_id"]
         ]["objects"]["1101"]
@@ -450,10 +457,14 @@ class NiwaImportTests(unittest.TestCase):
             len(content),
             content,
         )
-        niwa_import.bridge_complete_upload(
-            preflight["upload_id"],
-            {"sha256": digest},
-        )
+        with mock.patch.object(niwa_import, "INGEST_LOCK") as busy:
+            busy.acquire.return_value = False  # an SD-card import is running
+            deferred = niwa_import.bridge_complete_upload(
+                preflight["upload_id"],
+                {"sha256": digest},
+            )
+        # Publication is deferred, not lost: the file waits verified in staging.
+        self.assertEqual(deferred["status"], "verified")
         sessions = niwa_import.bridge_load_sessions()
         session = sessions["sessions"][created["session_id"]]
         item = session["objects"]["1201"]

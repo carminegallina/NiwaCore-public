@@ -8,8 +8,9 @@ and listens on port `5057`.
 
 The same process also exposes the local ESP32 camera bridge API under
 `/api/bridge/v1`. Bridge uploads are limited to NEF, JPG and JPEG and are
-published below `photo/imports` only after the server has verified the complete
-SHA-256 and the ESP32 has completed the session.
+published below `photo/imports` as soon as the server has verified the complete
+SHA-256 of each file, so photos appear in NIWA Review one by one while the
+camera is still attached.
 
 ## Safety model
 
@@ -31,7 +32,11 @@ SHA-256 and the ESP32 has completed the session.
   maintenance pass that never touches the active job
 - ESP32 chunks are written and `fsync`-ed in separate hidden staging
 - resumable upload offsets come from the real staged file length
-- a bridge session publishes only verified files, using atomic rename
+- the bridge publishes each file right after its SHA-256 verification, using
+  atomic rename; nothing unverified ever reaches the Review library
+- if an SD-card import holds the ingest lock, publication is deferred: the
+  verified copy waits in staging and goes out with the next upload or at
+  session completion
 - global SHA-256 deduplication is authoritative at publication time
 - the quick fingerprint can skip only the same previously indexed source
   object; new source objects always reach full server-side SHA-256 verification
@@ -153,10 +158,14 @@ Content-Type: application/json
 ```
 
 The server always calculates its own complete SHA-256. A mismatch resets that
-upload to offset zero.
+upload to offset zero. On success the file is published immediately, together
+with any other verified file of the same session still waiting in staging, and
+the Review index is rebuilt in the background. The response `status` is then
+`published` or `duplicate`; it stays `verified` only when publication had to be
+deferred.
 
-Publish the verified session and rebuild the Review index once when at least
-one new file was published:
+Close the session. This publishes anything still deferred and rebuilds the
+Review index once more when needed:
 
 ```http
 POST /api/bridge/v1/sessions/{session_id}/complete
