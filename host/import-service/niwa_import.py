@@ -56,6 +56,8 @@ JOBS_FILE = DATA_ROOT / "import_jobs.json"
 HASHES_FILE = DATA_ROOT / "import_hashes.json"
 BRIDGE_SESSIONS_FILE = DATA_ROOT / "bridge_sessions.json"
 BRIDGE_TOKEN_FILE = DATA_ROOT / "bridge_token"
+# Written by NIWA Review, only read here: media the user deleted in Review.
+REVIEW_TRASH_FILE = DATA_ROOT / "review_trash.json"
 
 DEFAULT_CONFIG = {
     "version": 1,
@@ -185,6 +187,41 @@ def load_hashes():
         payload["sources"] = {}
     payload["version"] = 3
     return payload
+
+
+def user_deleted_paths():
+    """Storage paths the user deleted in NIWA Review, in its trash or purged."""
+    try:
+        payload = json.loads(REVIEW_TRASH_FILE.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return frozenset()
+    paths = payload.get("deleted_paths") if isinstance(payload, dict) else None
+    if not isinstance(paths, list):
+        return frozenset()
+    return frozenset(path for path in paths if isinstance(path, str))
+
+
+def deleted_by_user(destination, deleted):
+    """True when a recorded destination is gone because the user deleted it."""
+    if not destination or not deleted:
+        return False
+    path = Path(destination)
+    try:
+        relative = path.relative_to(STORAGE_ROOT).as_posix()
+    except ValueError:
+        return False
+    return relative in deleted and not path.exists()
+
+
+def inventory_deleted(cached, signature, deleted):
+    """True when this card file was imported before and then deleted in Review."""
+    return (
+        isinstance(cached, dict)
+        and cached.get("size") == signature["size"]
+        and cached.get("mtime_ns") == signature["mtime_ns"]
+        and cached.get("quick_hash") == signature["quick_hash"]
+        and deleted_by_user(cached.get("destination"), deleted)
+    )
 
 
 def save_hashes(payload):
@@ -663,6 +700,7 @@ def run_import_locked(device, profile, trigger):
         "published_files": 0,
         "duplicate_files": 0,
         "fast_skipped_files": 0,
+        "deleted_files": 0,
         "bytes_copied": 0,
         "review_rebuild": False,
         "errors": [],
@@ -678,6 +716,7 @@ def run_import_locked(device, profile, trigger):
     hashes = load_hashes()
     source_inventory = hashes["sources"].setdefault(inventory_source_key(device), {})
     destinations = known_destinations_by_relative(hashes)
+    deleted = user_deleted_paths()
 
     try:
         STAGING_ROOT.mkdir(parents=True, exist_ok=True)
@@ -711,6 +750,13 @@ def run_import_locked(device, profile, trigger):
                 job["duplicate_files"] += 1
                 job["fast_skipped_files"] += 1
                 job["message"] = f"Gia verificato, salto rapido: {relative}"
+                save_job(job)
+                continue
+
+            if inventory_deleted(source_inventory.get(key), signature, deleted):
+                job["processed_files"] += 1
+                job["deleted_files"] += 1
+                job["message"] = f"Eliminato in Review, non reimportato: {relative}"
                 save_job(job)
                 continue
 
@@ -751,6 +797,18 @@ def run_import_locked(device, profile, trigger):
                     known_path,
                 )
                 continue
+            if deleted_by_user(known, deleted):
+                # Same content as a file the user deleted in Review.
+                item["staged"].unlink(missing_ok=True)
+                job["deleted_files"] += 1
+                remember_source_file(
+                    source_inventory,
+                    item["inventory_key"],
+                    item["signature"],
+                    item["digest"],
+                    known_path,
+                )
+                continue
             destination, duplicate = publish_verified_file(
                 item["staged"],
                 item["destination"],
@@ -779,6 +837,10 @@ def run_import_locked(device, profile, trigger):
             f"{job['duplicate_files']} duplicati saltati, "
             f"{job['fast_skipped_files']} riconosciuti senza ricopia."
         )
+        if job["deleted_files"]:
+            job["message"] += (
+                f" {job['deleted_files']} eliminati in Review, non reimportati."
+            )
         cleanup_completed_staging(staging_job)
     except Exception as error:
         job["status"] = "interrupted"
@@ -1077,23 +1139,48 @@ def bridge_existing_destination(hashes, digest):
     return None
 
 
-def bridge_quick_duplicate(hashes, session, source_key, size, quick_hash):
+def bridge_inventory_match(hashes, session, source_key, size, quick_hash):
+    """Inventory record of this camera object, if size and quick hash match."""
     if not quick_hash:
-        return None, None
+        return None
     source_inventory = hashes.get("sources", {}).get(
         bridge_inventory_source_key(session),
         {},
     )
     if not isinstance(source_inventory, dict):
-        return None, None
+        return None
     cached = source_inventory.get(bridge_inventory_file_key(source_key))
     if not isinstance(cached, dict) or cached.get("source_key") != source_key:
-        return None, None
+        return None
     try:
         cached_size = int(cached.get("size", -1))
     except (TypeError, ValueError):
-        return None, None
+        return None
     if cached_size != size or cached.get("quick_hash") != quick_hash:
+        return None
+    return cached
+
+
+def bridge_deleted_source(hashes, session, source_key, size, quick_hash, expected_sha256):
+    """Where this camera object was published, if the user deleted it in Review."""
+    deleted = user_deleted_paths()
+    if not deleted:
+        return None
+    candidates = []
+    if expected_sha256:
+        candidates.append(hashes.get("files", {}).get(expected_sha256))
+    cached = bridge_inventory_match(hashes, session, source_key, size, quick_hash)
+    if cached:
+        candidates.append(cached.get("destination"))
+    for candidate in candidates:
+        if deleted_by_user(candidate, deleted):
+            return candidate
+    return None
+
+
+def bridge_quick_duplicate(hashes, session, source_key, size, quick_hash):
+    cached = bridge_inventory_match(hashes, session, source_key, size, quick_hash)
+    if not cached:
         return None, None
     try:
         digest = bridge_sha256(cached.get("digest"), required=False)
@@ -1169,6 +1256,9 @@ def bridge_public_session(session, include_objects=True):
         ),
         "duplicate_objects": sum(
             item.get("status") in {"skipped", "duplicate"} for item in objects
+        ),
+        "deleted_objects": sum(
+            item.get("status") == "deleted" for item in objects
         ),
         "verified_objects": sum(
             item.get("status") == "verified" for item in objects
@@ -1416,6 +1506,12 @@ def bridge_preflight(session_id, payload):
                         "Object ID gia usato con quick hash differente.",
                         status=409,
                     )
+                if existing.get("status") == "deleted":
+                    return bridge_skip_response(
+                        session,
+                        existing,
+                        reason="deleted_by_user",
+                    )
                 if existing.get("status") in {"skipped", "published", "duplicate"}:
                     return bridge_skip_response(session, existing)
                 if existing.get("status") == "verified":
@@ -1456,8 +1552,27 @@ def bridge_preflight(session_id, payload):
                 if destination:
                     duplicate_reason = "quick_hash"
 
+            deleted_destination = None
             if not destination:
+                # Never send again a photo the user deleted in Review: at Wi-Fi
+                # speed a NEF costs over a minute, so decide before the upload.
+                deleted_destination = bridge_deleted_source(
+                    hashes,
+                    session,
+                    source_key,
+                    size,
+                    quick_hash,
+                    expected_sha256,
+                )
+            done = destination or deleted_destination
+            if not done:
                 bridge_require_upload_space(sessions, size)
+            if deleted_destination:
+                status = "deleted"
+            elif destination:
+                status = "skipped"
+            else:
+                status = "uploading"
             item = {
                 "object_id": object_id,
                 "source_key": source_key,
@@ -1470,23 +1585,23 @@ def bridge_preflight(session_id, payload):
                 "digest": digest,
                 "upload_id": None,
                 "staged_name": None,
-                "received": size if destination else 0,
-                "status": "skipped" if destination else "uploading",
+                "received": size if done else 0,
+                "status": status,
                 "duplicate": bool(destination),
                 "duplicate_reason": duplicate_reason,
-                "destination": str(destination) if destination else None,
+                "destination": str(done) if done else None,
                 "created_at": now_label(),
                 "updated_at": now_label(),
             }
             session["objects"][object_id] = item
             session["updated_at"] = now_label()
 
-            if destination:
+            if done:
                 bridge_save_sessions(sessions)
                 return bridge_skip_response(
                     session,
                     item,
-                    reason=duplicate_reason,
+                    reason="deleted_by_user" if deleted_destination else duplicate_reason,
                 )
 
             for _attempt in range(8):
@@ -1746,6 +1861,16 @@ def bridge_publish_verified_item(session, item, hashes):
         / item["filename"]
     )
     known_destination = bridge_existing_destination(hashes, digest)
+    recorded = hashes.get("files", {}).get(digest)
+    if not known_destination and deleted_by_user(recorded, user_deleted_paths()):
+        # Same content as a photo the user deleted in Review: never publish it.
+        staged_path.unlink(missing_ok=True)
+        item["destination"] = recorded
+        item["duplicate"] = False
+        item["status"] = "deleted"
+        item["last_error"] = None
+        item["updated_at"] = now_label()
+        return
     if known_destination:
         staged_path.unlink(missing_ok=True)
         destination = known_destination
@@ -1806,7 +1931,7 @@ def bridge_complete_session(session_id):
                 item["object_id"]
                 for item in session.get("objects", {}).values()
                 if item.get("status")
-                not in {"skipped", "verified", "published", "duplicate"}
+                not in {"skipped", "verified", "published", "duplicate", "deleted"}
             ]
             if incomplete:
                 raise ApiError(
@@ -1823,7 +1948,7 @@ def bridge_complete_session(session_id):
 
             try:
                 for item in session.get("objects", {}).values():
-                    if item["status"] in {"published", "duplicate"}:
+                    if item["status"] in {"published", "duplicate", "deleted"}:
                         continue
                     digest = item.get("digest")
                     if not digest:

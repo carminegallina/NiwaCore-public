@@ -37,6 +37,10 @@ camera is still attached.
 - if an SD-card import holds the ingest lock, publication is deferred: the
   verified copy waits in staging and goes out with the next upload or at
   session completion
+- media deleted in NIWA Review are never imported again: the service reads
+  `deleted_paths` from `data/review_trash.json`, written only by Review. The
+  bridge skips such objects at preflight, before any byte is sent, and both
+  bridge and SD import also catch the same content under a new name
 - global SHA-256 deduplication is authoritative at publication time
 - the quick fingerprint can skip only the same previously indexed source
   object; new source objects always reach full server-side SHA-256 verification

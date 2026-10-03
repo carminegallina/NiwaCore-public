@@ -1,6 +1,7 @@
 from pathlib import Path
 from tempfile import TemporaryDirectory
 import importlib.util
+import json
 import os
 import time
 import unittest
@@ -35,6 +36,7 @@ class NiwaImportTests(unittest.TestCase):
             "CONFIG_FILE": niwa_import.CONFIG_FILE,
             "JOBS_FILE": niwa_import.JOBS_FILE,
             "HASHES_FILE": niwa_import.HASHES_FILE,
+            "REVIEW_TRASH_FILE": niwa_import.REVIEW_TRASH_FILE,
             "BRIDGE_SESSIONS_FILE": niwa_import.BRIDGE_SESSIONS_FILE,
             "BRIDGE_TOKEN_FILE": niwa_import.BRIDGE_TOKEN_FILE,
             "BRIDGE_TOKEN": niwa_import.BRIDGE_TOKEN,
@@ -54,6 +56,7 @@ class NiwaImportTests(unittest.TestCase):
         niwa_import.CONFIG_FILE = self.data / "import_sources.json"
         niwa_import.JOBS_FILE = self.data / "import_jobs.json"
         niwa_import.HASHES_FILE = self.data / "import_hashes.json"
+        niwa_import.REVIEW_TRASH_FILE = self.data / "review_trash.json"
         niwa_import.BRIDGE_SESSIONS_FILE = self.data / "bridge_sessions.json"
         niwa_import.BRIDGE_TOKEN_FILE = self.data / "bridge_token"
         niwa_import.BRIDGE_TOKEN = ""
@@ -73,6 +76,16 @@ class NiwaImportTests(unittest.TestCase):
             "device": "/dev/sdz1",
             "label": "TESTCARD",
         }
+
+    def mark_deleted_in_review(self, *paths):
+        # What NIWA Review writes when the user moves media to its trash.
+        niwa_import.REVIEW_TRASH_FILE.write_text(json.dumps({
+            "version": 1,
+            "items": {},
+            "deleted_paths": [
+                path.relative_to(self.storage).as_posix() for path in paths
+            ],
+        }), encoding="utf-8")
 
     def write_source(self, relative, content):
         path = self.source / relative
@@ -119,6 +132,27 @@ class NiwaImportTests(unittest.TestCase):
         self.assertEqual(jobs[0]["bytes_copied"], 0)
         self.assertEqual(calls, [])
         self.assertEqual(len(list((self.storage / "photo").rglob("*.NEF"))), 1)
+
+    def test_card_import_never_brings_back_files_deleted_in_review(self):
+        self.write_source("DCIM/100NZ6_2/DSC_0007.NEF", b"raw-seven")
+        niwa_import.run_import(self.device(), "camera", "test")
+        published = list((self.storage / "photo").rglob("DSC_0007.NEF"))
+        self.assertEqual(len(published), 1)
+        published[0].unlink()
+        self.mark_deleted_in_review(published[0])
+        # The same picture again under a new name: caught by content, not name.
+        self.write_source("DCIM/100NZ6_2/DSC_0008.NEF", b"raw-seven")
+
+        niwa_import.run_import(self.device(), "camera", "test")
+
+        job = niwa_import.load_jobs()["jobs"][0]
+        self.assertEqual(job["status"], "completed")
+        self.assertEqual(job["deleted_files"], 2)
+        self.assertEqual(job["published_files"], 0)
+        # DSC_0007 is recognized before copying; only the renamed file is read.
+        self.assertEqual(job["bytes_copied"], len(b"raw-seven"))
+        self.assertIn("non reimportati", job["message"])
+        self.assertEqual(list((self.storage / "photo").rglob("*.NEF")), [])
 
     def test_repeated_import_recopies_when_cached_destination_was_corrupted(self):
         relative = Path("DCIM/100NZ6_2/DSC_0002.NEF")
@@ -562,6 +596,60 @@ class NiwaImportTests(unittest.TestCase):
         self.assertFalse(completed["session"]["review_rebuild"])
         self.assertEqual(rebuild_calls, [])
         self.assertEqual(len(list((self.storage / "photo").rglob("*.JPG"))), 1)
+
+    def test_bridge_never_resends_a_photo_deleted_in_review(self):
+        content = b"deleted-photo" * 9000
+        sample = self.root / "gone.NEF"
+        sample.write_bytes(content)
+        quick_hash = niwa_import.quick_fingerprint(sample)["quick_hash"]
+        digest = niwa_import.sha256_file(sample)
+
+        def upload(session_id, object_id, source_key):
+            preflight = niwa_import.bridge_preflight(session_id, {
+                "object_id": object_id,
+                "source_key": source_key,
+                "filename": f"DSC_{object_id}.NEF",
+                "size": len(content),
+                "quick_hash": quick_hash,
+            })
+            if preflight["action"] == "skip":
+                return preflight
+            niwa_import.bridge_receive_chunk(
+                preflight["upload_id"],
+                0,
+                len(content) - 1,
+                len(content),
+                content,
+            )
+            return niwa_import.bridge_complete_upload(
+                preflight["upload_id"],
+                {"sha256": digest},
+            )
+
+        first = niwa_import.bridge_create_session({"source_id": "nikon-test"})
+        upload(first["session_id"], "3001", "camera-3001")
+        niwa_import.bridge_complete_session(first["session_id"])
+        published = list((self.storage / "photo").rglob("DSC_3001.NEF"))
+        self.assertEqual(len(published), 1)
+        published[0].unlink()
+        self.mark_deleted_in_review(published[0])
+
+        # Same camera object: skipped at preflight, before a single byte is sent.
+        second = niwa_import.bridge_create_session({"source_id": "nikon-test"})
+        again = upload(second["session_id"], "3002", "camera-3001")
+        self.assertEqual(again["action"], "skip")
+        self.assertEqual(again["reason"], "deleted_by_user")
+        completed = niwa_import.bridge_complete_session(second["session_id"])
+        self.assertEqual(completed["session"]["status"], "completed")
+        self.assertEqual(completed["session"]["deleted_objects"], 1)
+
+        # Same content as a new camera object: uploaded, but never published.
+        third = niwa_import.bridge_create_session({"source_id": "nikon-test"})
+        renumbered = upload(third["session_id"], "3003", "renumbered-3003")
+        self.assertEqual(renumbered["status"], "deleted")
+        completed = niwa_import.bridge_complete_session(third["session_id"])
+        self.assertEqual(completed["session"]["status"], "completed")
+        self.assertEqual(list((self.storage / "photo").rglob("*.NEF")), [])
 
     def test_bridge_rejects_unsafe_filename_and_checks_optional_token(self):
         session = niwa_import.bridge_create_session({"source_id": "nikon-test"})
