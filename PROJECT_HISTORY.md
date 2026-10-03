@@ -485,6 +485,11 @@ service skips them, at bridge preflight so no bandwidth is wasted, and by
 content too. Validated on the Raspberry with a throwaway file: delete, empty
 folder removed, deletion seen by the import service, restore, clean state.
 
+Follow-up the same day: vertical NEF shots showed sideways because the
+embedded preview ExifTool extracts carries no orientation, which lives in the
+NEF itself; the preview now gets the NEF Orientation tag copied over, with no
+re-encoding. The trash also lists media in exactly the gallery order.
+
 Two field findings for events: the camera battery ran flat after about an hour
 of transfer, and the Wi-Fi link, not USB, limits the speed. The hotspot moved
 from the crowded channel 6 to channel 1.

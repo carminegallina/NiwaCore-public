@@ -306,6 +306,11 @@ Trash:
 Current behavior:
 - shows RAW/JPG files from photo
 - extracts embedded RAW previews with ExifTool when available
+- copies the RAW Orientation tag onto each extracted preview, so vertical
+  shots show upright in the grid and the fullscreen viewer; the preview cache
+  key carries RAW_PREVIEW_VERSION, bumped to 2 to regenerate old previews
+- gallery and trash share one order: newest capture time first, file path as
+  tie-break for shots within the same second
 - caches RAW previews server-side
 - generates video thumbnails with ffmpeg when available
 - uses JPEG temporary output names so ffmpeg thumbnails render for imported GoPro MP4 files

@@ -38,6 +38,9 @@ TRASH_LOCK = threading.Lock()
 INDEX_VERSION = 1
 INDEX_SCAN_INTERVAL_SECONDS = 120
 PREVIEW_SCAN_INTERVAL_SECONDS = 20
+# Part of every RAW preview cache key: bump it to regenerate them all.
+# 2: previews carry the RAW orientation, so vertical shots show upright.
+RAW_PREVIEW_VERSION = 2
 PREVIEW_STABLE_SECONDS = 60
 PREVIEW_RETRY_SECONDS = 300
 DEFAULT_PAGE_SIZE = 80
@@ -302,6 +305,12 @@ def filter_kind(items, kind_filter):
     return filtered
 
 
+def media_order(item):
+    """Newest capture first. The path breaks ties, such as a burst shot within
+    one second, so the gallery and the trash list media in the same order."""
+    return item["mtime_ns"], item["relative_path"]
+
+
 def scan_media_filesystem(section, kind_filter="all"):
     config = section_config(section)
     root_path = config["root"]
@@ -319,7 +328,7 @@ def scan_media_filesystem(section, kind_filter="all"):
 
         items.append(item)
 
-    items.sort(key=lambda item: item["mtime"], reverse=True)
+    items.sort(key=media_order, reverse=True)
     return items
 
 
@@ -757,7 +766,18 @@ def trash_public_item(item):
     name = item.get("name", "")
     relative = Path(item.get("relative") or name)
     size = int(item.get("size") or 0)
+    try:
+        # A rename keeps the capture time, so this is the gallery's sort key.
+        mtime_ns = (TRASH_ROOT / str(item.get("id")) / name).stat().st_mtime_ns
+    except OSError:
+        mtime_ns = 0
     return {
+        "relative_path": relative.as_posix(),
+        "mtime_ns": mtime_ns,
+        "mtime_label": time.strftime(
+            "%Y-%m-%d %H:%M",
+            time.localtime(mtime_ns / 1e9),
+        ) if mtime_ns else "",
         "id": item.get("id"),
         "section": item.get("section"),
         "name": name,
@@ -814,7 +834,9 @@ def zip_stream(entries):
 
 def cache_path_for(path, relative):
     stat = path.stat()
-    key = f"{relative}|{stat.st_mtime_ns}|{stat.st_size}".encode("utf-8")
+    key = (
+        f"v{RAW_PREVIEW_VERSION}|{relative}|{stat.st_mtime_ns}|{stat.st_size}"
+    ).encode("utf-8")
     digest = hashlib.sha1(key).hexdigest()
     return CACHE_ROOT / f"{digest}.jpg"
 
@@ -1062,6 +1084,25 @@ def placeholder_svg(title, message):
     return Response(svg, mimetype="image/svg+xml")
 
 
+def copy_orientation(raw_path, preview_path):
+    """Embedded RAW previews come out unrotated: the rotation is stored in the
+    RAW's own EXIF. Copy the tag over and browsers turn vertical shots upright,
+    without re-encoding a single pixel."""
+    try:
+        subprocess.run(
+            [
+                "exiftool", "-q", "-overwrite_original",
+                "-TagsFromFile", str(raw_path), "-Orientation", str(preview_path),
+            ],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            timeout=60,
+            check=False,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        pass  # an unrotated preview still beats no preview
+
+
 def extract_raw_preview(path, relative):
     CACHE_ROOT.mkdir(parents=True, exist_ok=True)
     cache_path = cache_path_for(path, relative)
@@ -1087,6 +1128,7 @@ def extract_raw_preview(path, relative):
         if result.stdout:
             temp_path.write_bytes(result.stdout)
             if temp_path.stat().st_size > 0:
+                copy_orientation(path, temp_path)
                 temp_path.replace(cache_path)
                 return cache_path
 
@@ -1876,7 +1918,8 @@ function trashCard(item){
         <img class="thumb" loading="lazy" src="${item.preview_url}" alt="">
         <div class="info">
             <div class="name">${item.name}</div>
-            <div class="meta">${item.size_label} - eliminato ${item.deleted_at}</div>
+            <div class="meta">${item.size_label} - ${item.mtime_label}</div>
+            <div class="meta">Eliminato ${item.deleted_at}</div>
             <div class="meta">${item.folder}</div>
             <span class="badge">${item.extension}</span>
         </div>
@@ -2198,7 +2241,7 @@ def api_media_download(section):
 @app.route("/api/trash")
 def api_trash():
     items = [trash_public_item(item) for item in load_trash()["items"].values()]
-    items.sort(key=lambda item: item.get("deleted_at") or "", reverse=True)
+    items.sort(key=media_order, reverse=True)
     total = sum(item["size"] for item in items)
     return jsonify({
         "items": items,

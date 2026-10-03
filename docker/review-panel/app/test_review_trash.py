@@ -3,6 +3,7 @@ from tempfile import TemporaryDirectory
 import base64
 import io
 import json
+import os
 import unittest
 import zipfile
 
@@ -91,6 +92,39 @@ class ReviewTrashTests(unittest.TestCase):
         listing = self.client.get("/api/trash").get_json()
         self.assertEqual(listing["count"], 2)
         self.assertEqual({item["folder"] for item in listing["items"]}, {"photo/imports/day1"})
+
+    def test_trash_lists_media_in_the_same_order_as_the_gallery(self):
+        (self.photo / "imports/day2/DSC_4.JPG").write_bytes(b"jpeg-four")
+        # Capture times out of creation order, plus a burst within one second.
+        captured = {
+            "imports/day1/DSC_1.NEF": 1_700_000_300,
+            "imports/day1/DSC_2.NEF": 1_700_000_100,
+            "imports/day2/DSC_3.JPG": 1_700_000_200,
+            "imports/day2/DSC_4.JPG": 1_700_000_200,
+        }
+        for relative, stamp in captured.items():
+            os.utime(self.photo / relative, (stamp, stamp))
+        review.rebuild_review_index()
+        gallery = [
+            item["relative_path"]
+            for item in self.client.get("/api/media/photo").get_json()["items"]
+        ]
+        self.assertEqual(gallery, [
+            "imports/day1/DSC_1.NEF",
+            "imports/day2/DSC_4.JPG",
+            "imports/day2/DSC_3.JPG",
+            "imports/day1/DSC_2.NEF",
+        ])
+
+        # Deleted in two batches, in an order unrelated to the gallery.
+        self.trash("imports/day2/DSC_3.JPG", "imports/day1/DSC_2.NEF")
+        self.trash("imports/day1/DSC_1.NEF", "imports/day2/DSC_4.JPG")
+
+        trash = [
+            item["relative_path"]
+            for item in self.client.get("/api/trash").get_json()["items"]
+        ]
+        self.assertEqual(trash, gallery)
 
     def test_keeps_a_folder_that_still_holds_other_files(self):
         (self.photo / "imports" / "day1" / "notes.txt").write_text("keep me")
