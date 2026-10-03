@@ -490,6 +490,10 @@ embedded preview ExifTool extracts carries no orientation, which lives in the
 NEF itself; the preview now gets the NEF Orientation tag copied over, with no
 re-encoding. The trash also lists media in exactly the gallery order.
 
+Upload speed, same day: moving the hotspot from channel 6 to channel 1
+doubled it, overlapping camera reads with Wi-Fi sends and 2 MB chunks did the
+rest, from about 223 to about 850 KB/s. USB full speed caps it near 1 MB/s.
+
 Two field findings for events: the camera battery ran flat after about an hour
 of transfer, and the Wi-Fi link, not USB, limits the speed. The hotspot moved
 from the crowded channel 6 to channel 1.

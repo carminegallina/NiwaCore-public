@@ -187,6 +187,35 @@ outside Git and can be read only from a loopback request on the Raspberry:
 curl -s http://127.0.0.1:5057/api/bridge/v1/provision/token
 ```
 
+### Upload throughput
+
+Each chunk is read from the camera, then sent to the Raspberry. Since firmware
+1.1.0 the two halves overlap: a dedicated task uploads chunk N while the PTP
+worker reads chunk N+1 into a second buffer. At most one chunk is in flight, so
+the server still receives offsets in order, and a buffer is reused only after
+its upload is confirmed. If that task cannot start, the bridge falls back to
+the old sequential upload. Chunks are 2 MB since 1.1.1; the server can lower
+that through the preflight `chunk_size`.
+
+Every `[UPLOAD]` line reports `usb`, `wifi` and `cycle` milliseconds; `cycle`
+is the real time per chunk. Measured on 2026-10-03:
+
+| Setup | Speed |
+|---|---|
+| hotspot channel 6, sequential, 512 KB chunks | about 223 KB/s |
+| channel 1, sequential, 512 KB chunks | about 456 KB/s |
+| channel 1, overlapped, 512 KB chunks (1.1.0) | about 748 KB/s |
+| channel 1, overlapped, 2 MB chunks (1.1.1) | about 835-860 KB/s |
+
+That is a 46 MB NEF published every 60 s or so, per-file overhead included.
+
+What is left: full-speed USB reads the camera at about 1 MB/s, the ceiling of
+the whole chain. Wi-Fi sends at about 870 KB/s, held back by the TCP send
+buffer compiled into Arduino-ESP32 3.3.11 (`CONFIG_LWIP_TCP_SND_BUF_DEFAULT=5744`,
+four segments in flight): at 6-7 ms of Wi-Fi latency that alone caps a
+connection near 820-950 KB/s. Raising it means rebuilding the Arduino core
+libraries, for at most about 15% more before USB becomes the limit.
+
 ### USB host fixed and physically validated, 2026-10-03
 
 A software cause was identified before replacing the HW-678 board. The installed

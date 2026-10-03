@@ -45,7 +45,7 @@
 #include "mbedtls/sha256.h"
 #include "usb/usb_host.h"
 
-static constexpr char FIRMWARE_VERSION[] = "1.0.2";
+static constexpr char FIRMWARE_VERSION[] = "1.1.1";
 static constexpr char DEFAULT_WIFI_SSID[] = "NIWA-AP";
 static constexpr char DEFAULT_SERVER_URL[] =
   "http://10.42.0.1:5057/api/bridge/v1";
@@ -68,7 +68,9 @@ static constexpr size_t USB_BULK_BUFFER_SIZE = 16 * 1024;
 static constexpr size_t MAX_METADATA_BYTES = 256 * 1024;
 static constexpr size_t MAX_OBJECT_HANDLES = 16384;
 static constexpr size_t QUICK_SAMPLE_SIZE = 64 * 1024;
-static constexpr size_t UPLOAD_CHUNK_SIZE = 512 * 1024;
+// Upper bound; the server's preflight chunk_size can lower it. Two buffers of
+// this size live in PSRAM while camera reads and uploads overlap.
+static constexpr size_t UPLOAD_CHUNK_SIZE = 2 * 1024 * 1024;
 static constexpr size_t MAX_SESSION_OBJECTS = 50;
 static constexpr uint32_t SCAN_INTERVAL_MS = 12000;
 static constexpr uint32_t WIFI_TIMEOUT_MS = 25000;
@@ -135,6 +137,21 @@ static volatile bool gForceRescan = false;
 static usb_host_client_handle_t gClient = nullptr;
 static usb_device_handle_t gDevice = nullptr;
 static TaskHandle_t gWorkerTask = nullptr;
+
+// One chunk travels over Wi-Fi while the next is read from the camera.
+struct ChunkSend {
+  const String *uploadId = nullptr;
+  uint32_t start = 0;
+  uint32_t total = 0;
+  const std::vector<uint8_t> *chunk = nullptr;
+  uint32_t nextOffset = 0;
+  uint32_t readMs = 0;
+  uint32_t sendMs = 0;
+  bool ok = false;
+};
+static QueueHandle_t gChunkQueue = nullptr;
+static SemaphoreHandle_t gChunkDone = nullptr;
+static bool gPipelineReady = false;
 static volatile int gPendingDeviceAddress = -1;
 static volatile bool gDeviceGone = false;
 static volatile bool gWorkerBusy = false;
@@ -1368,6 +1385,24 @@ static bool completeUpload(const String &uploadId,
   return true;
 }
 
+static void runChunkSend(ChunkSend &job) {
+  const uint32_t started = millis();
+  job.ok = putChunk(*job.uploadId, job.start, job.total,
+                    *job.chunk, job.nextOffset);
+  job.sendMs = millis() - started;
+}
+
+static void chunkSenderTask(void *argument) {
+  (void)argument;
+  ChunkSend *job = nullptr;
+  while (true) {
+    if (xQueueReceive(gChunkQueue, &job, portMAX_DELAY) == pdTRUE) {
+      runChunkSend(*job);
+      xSemaphoreGive(gChunkDone);
+    }
+  }
+}
+
 static bool uploadObject(const ObjectInfo &object,
                          const PreflightResult &preflight) {
   if (preflight.skip) return true;
@@ -1386,21 +1421,59 @@ static bool uploadObject(const ObjectInfo &object,
     Serial.println(F("[HASH] Resuming after offset 0: server SHA-256 is authoritative."));
   }
 
-  std::vector<uint8_t> chunk;
+  // Two buffers: the camera fills one while the other is on the air. At most
+  // one chunk is in flight, so the server still receives offsets in order, and
+  // a buffer is reused only after its upload is confirmed.
+  std::vector<uint8_t> buffers[2];
+  uint8_t filling = 0;
+  ChunkSend job;
+  bool inFlight = false;
+  uint32_t lastDone = millis();
+  uint32_t readOffset = offset;
+
+  // Waits for the chunk in flight and checks the server took it all. Must run
+  // before returning: the sender task is still reading that buffer.
+  auto finishInFlight = [&]() -> bool {
+    if (!inFlight) return true;
+    if (gPipelineReady) xSemaphoreTake(gChunkDone, portMAX_DELAY);
+    inFlight = false;
+    const uint32_t expected =
+      job.start + static_cast<uint32_t>(job.chunk->size());
+    if (!job.ok || job.nextOffset != expected) return false;
+    offset = expected;
+    const uint32_t now = millis();
+    const unsigned percent =
+      object.size ? static_cast<unsigned>(
+        (static_cast<uint64_t>(offset) * 100ULL) / object.size
+      ) : 100;
+    // usb and wifi overlap now; cycle is the real time per chunk.
+    Serial.printf("[UPLOAD] %s: %u%% (%lu/%lu), usb %lu ms, wifi %lu ms, "
+                  "cycle %lu ms.\n",
+                  object.filename.c_str(), percent,
+                  static_cast<unsigned long>(offset),
+                  static_cast<unsigned long>(object.size),
+                  static_cast<unsigned long>(job.readMs),
+                  static_cast<unsigned long>(job.sendMs),
+                  static_cast<unsigned long>(now - lastDone));
+    lastDone = now;
+    return true;
+  };
+
   bool success = true;
-  while (offset < object.size && !gDeviceGone) {
+  while (readOffset < object.size && !gDeviceGone) {
     const uint32_t requested =
-      min(preflight.chunkSize, object.size - offset);
-    // Per-chunk timings show whether the camera or the Wi-Fi is the bottleneck.
+      min(preflight.chunkSize, object.size - readOffset);
+    std::vector<uint8_t> &chunk = buffers[filling];
     const uint32_t readStarted = millis();
-    if (!getPartialObject(object.handle, offset, requested, chunk) ||
+    if (!getPartialObject(object.handle, readOffset, requested, chunk) ||
         chunk.empty() || chunk.size() > requested) {
       Serial.printf("[PTP] Read failed for %s at %lu.\n",
                     object.filename.c_str(),
-                    static_cast<unsigned long>(offset));
+                    static_cast<unsigned long>(readOffset));
       success = false;
       break;
     }
+    const uint32_t readMs = millis() - readStarted;
 
     // Hash camera bytes once. HTTP retries reuse this buffer and must never
     // feed the same chunk into SHA-256 twice.
@@ -1408,28 +1481,27 @@ static bool uploadObject(const ObjectInfo &object,
       mbedtls_sha256_update(&hashContext, chunk.data(), chunk.size());
     }
 
-    const uint32_t readMs = millis() - readStarted;
-    uint32_t nextOffset = offset;
-    const uint32_t sendStarted = millis();
-    if (!putChunk(preflight.uploadId, offset, object.size,
-                  chunk, nextOffset) ||
-        nextOffset != offset + chunk.size()) {
+    if (!finishInFlight()) {
       success = false;
       break;
     }
-    const uint32_t sendMs = millis() - sendStarted;
-    offset = nextOffset;
-    const unsigned percent =
-      object.size ? static_cast<unsigned>(
-        (static_cast<uint64_t>(offset) * 100ULL) / object.size
-      ) : 100;
-    Serial.printf("[UPLOAD] %s: %u%% (%lu/%lu), usb %lu ms, wifi %lu ms.\n",
-                  object.filename.c_str(), percent,
-                  static_cast<unsigned long>(offset),
-                  static_cast<unsigned long>(object.size),
-                  static_cast<unsigned long>(readMs),
-                  static_cast<unsigned long>(sendMs));
+    job = ChunkSend();
+    job.uploadId = &preflight.uploadId;
+    job.start = readOffset;
+    job.total = object.size;
+    job.chunk = &chunk;
+    job.readMs = readMs;
+    inFlight = true;
+    if (gPipelineReady) {
+      ChunkSend *queued = &job;
+      xQueueSend(gChunkQueue, &queued, portMAX_DELAY);
+    } else {
+      runChunkSend(job);  // no sender task: plain sequential upload
+    }
+    readOffset += static_cast<uint32_t>(chunk.size());
+    filling ^= 1;
   }
+  if (!finishInFlight()) success = false;
 
   String fullHash;
   if (clientHashAvailable) {
@@ -1868,6 +1940,14 @@ void setup() {
   }
 
   Serial.println(F("[USB] Allow-all enumeration filter installed."));
+  gChunkQueue = xQueueCreate(1, sizeof(ChunkSend *));
+  gChunkDone = xSemaphoreCreateBinary();
+  gPipelineReady =
+    gChunkQueue != nullptr && gChunkDone != nullptr &&
+    xTaskCreatePinnedToCore(chunkSenderTask, "niwa_chunk_sender", 12288,
+                            nullptr, 3, nullptr, tskNO_AFFINITY) == pdPASS;
+  Serial.printf("[UPLOAD] Parallel camera read and Wi-Fi send: %s.\n",
+                gPipelineReady ? "OK" : "OFF, sequential");
   BaseType_t created = xTaskCreatePinnedToCore(
     hostLibraryTask, "niwa_usb_library", 4096,
     nullptr, 4, nullptr, 0

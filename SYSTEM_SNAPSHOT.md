@@ -752,8 +752,11 @@ Validation status as of 2026-10-03:
   opens and NEF files arrive verified by SHA-256
 - each verified upload is published to `photo/imports` at once and the Review
   index is rebuilt in the background; the session no longer has to close
-- measured per 512 KB chunk: USB about 520 ms, steady (about 1 MB/s, the
-  full-speed USB ceiling); Wi-Fi 180 to 3170 ms, the real bottleneck
+- upload speed on 2026-10-03: about 223 KB/s on hotspot channel 6 with
+  sequential 512 KB chunks; about 835-860 KB/s with firmware 1.1.1 on channel
+  1, camera reads overlapping Wi-Fi sends and 2 MB chunks (server default
+  `NIWA_BRIDGE_MAX_CHUNK_SIZE` raised to match). A 46 MB NEF every ~60 s.
+  Full-speed USB caps the chain near 1 MB/s; see `firmware/README.md`
 - the camera battery ran flat after about an hour of transfer: long transfers
   need the EH-5d + EP-5B mains adapter or spare batteries
 - bench setup: right COM port for PC serial/power, left USB port for passive

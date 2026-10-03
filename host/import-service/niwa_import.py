@@ -30,7 +30,8 @@ BRIDGE_STAGING_ROOT = STORAGE_ROOT / ".niwa_bridge_staging"
 STAGING_RETENTION_SECONDS = int(os.environ.get("NIWA_IMPORT_STAGING_RETENTION_SECONDS", str(24 * 3600)))
 STAGING_CLEANUP_INTERVAL_SECONDS = int(os.environ.get("NIWA_IMPORT_STAGING_CLEANUP_INTERVAL_SECONDS", str(3600)))
 BRIDGE_MAX_FILE_SIZE = int(os.environ.get("NIWA_BRIDGE_MAX_FILE_SIZE", str(2 * 1024 * 1024 * 1024)))
-BRIDGE_MAX_CHUNK_SIZE = int(os.environ.get("NIWA_BRIDGE_MAX_CHUNK_SIZE", str(512 * 1024)))
+# 2 MB: fewer requests, connections and fsyncs per photo over the slow Wi-Fi.
+BRIDGE_MAX_CHUNK_SIZE = int(os.environ.get("NIWA_BRIDGE_MAX_CHUNK_SIZE", str(2 * 1024 * 1024)))
 BRIDGE_STAGING_RETENTION_SECONDS = int(
     os.environ.get("NIWA_BRIDGE_STAGING_RETENTION_SECONDS", str(7 * 24 * 3600))
 )
