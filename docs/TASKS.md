@@ -13,6 +13,22 @@
 - [x] Verificare Companion Panel dal nuovo percorso con `python -m py_compile`.
 - [ ] Verificare firmware su hardware dal nuovo percorso.
 
+## Evento 2026-10-08: hotspot e bridge
+
+- [ ] Comando ristretto `niwa-admin hotspot-channel 1|6|11` per cambiare il
+      canale dell'hotspot senza password. Accetta solo 1, 6 e 11, gli unici
+      canali a 2,4 GHz che non si sovrappongono; si installa una volta con
+      `sudo`, come gli altri comandi del wrapper.
+- [ ] Pulsante nel pannello NIWA System per scegliere il canale dal tablet,
+      basato sul comando sopra. Il Wi-Fi cade per qualche secondo e tablet ed
+      ESP32 si ricollegano da soli: la pagina deve avvisarlo prima.
+- [ ] Sul posto: scegliere fra 1, 6 e 11 il canale con meno reti o con reti
+      piu' deboli, per esempio con un'app tipo WiFi Analyzer. A casa passare dal
+      canale 6 affollato al canale 1 ha raddoppiato la velocita' del bridge.
+- [ ] Alimentare la camera nei trasferimenti lunghi: alimentatore da rete
+      EH-5d + EP-5B o batterie di scorta cariche. Una batteria e' durata circa
+      un'ora di trasferimento.
+
 ## Sicurezza
 
 - [ ] Ricontrollare file sensibili prima di ogni commit.

@@ -141,11 +141,16 @@ startup version diagnostics. It was flashed on COM4 with NVS preserved, and a
 Kingston flash drive (`0951:1666`) enumerated successfully on 2026-10-03. This
 confirms HW-678 USB host operation and supersedes the hardware-failure diagnosis.
 
-Next checks:
-- verify Nikon USB enumeration and PTP session through the existing passive
+Checks:
+- done 2026-10-03: Nikon USB enumeration and PTP session through the passive
   OTG adapter and A-to-C cable, with both board bridges closed
-- verify a real NEF/JPG/JPEG upload to NIWA Import and visibility in NIWA Review
-- verify duplicate skipping, reconnect and a new shot while attached
+- done 2026-10-03: real NEF uploads to NIWA Import, published one by one and
+  visible in NIWA Review; resume after the camera battery ran flat
+- done 2026-10-03: upload speed from about 223 to about 850 KB/s (hotspot
+  channel 1, overlapped camera reads and Wi-Fi sends, 2 MB chunks)
+- pending: a new shot taken while the camera is attached
+- pending: hotspot channel switch from the tablet and camera power for long
+  transfers, see `docs/TASKS.md`
 - keep the existing hardware and avoid a direct Nikon-to-Raspberry connection;
   assess event readiness only after those checks pass
 
