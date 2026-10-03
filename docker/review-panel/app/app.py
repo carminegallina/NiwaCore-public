@@ -6,10 +6,16 @@ import html
 import json
 import mimetypes
 import os
+import re
+import shutil
 import subprocess
 import threading
 import time
+import uuid
 import xml.etree.ElementTree as ET
+import zipfile
+
+from werkzeug.exceptions import NotFound
 
 app = Flask(__name__)
 
@@ -22,6 +28,12 @@ VIDEO_CACHE_ROOT = Path("/storage/.niwa_cache/review_video_thumbs")
 PREVIEW_STATE_FILE = CACHE_ROOT / "preview_state.json"
 DATA_ROOT = Path("/data")
 REVIEW_INDEX_FILE = DATA_ROOT / "review_index.json"
+STORAGE_ROOT = Path("/storage")
+TRASH_ROOT = STORAGE_ROOT / ".niwa_trash"
+# NIWA Import reads deleted_paths from here so deleted media never come back.
+TRASH_FILE = DATA_ROOT / "review_trash.json"
+TRASH_ID_PATTERN = re.compile("[0-9a-f]{32}")
+TRASH_LOCK = threading.Lock()
 
 INDEX_VERSION = 1
 INDEX_SCAN_INTERVAL_SECONDS = 120
@@ -535,6 +547,271 @@ def scan_photos():
     return scan_media("photo")
 
 
+def load_trash():
+    try:
+        payload = json.loads(TRASH_FILE.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        payload = {}
+    if not isinstance(payload, dict):
+        payload = {}
+    items = payload.get("items")
+    deleted = payload.get("deleted_paths")
+    return {
+        "version": 1,
+        "items": items if isinstance(items, dict) else {},
+        "deleted_paths": [
+            path for path in deleted if isinstance(path, str)
+        ] if isinstance(deleted, list) else [],
+    }
+
+
+def save_trash(trash):
+    TRASH_FILE.parent.mkdir(parents=True, exist_ok=True)
+    temporary = TRASH_FILE.with_name(TRASH_FILE.name + ".tmp")
+    temporary.write_text(
+        json.dumps(trash, indent=2, sort_keys=True),
+        encoding="utf-8",
+    )
+    os.replace(temporary, TRASH_FILE)
+
+
+def storage_relative(section, relative):
+    """Path as NIWA Import records it under the SSD root, e.g. photo/imports/..."""
+    root = section_config(section)["root"]
+    return (root.relative_to(STORAGE_ROOT) / relative).as_posix()
+
+
+def safe_relative(value):
+    relative = Path(str(value))
+    if not relative.parts or relative.is_absolute() or ".." in relative.parts:
+        return None
+    return relative
+
+
+def plain_name(value):
+    name = str(value or "")
+    return name if name and Path(name).name == name else None
+
+
+def remove_empty_folders(folder, root):
+    """Remove folders left empty, walking up to the section root, which stays."""
+    root = root.resolve()
+    folder = folder.resolve()
+    while folder != root and root in folder.parents:
+        try:
+            folder.rmdir()  # fails, and stops the walk, unless really empty
+        except OSError:
+            return
+        folder = folder.parent
+
+
+def free_restore_path(target):
+    """The original path, or name-1.ext, name-2.ext... if something took it."""
+    candidate = target
+    counter = 1
+    while candidate.exists():
+        candidate = target.with_name(f"{target.stem}-{counter}{target.suffix}")
+        counter += 1
+    return candidate
+
+
+def refresh_index_quietly():
+    try:
+        rebuild_review_index()
+    except Exception:
+        pass  # the index worker rebuilds again on its own schedule
+
+
+def trash_media(section, file_ids):
+    config = section_config(section)
+    root = config["root"]
+    moved = 0
+    missing = 0
+    deleted_at = time.strftime("%Y-%m-%d %H:%M:%S")
+    # ponytail: the trash list is saved once per batch, to spare the SD card.
+    # A crash mid-batch leaves moved files safe in .niwa_trash but unlisted.
+    with TRASH_LOCK:
+        trash = load_trash()
+        deleted = set(trash["deleted_paths"])
+        for file_id in dict.fromkeys(file_ids):
+            try:
+                path, relative = resolve_media(root, file_id)
+            except NotFound:
+                missing += 1
+                continue
+            if path.suffix.lower() not in config["extensions"]:
+                continue
+            size = path.stat().st_size
+            trash_id = uuid.uuid4().hex
+            folder = TRASH_ROOT / trash_id
+            folder.mkdir(parents=True)
+            sidecar = xmp_path_for(path)
+            os.replace(path, folder / path.name)
+            sidecar_name = None
+            if sidecar.is_file():
+                os.replace(sidecar, folder / sidecar.name)
+                sidecar_name = sidecar.name
+            trash["items"][trash_id] = {
+                "id": trash_id,
+                "section": section,
+                "relative": relative.as_posix(),
+                "name": path.name,
+                "sidecar": sidecar_name,
+                "size": size,
+                "deleted_at": deleted_at,
+            }
+            deleted.add(storage_relative(section, relative))
+            remove_empty_folders(path.parent, root)
+            moved += 1
+        trash["deleted_paths"] = sorted(deleted)
+        save_trash(trash)
+    if moved:
+        refresh_index_quietly()
+    return {"moved": moved, "missing": missing}
+
+
+def restore_trash(trash_ids=None):
+    restored = 0
+    errors = []
+    with TRASH_LOCK:
+        trash = load_trash()
+        deleted = set(trash["deleted_paths"])
+        if trash_ids is None:
+            wanted = list(trash["items"])
+        else:
+            wanted = [
+                trash_id for trash_id in dict.fromkeys(trash_ids)
+                if trash_id in trash["items"]
+            ]
+        for trash_id in wanted:
+            item = trash["items"][trash_id]
+            config = MEDIA_SECTIONS.get(item.get("section"))
+            relative = safe_relative(item.get("relative", ""))
+            name = plain_name(item.get("name"))
+            stored = TRASH_ROOT / trash_id / (name or "")
+            if (
+                not config
+                or not relative
+                or not name
+                or not TRASH_ID_PATTERN.fullmatch(trash_id)
+                or not stored.is_file()
+            ):
+                errors.append(f"{name or trash_id}: non ripristinabile")
+                continue
+            target = free_restore_path(config["root"] / relative)
+            target.parent.mkdir(parents=True, exist_ok=True)
+            os.replace(stored, target)
+            sidecar_name = plain_name(item.get("sidecar"))
+            sidecar = TRASH_ROOT / trash_id / (sidecar_name or "")
+            if sidecar_name and sidecar.is_file() and not xmp_path_for(target).exists():
+                os.replace(sidecar, xmp_path_for(target))
+            shutil.rmtree(TRASH_ROOT / trash_id, ignore_errors=True)
+            del trash["items"][trash_id]
+            deleted.discard(storage_relative(item["section"], relative))
+            restored += 1
+        trash["deleted_paths"] = sorted(deleted)
+        save_trash(trash)
+    if restored:
+        refresh_index_quietly()
+    return {"restored": restored, "errors": errors}
+
+
+def empty_trash():
+    with TRASH_LOCK:
+        trash = load_trash()
+        before = dict(trash["items"])
+        # Everything under .niwa_trash goes, leftovers of an interrupted batch too.
+        shutil.rmtree(TRASH_ROOT, ignore_errors=True)
+        # Whatever could not be removed stays listed. deleted_paths are kept on
+        # purpose: emptied media must never be imported again.
+        trash["items"] = {
+            trash_id: item for trash_id, item in before.items()
+            if (TRASH_ROOT / trash_id).exists()
+        }
+        save_trash(trash)
+    removed = [item for trash_id, item in before.items() if trash_id not in trash["items"]]
+    freed = sum(int(item.get("size") or 0) for item in removed)
+    return {"removed": len(removed), "freed": freed, "freed_label": human_size(freed)}
+
+
+def trashed_photo_raws():
+    """Trashed photo RAWs as (path, relative), so their cached previews survive."""
+    pairs = []
+    for trash_id, item in load_trash()["items"].items():
+        name = plain_name(item.get("name"))
+        relative = safe_relative(item.get("relative", ""))
+        if (
+            item.get("section") != "photo"
+            or not name
+            or not relative
+            or Path(name).suffix.lower() not in RAW_EXTENSIONS
+        ):
+            continue
+        path = TRASH_ROOT / trash_id / name
+        if path.is_file():
+            pairs.append((path, relative))
+    return pairs
+
+
+def trash_public_item(item):
+    name = item.get("name", "")
+    relative = Path(item.get("relative") or name)
+    size = int(item.get("size") or 0)
+    return {
+        "id": item.get("id"),
+        "section": item.get("section"),
+        "name": name,
+        "folder": (Path(item.get("section") or "") / relative.parent).as_posix(),
+        "kind": media_kind(Path(name)),
+        "extension": Path(name).suffix.upper().lstrip("."),
+        "size": size,
+        "size_label": human_size(size),
+        "deleted_at": item.get("deleted_at"),
+        "preview_url": f"/api/trash/preview/{item.get('id')}",
+    }
+
+
+class ZipSink:
+    """Write-only target that hands zip bytes over to a streaming response."""
+
+    def __init__(self):
+        self.parts = []
+
+    def write(self, data):
+        self.parts.append(bytes(data))
+        return len(data)
+
+    def flush(self):
+        pass
+
+    def take(self):
+        data = b"".join(self.parts)
+        self.parts = []
+        return data
+
+
+def zip_stream(entries):
+    """Stream a stored (uncompressed) zip: RAW and JPG do not shrink anyway, and
+    neither the Raspberry nor the tablet ever holds the whole archive in memory."""
+    sink = ZipSink()
+    with zipfile.ZipFile(sink, "w", compression=zipfile.ZIP_STORED) as archive:
+        for path, arcname in entries:
+            info = zipfile.ZipInfo.from_file(path, arcname)
+            info.compress_type = zipfile.ZIP_STORED
+            with open(path, "rb") as source, archive.open(info, "w") as target:
+                while True:
+                    block = source.read(1024 * 1024)
+                    if not block:
+                        break
+                    target.write(block)
+                    data = sink.take()
+                    if data:
+                        yield data
+    data = sink.take()  # the central directory is written on close
+    if data:
+        yield data
+
+
 def cache_path_for(path, relative):
     stat = path.stat()
     key = f"{relative}|{stat.st_mtime_ns}|{stat.st_size}".encode("utf-8")
@@ -667,8 +944,10 @@ def run_preview_scan():
     state = load_preview_state()
     files_state = state.setdefault("files", {})
     raw_files = list(iter_photo_files(RAW_EXTENSIONS))
-    existing_keys = {state_key(relative) for _path, relative in raw_files}
-    cleanup_orphan_raw_previews(raw_files)
+    # Trashed RAWs keep their cached previews, so the trash view can show them.
+    kept_files = raw_files + trashed_photo_raws()
+    existing_keys = {state_key(relative) for _path, relative in kept_files}
+    cleanup_orphan_raw_previews(kept_files)
 
     for key, entry in list(files_state.items()):
         if key in existing_keys:
@@ -970,6 +1249,14 @@ h1{color:#fff4ec}.subtitle{color:var(--muted)}
 .card,.worker,.empty{background:linear-gradient(180deg,rgba(42,31,29,.94),rgba(18,14,14,.96));border-color:var(--line)}
 .thumb{background:#151112}.badge{background:rgba(64,45,42,.92);border-color:var(--line)}
 .overlay-button,.photo-counter,.rating{background:rgba(28,20,19,.76)}
+.card.selected{outline:3px solid var(--accent-strong);outline-offset:-3px}
+.card.selected::after{content:'';position:absolute;top:8px;left:8px;width:24px;height:24px;border-radius:50%;background:var(--accent-strong);box-shadow:0 0 0 3px rgba(15,13,13,.85)}
+.selection-bar{position:sticky;bottom:10px;z-index:5;display:none;gap:10px;align-items:center;justify-content:space-between;flex-wrap:wrap;margin-top:14px;padding:12px;border-radius:12px;border:1px solid var(--line);background:rgba(28,20,19,.95);box-shadow:0 18px 34px rgba(0,0,0,.4);backdrop-filter:blur(8px)}
+.selection-bar.visible{display:flex}.selection-info{color:var(--soft);font-size:14px}
+.selection-actions{display:flex;gap:8px;flex-wrap:wrap}.small-button.hidden{display:none}
+.small-button.danger,.overlay-button.danger{background:rgba(127,29,29,.88);border-color:rgba(248,113,113,.45)}
+.small-button.danger:hover,.overlay-button.danger:hover{background:rgba(153,27,27,.96)}
+.delete-button{bottom:14px;right:14px}
 @media(max-width:800px){.topbar{display:block}.brand-logo{width:44px;height:44px}.topbar .button{margin-top:10px}.toolbar{grid-template-columns:1fr}.toolbar-actions{display:grid;grid-template-columns:1fr}.modal{padding:6px}.nav-button{width:36px;height:36px;font-size:22px;opacity:.72}.download-button{top:10px;right:10px}.photo-counter{top:10px;left:10px}}
 </style>
 </head>
@@ -990,6 +1277,7 @@ h1{color:#fff4ec}.subtitle{color:var(--muted)}
 <button class="tab" data-section="video" onclick="setSection('video')">Video</button>
 <button class="tab" data-section="gopro" onclick="setSection('gopro')">GoPro</button>
 <button class="tab" data-section="companion" onclick="setSection('companion')">Companion</button>
+<button class="tab" id="trashTab" data-section="trash" onclick="setSection('trash')">Cestino</button>
 </div>
 
 <div class="filters filter-row" id="goproFilters">
@@ -1005,12 +1293,25 @@ h1{color:#fff4ec}.subtitle{color:var(--muted)}
 <div class="worker" id="workerStatus" style="margin-top:10px">Anteprime: controllo stato...</div>
 </div>
 <div class="toolbar-actions">
+<button class="small-button" id="selectButton" onclick="toggleSelectionMode()">Seleziona</button>
 <button class="small-button" id="refreshIndexButton" onclick="refreshIndex()">Aggiorna indice</button>
 </div>
 </div>
 <div class="grid" id="gallery"></div>
 <div class="load-more-wrap hidden" id="loadMoreWrap">
 <button class="small-button load-more" id="loadMoreButton" onclick="loadMoreMedia()">Carica altri</button>
+</div>
+<div class="selection-bar" id="selectionBar">
+<div class="selection-info" id="selectionInfo"></div>
+<div class="selection-actions">
+<button class="small-button" onclick="selectAll()">Seleziona tutto</button>
+<button class="small-button" onclick="clearSelection()">Deseleziona</button>
+<button class="small-button" data-mode="media" onclick="downloadSelection()">Scarica</button>
+<button class="small-button danger" data-mode="media" onclick="trashSelection()">Elimina</button>
+<button class="small-button" data-mode="trash" onclick="restoreSelection()">Ripristina selezionati</button>
+<button class="small-button" data-mode="trash" onclick="restoreAll()">Ripristina tutto</button>
+<button class="small-button danger" data-mode="trash" onclick="emptyTrash()">Svuota cestino</button>
+</div>
 </div>
 
 <div class="modal" id="modal" onclick="closeModal(event)" ontouchstart="startSwipe(event)" ontouchend="endSwipe(event)">
@@ -1021,6 +1322,7 @@ h1{color:#fff4ec}.subtitle{color:var(--muted)}
 <video id="modalVideo" controls playsinline onclick="event.stopPropagation()"></video>
 <button class="overlay-button nav-button nav-next" onclick="showNextPhoto(event)">&rsaquo;</button>
 <a class="overlay-button download-button" id="downloadLink" href="#" onclick="event.stopPropagation()">Scarica originale</a>
+<button class="overlay-button danger delete-button" onclick="trashCurrentPhoto(event)">Elimina</button>
 <div class="rating" id="ratingStars" onclick="event.stopPropagation()"></div>
 </div>
 </div>
@@ -1043,6 +1345,10 @@ const PAGE_SIZE = 80;
 let CURRENT_PAGE = 1;
 let HAS_MORE = false;
 let TOTAL_ITEMS = 0;
+const NL = String.fromCharCode(10);
+let SELECTING = false;
+const SELECTED = new Map();
+let TRASH_ITEMS = [];
 
 const SECTION_LABELS = {
     photo: 'foto',
@@ -1058,6 +1364,13 @@ function setSection(section){
     });
     document.getElementById('goproFilters').classList.toggle('visible', section === 'gopro');
     document.getElementById('workerStatus').style.display = section === 'photo' ? 'block' : 'none';
+    SELECTING = false;
+    SELECTED.clear();
+    renderSelection();
+    if(section === 'trash'){
+        loadTrash();
+        return;
+    }
     loadMedia(true);
 }
 
@@ -1071,8 +1384,9 @@ function setGoProFilter(filter){
 
 function itemCard(item){
     const card = document.createElement('div');
-    card.className = 'card';
-    card.onclick = ()=>openPhoto(item.id);
+    card.className = 'card' + (SELECTED.has(item.id) ? ' selected' : '');
+    card.dataset.id = item.id;
+    card.onclick = ()=> SELECTING ? toggleSelected(item, card) : openPhoto(item.id);
 
     const thumb = item.kind === 'video'
         ? `<img class="thumb video-thumb" loading="lazy" src="${item.preview_url}" alt=""><div class="play-badge">Play</div>`
@@ -1184,7 +1498,7 @@ async function refreshIndex(){
         const data = await res.json();
         if(data.error){ throw new Error(data.error); }
         await loadIndexStatus();
-        await loadMedia(true);
+        await (inTrash() ? loadTrash() : loadMedia(true));
     }catch(e){
         document.getElementById('indexStatus').textContent = 'Errore indice: ' + e.message;
     }finally{
@@ -1371,7 +1685,301 @@ document.addEventListener('keydown', (event)=>{
     }
 });
 
+function humanSize(bytes){
+    const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+    let value = bytes || 0;
+    let index = 0;
+    while(value >= 1024 && index < units.length - 1){
+        value /= 1024;
+        index += 1;
+    }
+    return index === 0 ? `${value} B` : `${value.toFixed(1)} ${units[index]}`;
+}
+
+function inTrash(){
+    return CURRENT_SECTION === 'trash';
+}
+
+function selectionSize(){
+    let total = 0;
+    SELECTED.forEach((size)=>{ total += size; });
+    return total;
+}
+
+function refreshCardSelection(){
+    document.querySelectorAll('#gallery .card').forEach((card)=>{
+        card.classList.toggle('selected', SELECTED.has(card.dataset.id));
+    });
+}
+
+function renderSelection(){
+    const trash = inTrash();
+    document.getElementById('selectionBar').classList.toggle('visible', SELECTING || trash);
+    const selectButton = document.getElementById('selectButton');
+    selectButton.classList.toggle('hidden', trash);
+    selectButton.textContent = SELECTING ? 'Annulla selezione' : 'Seleziona';
+    document.querySelectorAll('#selectionBar [data-mode]').forEach((button)=>{
+        button.classList.toggle('hidden', button.dataset.mode !== (trash ? 'trash' : 'media'));
+    });
+    document.getElementById('selectionInfo').textContent = SELECTED.size
+        ? `${SELECTED.size} selezionati - ${humanSize(selectionSize())}`
+        : (trash ? 'Tocca un file per selezionarlo.' : 'Tocca i file da selezionare.');
+}
+
+function setSelecting(on){
+    SELECTING = on;
+    SELECTED.clear();
+    refreshCardSelection();
+    renderSelection();
+}
+
+function toggleSelectionMode(){
+    setSelecting(!SELECTING);
+}
+
+function toggleSelected(item, card){
+    if(SELECTED.has(item.id)){
+        SELECTED.delete(item.id);
+    }else{
+        SELECTED.set(item.id, item.size || 0);
+    }
+    card.classList.toggle('selected', SELECTED.has(item.id));
+    renderSelection();
+}
+
+function clearSelection(){
+    SELECTED.clear();
+    refreshCardSelection();
+    renderSelection();
+}
+
+async function selectAll(){
+    if(inTrash()){
+        TRASH_ITEMS.forEach((item)=>SELECTED.set(item.id, item.size || 0));
+    }else{
+        let url = `/api/media/${CURRENT_SECTION}/selection`;
+        if(CURRENT_SECTION === 'gopro'){
+            url += `?kind=${encodeURIComponent(GOPRO_FILTER)}`;
+        }
+        try{
+            const res = await fetch(url);
+            const data = await res.json();
+            (data.items || []).forEach((item)=>SELECTED.set(item.id, item.size || 0));
+        }catch(e){
+            alert('Errore selezione: ' + e.message);
+            return;
+        }
+    }
+    refreshCardSelection();
+    renderSelection();
+}
+
+function downloadSelection(){
+    if(!SELECTED.size){
+        return;
+    }
+    // A real form POST lets the browser stream the zip straight to disk.
+    const form = document.createElement('form');
+    form.method = 'POST';
+    form.action = `/api/media/${CURRENT_SECTION}/download`;
+    form.style.display = 'none';
+    SELECTED.forEach((_size, id)=>{
+        const input = document.createElement('input');
+        input.type = 'hidden';
+        input.name = 'ids';
+        input.value = id;
+        form.appendChild(input);
+    });
+    document.body.appendChild(form);
+    form.submit();
+    form.remove();
+}
+
+async function postJson(url, body){
+    const res = await fetch(url, {
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body:JSON.stringify(body)
+    });
+    const data = await res.json().catch(()=>({}));
+    if(!res.ok || data.error){
+        throw new Error(data.error || `HTTP ${res.status}`);
+    }
+    return data;
+}
+
+async function trashSelection(){
+    if(!SELECTED.size){
+        return;
+    }
+    const count = SELECTED.size;
+    const head = count >= TOTAL_ITEMS
+        ? `Spostare TUTTI i ${count} file nel cestino?`
+        : `Spostare ${count} file selezionati nel cestino?`;
+    if(!confirm(head + NL + NL + `${humanSize(selectionSize())}. Potrai ripristinarli dal Cestino.`)){
+        return;
+    }
+    try{
+        const data = await postJson(`/api/media/${CURRENT_SECTION}/trash`, {ids:[...SELECTED.keys()]});
+        setSelecting(false);
+        await loadMedia(true);
+        loadIndexStatus();
+        updateTrashCount();
+        if(data.missing){
+            alert(`${data.moved} file spostati nel cestino. ${data.missing} non trovati: forse erano già stati eliminati.`);
+        }
+    }catch(e){
+        alert('Errore eliminazione: ' + e.message);
+    }
+}
+
+async function trashCurrentPhoto(event){
+    if(event){
+        event.stopPropagation();
+    }
+    const item = PHOTOS[CURRENT_INDEX];
+    if(!item){
+        return;
+    }
+    if(!confirm(`Spostare ${item.name} nel cestino?` + NL + NL + 'Potrai ripristinarlo dal Cestino.')){
+        return;
+    }
+    try{
+        await postJson(`/api/media/${item.section}/trash`, {ids:[item.id]});
+    }catch(e){
+        alert('Errore eliminazione: ' + e.message);
+        return;
+    }
+    PHOTOS.splice(CURRENT_INDEX, 1);
+    TOTAL_ITEMS = Math.max(0, TOTAL_ITEMS - 1);
+    const card = document.querySelector(`#gallery .card[data-id="${item.id}"]`);
+    if(card){
+        card.remove();
+    }
+    updateTrashCount();
+    loadIndexStatus();
+    if(!PHOTOS.length){
+        closeModal();
+        loadMedia(true);
+        return;
+    }
+    CURRENT_INDEX = CURRENT_INDEX % PHOTOS.length;
+    renderCurrentPhoto();
+}
+
+function trashCard(item){
+    const card = document.createElement('div');
+    card.className = 'card' + (SELECTED.has(item.id) ? ' selected' : '');
+    card.dataset.id = item.id;
+    card.onclick = ()=>toggleSelected(item, card);
+    card.innerHTML = `
+        <img class="thumb" loading="lazy" src="${item.preview_url}" alt="">
+        <div class="info">
+            <div class="name">${item.name}</div>
+            <div class="meta">${item.size_label} - eliminato ${item.deleted_at}</div>
+            <div class="meta">${item.folder}</div>
+            <span class="badge">${item.extension}</span>
+        </div>
+    `;
+    return card;
+}
+
+function setTrashCount(count){
+    document.getElementById('trashTab').textContent = count ? `Cestino (${count})` : 'Cestino';
+}
+
+async function updateTrashCount(){
+    try{
+        const res = await fetch('/api/trash');
+        const data = await res.json();
+        setTrashCount(data.count || 0);
+    }catch(e){
+        setTrashCount(0);
+    }
+}
+
+async function loadTrash(){
+    const status = document.getElementById('status');
+    const gallery = document.getElementById('gallery');
+    const requestId = ++LOAD_SEQUENCE;
+    PHOTOS = [];
+    HAS_MORE = false;
+    gallery.innerHTML = '';
+    renderLoadMore();
+    status.textContent = 'Caricamento cestino...';
+    try{
+        const res = await fetch('/api/trash');
+        const data = await res.json();
+        if(requestId !== LOAD_SEQUENCE || !inTrash()){
+            return;
+        }
+        TRASH_ITEMS = data.items || [];
+        TOTAL_ITEMS = TRASH_ITEMS.length;
+        setTrashCount(TRASH_ITEMS.length);
+        status.textContent = TRASH_ITEMS.length
+            ? `${TRASH_ITEMS.length} file nel cestino - ${data.total_size_label}. Lo spazio si libera solo con Svuota cestino.`
+            : 'Il cestino è vuoto.';
+        if(!TRASH_ITEMS.length){
+            gallery.innerHTML = '<div class="empty">Nessun file nel cestino.</div>';
+        }
+        TRASH_ITEMS.forEach((item)=>gallery.appendChild(trashCard(item)));
+        renderSelection();
+    }catch(e){
+        if(requestId === LOAD_SEQUENCE){
+            status.textContent = 'Errore caricamento cestino: ' + e.message;
+        }
+    }
+}
+
+async function restoreFromTrash(body){
+    try{
+        const data = await postJson('/api/trash/restore', body);
+        SELECTED.clear();
+        await loadTrash();
+        loadIndexStatus();
+        if(data.errors && data.errors.length){
+            alert(`${data.restored} file ripristinati.` + NL + data.errors.join(NL));
+        }
+    }catch(e){
+        alert('Errore ripristino: ' + e.message);
+    }
+}
+
+function restoreSelection(){
+    if(SELECTED.size){
+        restoreFromTrash({ids:[...SELECTED.keys()]});
+    }
+}
+
+function restoreAll(){
+    if(TRASH_ITEMS.length){
+        restoreFromTrash({all:true});
+    }
+}
+
+async function emptyTrash(){
+    if(!TRASH_ITEMS.length){
+        return;
+    }
+    const total = TRASH_ITEMS.reduce((sum, item)=>sum + (item.size || 0), 0);
+    const message = 'Svuotare il cestino?' + NL + NL
+        + `${TRASH_ITEMS.length} file (${humanSize(total)}) verranno eliminati definitivamente. `
+        + `L'operazione non si può annullare.`;
+    if(!confirm(message)){
+        return;
+    }
+    try{
+        await postJson('/api/trash/empty', {confirm:true});
+        SELECTED.clear();
+        await loadTrash();
+    }catch(e){
+        alert('Errore svuotamento: ' + e.message);
+    }
+}
+
 loadMedia(true);
+renderSelection();
+updateTrashCount();
 loadIndexStatus();
 loadPreviewStatus();
 setInterval(loadIndexStatus, 15000);
@@ -1533,6 +2141,111 @@ def set_media_rating(section, file_id):
         "rating": final_rating,
         "xmp": str(xmp_path_for(path)),
     })
+
+
+def requested_ids(payload):
+    ids = payload.get("ids") if isinstance(payload, dict) else None
+    if not isinstance(ids, list) or not all(isinstance(value, str) for value in ids):
+        abort(400, "ids deve essere una lista")
+    return ids
+
+
+@app.route("/api/media/<section>/selection")
+def api_media_selection(section):
+    section_config(section)
+    kind_filter = request.args.get("kind", "all")
+    if kind_filter not in {"all", "photo", "video"}:
+        kind_filter = "all"
+    items = scan_media(section, kind_filter)
+    return jsonify({
+        "items": [{"id": item["id"], "size": item.get("size", 0)} for item in items],
+    })
+
+
+@app.route("/api/media/<section>/trash", methods=["POST"])
+def api_media_trash(section):
+    ids = requested_ids(request.get_json(silent=True))
+    return jsonify({"ok": True, **trash_media(section, ids)})
+
+
+@app.route("/api/media/<section>/download", methods=["POST"])
+def api_media_download(section):
+    config = section_config(section)
+    entries = []
+    for file_id in dict.fromkeys(request.form.getlist("ids")):
+        try:
+            path, relative = resolve_media(config["root"], file_id)
+        except NotFound:
+            continue
+        if path.suffix.lower() not in config["extensions"]:
+            continue
+        entries.append((path, relative.as_posix()))
+        sidecar = xmp_path_for(path)
+        if sidecar.is_file():
+            entries.append((sidecar, (relative.parent / sidecar.name).as_posix()))
+
+    if not entries:
+        abort(404, "Nessun file da scaricare")
+
+    name = f"niwa-{section}-{time.strftime('%Y%m%d-%H%M')}.zip"
+    return Response(
+        zip_stream(entries),
+        mimetype="application/zip",
+        headers={"Content-Disposition": f'attachment; filename="{name}"'},
+    )
+
+
+@app.route("/api/trash")
+def api_trash():
+    items = [trash_public_item(item) for item in load_trash()["items"].values()]
+    items.sort(key=lambda item: item.get("deleted_at") or "", reverse=True)
+    total = sum(item["size"] for item in items)
+    return jsonify({
+        "items": items,
+        "count": len(items),
+        "total_size": total,
+        "total_size_label": human_size(total),
+    })
+
+
+@app.route("/api/trash/preview/<trash_id>")
+def api_trash_preview(trash_id):
+    item = load_trash()["items"].get(trash_id)
+    name = plain_name(item.get("name")) if item else None
+    relative = safe_relative(item.get("relative", "")) if item else None
+    if not TRASH_ID_PATTERN.fullmatch(trash_id) or not name or not relative:
+        abort(404)
+    path = TRASH_ROOT / trash_id / name
+    if not path.is_file():
+        abort(404)
+
+    suffix = path.suffix.lower()
+    if suffix in JPEG_EXTENSIONS:
+        return send_file(path)
+    if suffix in RAW_EXTENSIONS:
+        # Same cache key as the live file: a rename keeps size and mtime.
+        if item.get("section") != "photo":
+            relative = Path(item["section"]) / relative
+        preview_path = extract_raw_preview(path, relative)
+        if preview_path:
+            return send_file(preview_path, mimetype="image/jpeg")
+    return placeholder_svg(name, "Nel cestino")
+
+
+@app.route("/api/trash/restore", methods=["POST"])
+def api_trash_restore():
+    payload = request.get_json(silent=True) or {}
+    if payload.get("all") is True:
+        return jsonify({"ok": True, **restore_trash()})
+    return jsonify({"ok": True, **restore_trash(requested_ids(payload))})
+
+
+@app.route("/api/trash/empty", methods=["POST"])
+def api_trash_empty():
+    payload = request.get_json(silent=True) or {}
+    if payload.get("confirm") is not True:
+        abort(400, "Conferma richiesta")
+    return jsonify({"ok": True, **empty_trash()})
 
 
 @app.route("/api/status")

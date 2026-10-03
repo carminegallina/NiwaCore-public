@@ -1,0 +1,151 @@
+from pathlib import Path
+from tempfile import TemporaryDirectory
+import base64
+import io
+import json
+import unittest
+import zipfile
+
+import app as review
+
+
+def file_id(relative):
+    return base64.urlsafe_b64encode(relative.encode("utf-8")).decode("ascii").rstrip("=")
+
+
+class ReviewTrashTests(unittest.TestCase):
+    def setUp(self):
+        self.temporary_directory = TemporaryDirectory()
+        root = Path(self.temporary_directory.name)
+        self.storage = root / "storage"
+        self.data = root / "data"
+        self.photo = self.storage / "photo"
+        self.photo.mkdir(parents=True)
+        self.data.mkdir()
+
+        self.originals = {
+            name: getattr(review, name)
+            for name in (
+                "STORAGE_ROOT", "TRASH_ROOT", "TRASH_FILE", "PHOTO_ROOT",
+                "REVIEW_INDEX_FILE", "CACHE_ROOT", "VIDEO_CACHE_ROOT",
+            )
+        }
+        self.section_roots = {
+            section: config["root"] for section, config in review.MEDIA_SECTIONS.items()
+        }
+        review.STORAGE_ROOT = self.storage
+        review.TRASH_ROOT = self.storage / ".niwa_trash"
+        review.TRASH_FILE = self.data / "review_trash.json"
+        review.PHOTO_ROOT = self.photo
+        review.REVIEW_INDEX_FILE = self.data / "review_index.json"
+        review.CACHE_ROOT = self.storage / ".niwa_cache" / "review_previews"
+        review.VIDEO_CACHE_ROOT = self.storage / ".niwa_cache" / "review_video_thumbs"
+        for section, config in review.MEDIA_SECTIONS.items():
+            config["root"] = self.storage / section
+
+        self.files = {
+            "imports/day1/DSC_1.NEF": b"raw-one",
+            "imports/day1/DSC_1.xmp": b"<x:xmpmeta/>",
+            "imports/day1/DSC_2.NEF": b"raw-two",
+            "imports/day2/DSC_3.JPG": b"jpeg-three",
+        }
+        for relative, content in self.files.items():
+            path = self.photo / relative
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(content)
+        self.client = review.app.test_client()
+
+    def tearDown(self):
+        for name, value in self.originals.items():
+            setattr(review, name, value)
+        for section, root in self.section_roots.items():
+            review.MEDIA_SECTIONS[section]["root"] = root
+        self.temporary_directory.cleanup()
+
+    def trash(self, *relatives):
+        response = self.client.post(
+            "/api/media/photo/trash",
+            json={"ids": [file_id(relative) for relative in relatives]},
+        )
+        self.assertEqual(response.status_code, 200, response.get_data(as_text=True))
+        return response.get_json()
+
+    def deleted_paths(self):
+        return json.loads(review.TRASH_FILE.read_text(encoding="utf-8"))["deleted_paths"]
+
+    def test_trash_moves_media_and_sidecar_then_removes_empty_folders(self):
+        result = self.trash("imports/day1/DSC_1.NEF", "imports/day1/DSC_2.NEF")
+
+        self.assertEqual(result["moved"], 2)
+        # day1 lost every file, sidecar included, so the folder is gone too.
+        self.assertFalse((self.photo / "imports" / "day1").exists())
+        self.assertTrue((self.photo / "imports" / "day2" / "DSC_3.JPG").is_file())
+        self.assertTrue(self.photo.is_dir())
+        trashed = sorted(path.name for path in review.TRASH_ROOT.rglob("*") if path.is_file())
+        self.assertEqual(trashed, ["DSC_1.NEF", "DSC_1.xmp", "DSC_2.NEF"])
+        # Paths as NIWA Import records them, so it never imports them again.
+        self.assertEqual(
+            self.deleted_paths(),
+            ["photo/imports/day1/DSC_1.NEF", "photo/imports/day1/DSC_2.NEF"],
+        )
+        listing = self.client.get("/api/trash").get_json()
+        self.assertEqual(listing["count"], 2)
+        self.assertEqual({item["folder"] for item in listing["items"]}, {"photo/imports/day1"})
+
+    def test_keeps_a_folder_that_still_holds_other_files(self):
+        (self.photo / "imports" / "day1" / "notes.txt").write_text("keep me")
+        self.trash("imports/day1/DSC_1.NEF", "imports/day1/DSC_2.NEF")
+        self.assertTrue((self.photo / "imports" / "day1" / "notes.txt").is_file())
+
+    def test_restore_brings_back_folder_sidecar_and_drops_the_tombstone(self):
+        self.trash("imports/day1/DSC_1.NEF", "imports/day1/DSC_2.NEF")
+        items = {item["name"]: item["id"] for item in self.client.get("/api/trash").get_json()["items"]}
+
+        restored = self.client.post("/api/trash/restore", json={"ids": [items["DSC_1.NEF"]]}).get_json()
+
+        self.assertEqual(restored["restored"], 1)
+        self.assertEqual((self.photo / "imports/day1/DSC_1.NEF").read_bytes(), b"raw-one")
+        self.assertEqual((self.photo / "imports/day1/DSC_1.xmp").read_bytes(), b"<x:xmpmeta/>")
+        self.assertEqual(self.deleted_paths(), ["photo/imports/day1/DSC_2.NEF"])
+
+        everything = self.client.post("/api/trash/restore", json={"all": True}).get_json()
+        self.assertEqual(everything["restored"], 1)
+        self.assertEqual(self.deleted_paths(), [])
+        self.assertEqual(self.client.get("/api/trash").get_json()["count"], 0)
+
+    def test_empty_trash_needs_confirmation_and_keeps_tombstones(self):
+        self.trash("imports/day1/DSC_2.NEF")
+
+        refused = self.client.post("/api/trash/empty", json={})
+        self.assertEqual(refused.status_code, 400)
+        self.assertEqual(self.client.get("/api/trash").get_json()["count"], 1)
+
+        emptied = self.client.post("/api/trash/empty", json={"confirm": True}).get_json()
+        self.assertEqual(emptied["removed"], 1)
+        self.assertFalse(review.TRASH_ROOT.exists())
+        self.assertEqual(self.client.get("/api/trash").get_json()["count"], 0)
+        # Purged for good: still recorded, so the camera cannot bring it back.
+        self.assertEqual(self.deleted_paths(), ["photo/imports/day1/DSC_2.NEF"])
+
+    def test_download_streams_a_zip_with_folders_and_sidecars(self):
+        response = self.client.post(
+            "/api/media/photo/download",
+            data={"ids": [file_id("imports/day1/DSC_1.NEF"), file_id("imports/day2/DSC_3.JPG")]},
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.mimetype, "application/zip")
+        with zipfile.ZipFile(io.BytesIO(response.get_data())) as archive:
+            self.assertEqual(
+                sorted(archive.namelist()),
+                ["imports/day1/DSC_1.NEF", "imports/day1/DSC_1.xmp", "imports/day2/DSC_3.JPG"],
+            )
+            self.assertEqual(archive.read("imports/day2/DSC_3.JPG"), b"jpeg-three")
+
+    def test_rejects_paths_outside_the_library(self):
+        response = self.client.post("/api/media/photo/trash", json={"ids": [file_id("../secret.NEF")]})
+        self.assertEqual(response.status_code, 400)
+        self.assertFalse(review.TRASH_FILE.exists())
+
+
+if __name__ == "__main__":
+    unittest.main()

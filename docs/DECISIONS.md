@@ -16,3 +16,14 @@
 - Repository GitHub privato creato: `https://github.com/carminegallina/NiwaCore`.
 - Push iniziale su `origin/main` completato.
 - Il percorso autorevole per nuove chat Codex/Claude e' `C:\Dev\portfolio\NiwaCore`.
+
+## 2026-10-03
+
+- Le eliminazioni da NIWA Review passano sempre da un cestino sull'SSD
+  (`/mnt/niwa-storage/.niwa_trash`). L'unica cancellazione definitiva e'
+  "Svuota cestino"; nessuna scadenza automatica, per scelta dell'utente.
+- `data/review_trash.json` ha un solo scrittore, NIWA Review. NIWA Import lo
+  legge e basta: niente scritture concorrenti fra container e servizio host.
+- I percorsi eliminati restano registrati anche dopo lo svuotamento, cosi'
+  una foto cancellata non viene mai reimportata da camera o scheda SD.
+- Il bridge pubblica ogni file appena verificato, invece che a fine sessione.

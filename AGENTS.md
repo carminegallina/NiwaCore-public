@@ -142,6 +142,9 @@ Hotspot autostart is configured with:
 - Hotspot autoconnect enabled
 - Hotspot autoconnect priority 100
 - old netplan-wlan0-ReteHospot autoconnect disabled
+- fixed to 2.4 GHz channel 1 (`band bg`) on 2026-10-03; changing it needs
+  `sudo nmcli connection modify Hotspot 802-11-wireless.channel N` and
+  `sudo nmcli connection up Hotspot`
 
 The tablet connects to NIWA-AP and accesses local services without needing internet.
 
@@ -267,6 +270,9 @@ curl http://localhost:5052/api/media/companion
 curl http://localhost:5052/api/index/status
 curl -X POST http://localhost:5052/api/index/rebuild
 curl http://localhost:5052/api/previews/status
+curl http://localhost:5052/api/trash
+curl 'http://localhost:5052/api/media/photo/selection'
+docker exec review-panel python -m unittest test_review_trash
 
 ## NIWA Storage commands
 

@@ -466,6 +466,29 @@ A Nikon PTP session and a real upload remain to be validated for the user's
 2026-10-08 deadline, using the existing adapter chain without buying another
 component or connecting the Nikon directly to the Raspberry.
 
+## Review trash and per-upload publication, 2026-10-03
+
+Bridge uploads are now published one by one as soon as their SHA-256 is
+verified, instead of every 50 files at session close. Verified live: six NEF
+files appeared at once after a camera reconnect and Review went from 1090 to
+1096 photos in the same second.
+
+NIWA Review gained selection, group download as a streamed zip and group
+delete. Deleting moves media to a trash on the SSD, never straight to oblivion;
+the only permanent delete is emptying the trash. Empty folders disappear and
+come back on restore.
+
+The subtle part was re-import. NIWA Import treats a missing destination as a
+file to import again, so with the camera still attached a deleted photo would
+have come back within minutes. Review now records deleted paths and the import
+service skips them, at bridge preflight so no bandwidth is wasted, and by
+content too. Validated on the Raspberry with a throwaway file: delete, empty
+folder removed, deletion seen by the import service, restore, clean state.
+
+Two field findings for events: the camera battery ran flat after about an hour
+of transfer, and the Wi-Fi link, not USB, limits the speed. The hotspot moved
+from the crowded channel 6 to channel 1.
+
 ## Current philosophy
 
 Prioritize:

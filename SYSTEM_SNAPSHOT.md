@@ -298,6 +298,11 @@ Persistent media index:
 
 /home/niwa/niwa/data/review_index.json
 
+Trash:
+
+/mnt/niwa-storage/.niwa_trash/<trash id>/  (media plus its XMP sidecar)
+/home/niwa/niwa/data/review_trash.json  (trash list and deleted_paths)
+
 Current behavior:
 - shows RAW/JPG files from photo
 - extracts embedded RAW previews with ExifTool when available
@@ -318,6 +323,18 @@ Current behavior:
 - supports GoPro all/photo/video filter
 - avoids stale async tab responses updating the wrong tab
 - uses logo-inspired dark card styling with copper/rose accents
+- selection mode with select all, group download as a streamed uncompressed
+  zip (folders and XMP sidecars kept) and group delete
+- delete always moves media to the trash, after a confirmation popup; the
+  fullscreen viewer has its own delete button
+- folders left completely empty by a delete are removed, up to the section
+  root; a restore recreates them
+- the Cestino tab restores one file, a selection or everything; the only
+  permanent delete is Svuota cestino, behind a confirmation popup. There is
+  no automatic expiry: trash space is freed only by emptying it
+- `deleted_paths` in review_trash.json lists every deleted, non-restored
+  media path, purged ones included; NIWA Import reads it so deleted media are
+  never imported again from the camera bridge or an SD card
 
 Useful commands:
 
@@ -337,6 +354,9 @@ curl http://localhost:5052/api/media/companion
 curl http://localhost:5052/api/index/status
 curl -X POST http://localhost:5052/api/index/rebuild
 curl http://localhost:5052/api/previews/status
+curl http://localhost:5052/api/trash
+curl 'http://localhost:5052/api/media/photo/selection'
+docker exec review-panel python -m unittest test_review_trash
 
 ## NIWA Storage
 
@@ -723,7 +743,14 @@ Validation status as of 2026-10-03:
   flashed through COM4 with NVS credentials preserved
 - physical USB enumeration passed with a Kingston flash drive (`0951:1666`);
   HW-678 USB host works and the software cause is confirmed
-- Nikon PTP and a real upload remain pending
+- Nikon PTP and real uploads validated: `Z 6_2` enumerates, the PTP session
+  opens and NEF files arrive verified by SHA-256
+- each verified upload is published to `photo/imports` at once and the Review
+  index is rebuilt in the background; the session no longer has to close
+- measured per 512 KB chunk: USB about 520 ms, steady (about 1 MB/s, the
+  full-speed USB ceiling); Wi-Fi 180 to 3170 ms, the real bottleneck
+- the camera battery ran flat after about an hour of transfer: long transfers
+  need the EH-5d + EP-5B mains adapter or spare batteries
 - bench setup: right COM port for PC serial/power, left USB port for passive
   OTG adapter plus A-to-C Nikon cable, `USB-OTG` and `IN-OUT` bridges closed
 - target date is 2026-10-08 using existing hardware and no direct Nikon-to-Pi
@@ -791,6 +818,10 @@ Current validation:
   while the Companion page is open/visible
 
 ## Network notes
+
+Hotspot `NIWA-AP` is fixed to 2.4 GHz channel 1 (`band bg`) since
+2026-10-03. It used auto, which picked channel 6, shared with two neighbours.
+At an event, check the free channels on site with `WIFI_SCAN` on the bridge.
 
 The Raspberry can create a local hotspot called NIWA-AP.
 
