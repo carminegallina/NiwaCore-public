@@ -498,6 +498,11 @@ Two field findings for events: the camera battery ran flat after about an hour
 of transfer, and the Wi-Fi link, not USB, limits the speed. The hotspot moved
 from the crowded channel 6 to channel 1.
 
+Review lighttable, same day: the gallery is denser (captions sit on the
+thumbnails, index and preview status fold behind one line) and the viewer
+groups its actions bottom-right with an explicit close button. No endpoint or
+action changed.
+
 ## Current philosophy
 
 Prioritize:

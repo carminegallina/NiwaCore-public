@@ -358,6 +358,9 @@ Status:
 - Implemented server-side video thumbnail cache with ffmpeg
 - Corrected temporary JPEG naming so ffmpeg thumbnails render for real GoPro MP4 files
 - Expanded preview cache cleanup for orphaned RAW/video preview files
+- Compact lighttable layout: captions over the thumbnails, collapsible index/preview
+  status, viewer actions grouped with a close button; same endpoints and actions
+  (tested locally 2026-10-05, Raspberry deploy pending)
 
 Future improvements:
 - background watcher for new files
