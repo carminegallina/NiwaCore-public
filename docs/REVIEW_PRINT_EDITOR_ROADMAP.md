@@ -123,6 +123,29 @@ Quando si chiude questa revisione, separare almeno il checkpoint bridge/import d
 - nomi file, cartelle e messaggi del worker inseriti nel DOM come testo, senza interpretarli come HTML;
 - worker RAW ordinato dal file piu' recente, cosi' gli ultimi scatti ricevono per primi l'anteprima in background.
 
+### Piano lighttable: stato al 2026-10-05
+
+Piano proposto nell'analisi Review del 2026-10-04 (ordine consigliato). Le funzioni esistenti restano identiche; cambiano velocita', organizzazione e grafica.
+
+1. [x] Checkpoint del lavoro precedente.
+2. [x] Rischi di sicurezza e concorrenza (indice, temporanei, cestino, nomi come testo).
+3. [x] Thumbnail 640 px e anteprime viewer 2400 px.
+4. [ ] Indice JSON v2 orientato allo scatto: NEF, JPG, XMP e varianti `_conflict_` raggruppati in una scheda senza toccare gli originali; data di scatto da ExifTool con origine (EXIF, QuickTime, filesystem) e segnale "data sospetta" (due foto GoPro risultano del 2044 perche' oggi si ordina per `mtime`); orientamento, dimensioni, cartella o sessione d'importazione.
+5. Testata e griglia lighttable:
+   - [x] didascalie sopra la miniatura, stato indice/anteprime richiudibile, griglia piu' densa;
+   - [ ] testata compatta e fissa con conteggi per sezione e un indicatore verde/ambra/rosso al posto dei riquadri di stato;
+   - [ ] stelle visibili sulla scheda, badge RAW/JPG/VIDEO, badge `conflict` senza il suffisso hash;
+   - [ ] raggruppamento per giorno o cartella d'importazione;
+   - [ ] modalita' Adatta/Riempi e densita' compatta/comoda ricordate dal browser.
+6. Viewer e selezione:
+   - [x] nome e contatore visibili, pulsante di chiusura, azioni raggruppate;
+   - [ ] barra inferiore con stelle, tipo e peso del file; azione Elimina in un menu separato; filmstrip delle foto vicine;
+   - [ ] barra di selezione che riserva il proprio spazio, azioni disattivate senza selezione, Elimina separato; nel cestino vuoto niente pulsanti attivi; percorso originale solo nei dettagli.
+7. [ ] Editor di stampa: stesse funzioni, controlli raggruppati in Cornice, Inquadratura, Regolazioni, Output; barra export che non copre i controlli; stato di caricamento visibile; riepilogo formato/orientamento/tipo file accanto all'export.
+8. [ ] Solo alla fine: aggiornamenti via SSE al posto del polling.
+
+Ancora aperto dalla stessa analisi: il worker RAW genera una sola anteprima ogni 20 s e aspetta 60 s dalla scrittura del file. Con molti scatti accumula minuti di ritardo; i file pubblicati atomicamente da NIWA Import potrebbero essere elaborati subito.
+
 ## Integrazioni future, non ora
 
 - Testi e loghi aggiungibili nell'editor, distinti dalla grafica gia' incorporata nel PNG della cornice.
