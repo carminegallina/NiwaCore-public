@@ -513,6 +513,11 @@ Review preview worker, same day: it now works through the backlog in batches,
 newest shots first, and prepares grid and viewer images too. The 51 photos
 on the SSD were ready in about a minute, and opening one in the viewer went
 from about 2 s cold to an instant response.
+Review cards, same day: stars show on the grid, files show RAW/JPG/VIDEO,
+and two different shots with the same name show the plain name plus a
+"stesso nome" label instead of a truncated hash. Selection actions stay off
+until something is selected, Elimina sits apart, and an empty trash shows no
+actions.
 
 ## Current philosophy
 

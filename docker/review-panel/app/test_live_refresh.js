@@ -20,6 +20,16 @@ for(const [name, next] of [
 }
 assert.match(functionSource('fillMediaCard', 'setLabeledStatus'), /textContent/,
     'media metadata is inserted as text');
+const suffixLine = source.match(/const SAME_NAME_SUFFIX = .*;/)[0];
+const sameName = vm.runInNewContext(`${suffixLine} SAME_NAME_SUFFIX`);
+for(const [name, shown] of [
+    ['_DSC7969_conflict_9e92b859.NEF', '_DSC7969.NEF'],
+    ['_DSC7969_conflict_9e92b859_2.NEF', '_DSC7969.NEF'],
+    ['_DSC7969.NEF', '_DSC7969.NEF'],
+    ['my_conflict_notes.JPG', 'my_conflict_notes.JPG']
+]){
+    assert.equal(name.replace(sameName, ''), shown, `${name} is shown as ${shown}`);
+}
 const start = source.indexOf('async function refreshLivePhotos(){');
 const end = source.indexOf('async function loadIndexStatus(){', start);
 assert.ok(start >= 0 && end > start, 'refreshLivePhotos function found');

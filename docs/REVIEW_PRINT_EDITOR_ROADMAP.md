@@ -134,13 +134,14 @@ Piano proposto nell'analisi Review del 2026-10-04 (ordine consigliato). Le funzi
 5. Testata e griglia lighttable:
    - [x] didascalie sopra la miniatura, stato indice/anteprime richiudibile, griglia piu' densa;
    - [ ] testata compatta e fissa con conteggi per sezione e un indicatore verde/ambra/rosso al posto dei riquadri di stato;
-   - [ ] stelle visibili sulla scheda, badge RAW/JPG/VIDEO, badge `conflict` senza il suffisso hash;
+   - [x] stelle visibili sulla scheda (aggiornate subito dal viewer), etichette RAW/JPG/VIDEO; i file `_conflict_` mostrano il nome senza codice e l'etichetta "stesso nome" (non "copia": il contenuto e' diverso), con il nome completo al passaggio del mouse e nel viewer;
    - [ ] raggruppamento per giorno o cartella d'importazione;
    - [ ] modalita' Adatta/Riempi e densita' compatta/comoda ricordate dal browser.
 6. Viewer e selezione:
    - [x] nome e contatore visibili, pulsante di chiusura, azioni raggruppate;
    - [ ] barra inferiore con stelle, tipo e peso del file; azione Elimina in un menu separato; filmstrip delle foto vicine;
-   - [ ] barra di selezione che riserva il proprio spazio, azioni disattivate senza selezione, Elimina separato; nel cestino vuoto niente pulsanti attivi; percorso originale solo nei dettagli.
+   - [x] barra di selezione: Deseleziona, Scarica, Elimina e Ripristina selezionati spenti senza selezione, Elimina separato dalle azioni neutre; a cestino vuoto la barra non compare. La barra gia' non copriva l'ultima riga (e' `sticky` e occupa il suo spazio);
+   - [ ] nel cestino, percorso originale solo nei dettagli invece che su ogni scheda.
 7. [ ] Editor di stampa: stesse funzioni, controlli raggruppati in Cornice, Inquadratura, Regolazioni, Output; barra export che non copre i controlli; stato di caricamento visibile; riepilogo formato/orientamento/tipo file accanto all'export.
 8. [ ] Solo alla fine: aggiornamenti via SSE al posto del polling.
 

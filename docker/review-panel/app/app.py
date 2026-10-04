@@ -1942,9 +1942,9 @@ h1{color:#fff4ec}.subtitle{color:var(--muted)}
 /* Compact lighttable: same actions, less chrome around the photographs. */
 body{padding:14px}h1{font-size:26px;margin-bottom:3px}.subtitle{font-size:13px;margin:0}.topbar{align-items:center;margin-bottom:8px}.brand-logo{width:44px;height:44px}
 .tabs,.filters{margin:9px 0;gap:7px}.status{font-size:13px;margin:7px 0 9px}.toolbar{display:flex;align-items:flex-start;gap:8px;margin:8px 0 12px;flex-wrap:wrap}.toolbar-actions{order:0}.diagnostics{order:1;flex:1;min-width:240px}.diagnostics summary{cursor:pointer;color:var(--muted);font-size:13px;padding:11px 12px;border:1px solid var(--line);border-radius:10px;background:rgba(42,31,29,.82)}.diagnostics[open] summary{margin-bottom:8px}
-.grid{grid-template-columns:repeat(auto-fill,minmax(155px,1fr));gap:8px}.card{aspect-ratio:3/2;border-radius:11px;box-shadow:0 10px 24px rgba(0,0,0,.2)}.thumb{height:100%;aspect-ratio:auto}.info{position:absolute;inset:auto 0 0;padding:28px 9px 8px;background:linear-gradient(transparent,rgba(10,8,8,.94))}.name{font-size:13px;text-shadow:0 1px 3px #000}.meta{color:#eadbd4;font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.badge{position:absolute;top:8px;left:8px;margin:0;background:rgba(28,20,19,.78);backdrop-filter:blur(6px)}
+.grid{grid-template-columns:repeat(auto-fill,minmax(155px,1fr));gap:8px}.card{aspect-ratio:3/2;border-radius:11px;box-shadow:0 10px 24px rgba(0,0,0,.2)}.thumb{height:100%;aspect-ratio:auto}.info{position:absolute;inset:auto 0 0;padding:28px 9px 8px;background:linear-gradient(transparent,rgba(10,8,8,.94))}.name{font-size:13px;text-shadow:0 1px 3px #000}.meta{color:#eadbd4;font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.badges{position:absolute;top:8px;left:8px;max-width:calc(100% - 16px);display:flex;gap:4px;flex-wrap:wrap;pointer-events:none}.badge{margin:0;background:rgba(28,20,19,.78);backdrop-filter:blur(6px)}.badge.same-name{background:rgba(120,72,24,.9);border-color:rgba(250,204,21,.45);color:#fde68a}.card-stars{color:#facc15;font-size:12px;letter-spacing:1px;line-height:1;margin-bottom:3px;text-shadow:0 1px 3px #000}
 .trash-card{aspect-ratio:auto}.trash-card .thumb{height:auto;aspect-ratio:3/2}.trash-card .info{position:relative;padding:9px;background:none}
-.modal{background:rgba(5,4,4,.96)}.viewer-meta{position:absolute;left:14px;top:14px;max-width:70%;background:rgba(28,20,19,.76);border-radius:12px;padding:8px 11px;backdrop-filter:blur(8px)}.viewer-name{font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.viewer-meta .photo-counter{position:static;padding:0;background:none;border-radius:0;color:var(--muted);font-size:12px;margin-top:2px}.close-button{right:14px;top:14px;width:42px;height:42px;padding:0;font-size:24px}.viewer-actions{position:absolute;right:14px;bottom:14px;display:flex;gap:7px;align-items:center;flex-wrap:wrap;justify-content:flex-end;max-width:72%}.viewer-actions .overlay-button{position:static;font-size:14px}.card.selected .badge{left:40px}
+.modal{background:rgba(5,4,4,.96)}.viewer-meta{position:absolute;left:14px;top:14px;max-width:70%;background:rgba(28,20,19,.76);border-radius:12px;padding:8px 11px;backdrop-filter:blur(8px)}.viewer-name{font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.viewer-meta .photo-counter{position:static;padding:0;background:none;border-radius:0;color:var(--muted);font-size:12px;margin-top:2px}.close-button{right:14px;top:14px;width:42px;height:42px;padding:0;font-size:24px}.viewer-actions{position:absolute;right:14px;bottom:14px;display:flex;gap:7px;align-items:center;flex-wrap:wrap;justify-content:flex-end;max-width:72%}.viewer-actions .overlay-button{position:static;font-size:14px}.card.selected .badges{left:40px}.selection-actions .danger{margin-left:14px}
 @media(max-width:800px){body{padding:10px}.brand-logo{width:40px;height:40px}h1{font-size:22px}.topbar .button{min-height:36px;padding:8px 10px}.toolbar{display:grid;grid-template-columns:1fr}.toolbar-actions{display:grid;grid-template-columns:1fr 1fr}.diagnostics{min-width:0}.modal{padding:5px}.nav-button{width:36px;height:36px;font-size:22px;opacity:.72}.viewer-meta{top:8px;left:8px;max-width:68%}.close-button{top:8px;right:8px}.viewer-actions{left:8px;right:8px;bottom:8px;max-width:none;justify-content:center}.viewer-actions .overlay-button{padding:8px 10px;font-size:12px}.rating{left:8px;bottom:58px}.grid{grid-template-columns:repeat(auto-fill,minmax(145px,1fr));gap:7px}}
 </style>
 </head>
@@ -1994,10 +1994,10 @@ body{padding:14px}h1{font-size:26px;margin-bottom:3px}.subtitle{font-size:13px;m
 <div class="selection-info" id="selectionInfo"></div>
 <div class="selection-actions">
 <button class="small-button" onclick="selectAll()">Seleziona tutto</button>
-<button class="small-button" onclick="clearSelection()">Deseleziona</button>
-<button class="small-button" data-mode="media" onclick="downloadSelection()">Scarica</button>
-<button class="small-button danger" data-mode="media" onclick="trashSelection()">Elimina</button>
-<button class="small-button" data-mode="trash" onclick="restoreSelection()">Ripristina selezionati</button>
+<button class="small-button" data-needs-selection onclick="clearSelection()">Deseleziona</button>
+<button class="small-button" data-mode="media" data-needs-selection onclick="downloadSelection()">Scarica</button>
+<button class="small-button" data-mode="trash" data-needs-selection onclick="restoreSelection()">Ripristina selezionati</button>
+<button class="small-button danger" data-mode="media" data-needs-selection onclick="trashSelection()">Elimina</button>
 <button class="small-button" data-mode="trash" onclick="restoreAll()">Ripristina tutto</button>
 <button class="small-button danger" data-mode="trash" onclick="emptyTrash()">Svuota cestino</button>
 </div>
@@ -2154,6 +2154,10 @@ function appendText(parent, className, value){
     return element;
 }
 
+// Import keeps both files when two shots share a name; the hash is noise on a card.
+const SAME_NAME_SUFFIX = /_conflict_[0-9a-f]{8}(?:_[0-9]+)?(?=[.][^.]+$)/i;
+const KIND_LABELS = {raw:'RAW', video:'VIDEO'};
+
 function fillMediaCard(card, item, trashed=false){
     const image = document.createElement('img');
     image.className = 'thumb' + (item.kind === 'video' ? ' video-thumb' : '');
@@ -2166,19 +2170,42 @@ function fillMediaCard(card, item, trashed=false){
         appendText(card, 'play-badge', 'Play');
     }
 
+    const name = item.name || '';
+    const sameName = SAME_NAME_SUFFIX.test(name);
+    card.title = name;
     const info = document.createElement('div');
     info.className = 'info';
-    appendText(info, 'name', item.name);
+    appendText(info, 'name', sameName ? name.replace(SAME_NAME_SUFFIX, '') : name);
     appendText(info, 'meta', `${item.size_label} - ${item.mtime_label}`);
     if(trashed){
         appendText(info, 'meta', `Eliminato ${item.deleted_at || ''}`);
         appendText(info, 'meta', item.folder);
     }
-    const badge = document.createElement('span');
-    badge.className = 'badge';
-    badge.textContent = item.extension || '';
+    const badges = document.createElement('div');
+    badges.className = 'badges';
+    appendText(badges, 'badge', KIND_LABELS[item.kind] || item.extension || '');
+    if(sameName){
+        appendText(badges, 'badge same-name', 'stesso nome').title =
+            'Un altro file ha lo stesso nome ma contenuto diverso: sono conservati entrambi.';
+    }
     card.appendChild(info);
-    card.appendChild(badge);
+    card.appendChild(badges);
+    renderCardStars(card, item.rating || 0);
+}
+
+function renderCardStars(card, rating){
+    let stars = card.querySelector('.card-stars');
+    if(!rating){
+        if(stars) stars.remove();
+        return;
+    }
+    if(!stars){
+        stars = document.createElement('div');
+        stars.className = 'card-stars';
+        card.querySelector('.info').prepend(stars);
+    }
+    stars.textContent = String.fromCharCode(9733).repeat(rating);
+    stars.setAttribute('aria-label', `${rating} stelle`);
 }
 
 function setLabeledStatus(elementId, label, message){
@@ -2458,6 +2485,8 @@ async function setRating(rating, event){
         if(data.error){ throw new Error(data.error); }
         item.rating = data.rating;
         renderRating(item.rating);
+        const card = document.querySelector(`#gallery .card[data-id="${item.id}"]`);
+        if(card) renderCardStars(card, item.rating);
     }catch(e){
         alert('Errore salvataggio rating: ' + e.message);
     }
@@ -2564,12 +2593,15 @@ function refreshCardSelection(){
 
 function renderSelection(){
     const trash = inTrash();
-    document.getElementById('selectionBar').classList.toggle('visible', SELECTING || trash);
+    document.getElementById('selectionBar').classList.toggle('visible', SELECTING || (trash && TRASH_ITEMS.length > 0));
     const selectButton = document.getElementById('selectButton');
     selectButton.classList.toggle('hidden', trash);
     selectButton.textContent = SELECTING ? 'Annulla selezione' : 'Seleziona';
     document.querySelectorAll('#selectionBar [data-mode]').forEach((button)=>{
         button.classList.toggle('hidden', button.dataset.mode !== (trash ? 'trash' : 'media'));
+    });
+    document.querySelectorAll('#selectionBar [data-needs-selection]').forEach((button)=>{
+        button.disabled = !SELECTED.size;
     });
     document.getElementById('selectionInfo').textContent = SELECTED.size
         ? `${SELECTED.size} selezionati - ${humanSize(selectionSize())}`

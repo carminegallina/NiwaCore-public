@@ -337,6 +337,11 @@ Review reliability pass deployed on 2026-10-05:
   images; 39 shots in about 60 s, viewer images served in 10-20 ms. Rollback:
   `app/app.py.bak-claude-worker-20261005`, image
   `niwa-review-before-worker-20261005`
+- grid cards deployed 2026-10-05: stars on cards, RAW/JPG/VIDEO labels,
+  `_conflict_` names shown without the hash plus a "stesso nome" label,
+  selection actions disabled with nothing selected. Rollback:
+  `app/app.py.bak-claude-cards-20261005`, image
+  `niwa-review-before-cards-20261005`
 - the no-frame print option exports with the original photo ratio
 
 Review compact lighttable deployed on 2026-10-05 (UI only, same endpoints):
