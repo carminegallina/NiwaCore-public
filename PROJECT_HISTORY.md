@@ -506,7 +506,9 @@ action changed.
 between channels 1, 6 and 11 without giving the container any privilege. It
 drops a request file; a host path unit runs the restricted niwa-admin
 wrapper, which validates it and restores the previous channel on failure.
-A 1 -> 6 -> 1 test kept Wi-Fi off for about 4 s.
+A 1 -> 6 -> 1 test kept Wi-Fi off for about 4 s. The panel can also scan
+the neighbouring networks without dropping the hotspot and recommend the
+least crowded channel; the switch stays a manual choice.
 
 ## Current philosophy
 

@@ -27,7 +27,9 @@
 - [ ] Verificare che tablet ed ESP32 si ricolleghino da soli dopo un cambio
       di canale, con un trasferimento del bridge in corso.
 - [ ] Sul posto: scegliere fra 1, 6 e 11 il canale con meno reti o con reti
-      piu' deboli, per esempio con un'app tipo WiFi Analyzer. A casa passare dal
+      piu' deboli con "Cerca il canale piu libero" in NIWA System (o con
+      un'app tipo WiFi Analyzer). La ricerca vede solo reti Wi-Fi, non altri
+      disturbi: se il bridge resta lento, provare comunque un altro canale. A casa passare dal
       canale 6 affollato al canale 1 ha raddoppiato la velocita' del bridge.
 - [ ] Alimentare la camera nei trasferimenti lunghi: alimentatore da rete
       EH-5d + EP-5B o batterie di scorta cariche. Una batteria e' durata circa

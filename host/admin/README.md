@@ -21,6 +21,7 @@ sudo -n /usr/local/sbin/niwa-admin import-install
 sudo -n /usr/local/sbin/niwa-admin import-restart
 sudo -n /usr/local/sbin/niwa-admin hotspot-up
 sudo -n /usr/local/sbin/niwa-admin hotspot-channel 6
+sudo -n /usr/local/sbin/niwa-admin hotspot-scan
 sudo -n /usr/local/sbin/niwa-admin service-status docker.service
 sudo -n /usr/local/sbin/niwa-admin service-restart tailscaled.service
 ```
@@ -32,8 +33,9 @@ if the hotspot does not come back up, the previous channel is restored.
 The installer also adds `niwa-hotspot.path` and `niwa-hotspot.service`: NIWA
 System writes a channel to `data/hotspot/request` and the path unit runs
 `niwa-admin hotspot-request`, which validates it and writes
-`data/hotspot/status.json`. The container never gets root or NetworkManager
-access.
+`data/hotspot/status.json`. A `scan` request runs `hotspot-scan`, which
+writes only 2.4 GHz channels and signal levels to `data/hotspot/scan.json`.
+The container never gets root or NetworkManager access.
 
 The wrapper intentionally does not allow arbitrary commands, package
 installation, shutdown or reboot. Rare operating-system changes still require

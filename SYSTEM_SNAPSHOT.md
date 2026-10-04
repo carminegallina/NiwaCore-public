@@ -591,6 +591,10 @@ Current behavior:
   `data/hotspot/request`; the host `niwa-hotspot.path` unit runs
   `niwa-admin hotspot-request`, which validates and applies it and writes
   `data/hotspot/status.json`, read back by `GET /api/hotspot`
+- "Cerca il canale piu libero": `POST /api/hotspot/scan` queues a `scan`
+  request; the wrapper writes `data/hotspot/scan.json` (2.4 GHz channels and
+  signal levels only, no network names) and the panel marks the least
+  crowded of 1, 6 and 11 as recommended; switching stays manual
 
 Useful commands:
 
@@ -759,7 +763,9 @@ Current behavior:
 - supports bringing up the existing `Hotspot` NetworkManager connection
 - `hotspot-channel 1|6|11` changes the hotspot channel; if the hotspot does
   not come back up it restores the previous channel
-- `hotspot-request` applies a channel request from NIWA System; triggered by
+- `hotspot-scan` scans neighbours with `iw ... scan ap-force` while the
+  hotspot stays up (about 4 s, no disconnection)
+- `hotspot-request` applies a channel or scan request from NIWA System; triggered by
   `/etc/systemd/system/niwa-hotspot.path` and `niwa-hotspot.service`
 - supports restart and status only for explicitly allowed infrastructure services
 - rejects arbitrary commands and services outside the allowlist
@@ -771,6 +777,8 @@ Validation completed:
 - 2026-10-05: hotspot units installed; requests from NIWA System applied in
   about 2 s; invalid values and a planted symlink rejected; 1 -> 6 -> 1
   switch with about 4 s off-air, no clients connected
+- 2026-10-05: scan in AP mode works on the Pi 4 brcmfmac radio; four scans
+  returned the same 2.4 GHz neighbour and the 5 GHz networks reached NM
 - allowed Docker service status passed
 - arbitrary `shell` action was rejected
 - non-allowlisted `ssh.service` status was rejected
