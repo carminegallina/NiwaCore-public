@@ -3,6 +3,23 @@ const fs = require('node:fs');
 const vm = require('node:vm');
 
 const source = fs.readFileSync(`${__dirname}/app.py`, 'utf8');
+const functionSource = (name, next)=>{
+    const functionStart = source.indexOf(`function ${name}(`);
+    const functionEnd = source.indexOf(`function ${next}(`, functionStart);
+    assert.ok(functionStart >= 0 && functionEnd > functionStart, `${name} function found`);
+    return source.slice(functionStart, functionEnd);
+};
+for(const [name, next] of [
+    ['fillMediaCard', 'setLabeledStatus'],
+    ['setLabeledStatus', 'itemCard'],
+    ['itemCard', 'renderLoadMore'],
+    ['trashCard', 'setTrashCount']
+]){
+    const body = functionSource(name, next);
+    assert.doesNotMatch(body, /innerHTML/, `${name} does not parse media names as HTML`);
+}
+assert.match(functionSource('fillMediaCard', 'setLabeledStatus'), /textContent/,
+    'media metadata is inserted as text');
 const start = source.indexOf('async function refreshLivePhotos(){');
 const end = source.indexOf('async function loadIndexStatus(){', start);
 assert.ok(start >= 0 && end > start, 'refreshLivePhotos function found');
@@ -20,6 +37,7 @@ const context = vm.createContext({
     PAGE_SIZE: 80,
     PHOTOS: [{id: 'old'}],
     TOTAL_ITEMS: 1,
+    LAST_MEDIA_STATUS: '1/1 file caricati',
     document: {
         visibilityState: 'visible',
         getElementById: (id)=>id === 'status' ? status : {
@@ -40,6 +58,7 @@ vm.runInContext(source.slice(start, end), context);
 (async ()=>{
     await vm.runInContext('refreshLivePhotos()', context);
     assert.equal(reloads, 0, 'unchanged gallery does not reload');
+    assert.equal(status.textContent, '1/1 file caricati', 'successful poll clears an old error');
 
     items = [{id: 'new'}, {id: 'old'}];
     await vm.runInContext('refreshLivePhotos()', context);

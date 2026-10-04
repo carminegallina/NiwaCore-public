@@ -94,11 +94,11 @@ Annotata il 2026-10-04 dopo la revisione delle modifiche realizzate con l'altra 
 
 - versionare il lavoro attuale: il branch `main` e' ancora allineato a `origin/main` su `f742fe2`, mentre editor di stampa, firmware bridge 1.2.1, aggiornamenti NIWA Import, test, documentazione e asset sono ancora nel working tree;
 - aggiornare `AGENTS.md`: riporta ancora `fd0f3de` come checkpoint, Nikon PTP come non validato, Print come funzione futura e il live preview Companion come prossimo task;
-- correggere **Senza cornice**: la miniatura usa il rapporto originale della foto, ma selezione ed export conservano il preset precedente o il P orizzontale predefinito;
-- includere `/storage/.niwa_cache/review_editor` nella pulizia degli orfani e definire un limite semplice per la cache JPG HQ, che puo' crescere di circa 19 MB per ogni NEF aperto;
-- ripristinare il messaggio normale della galleria quando il refresh automatico torna a funzionare dopo un errore temporaneo;
-- scegliere quali versioni degli asset `assets/frames/cornice-evento-2026-*` conservare prima del commit;
-- ripetere i controlli automatici gia' passati: 30 test NIWA Import, 15 test Review/editor, test JavaScript e compilazione firmware ESP32-S3;
+- [x] corretto **Senza cornice**: selezione, anteprima ed export usano ora il rapporto originale della foto; il preset `Originale` non e' accettato per il caricamento di cornici;
+- [x] inclusa `/storage/.niwa_cache/review_editor` nella pulizia degli orfani e limitata a 2 GiB la cache JPG HQ, eliminando per primi i file cache piu' vecchi;
+- [x] il messaggio normale della galleria viene ripristinato quando il refresh automatico torna a funzionare dopo un errore temporaneo;
+- [x] conservati solo gli asset finali `P-v2` verticale e `P-landscape-v4`;
+- [x] ripetuti i controlli automatici: 30 test NIWA Import, 23 test Review/editor, test JavaScript e compilazione firmware ESP32-S3;
 - completare i test fisici ancora aperti: gesti sul Tab S10, Nikon -> ESP -> Review -> editor -> download Android e stampa reale sulla SELPHY CP1500.
 
 Quando si chiude questa revisione, separare almeno il checkpoint bridge/import dal checkpoint editor di stampa, cosi' rollback e diagnosi restano semplici.
@@ -114,6 +114,14 @@ Quando si chiude questa revisione, separare almeno il checkpoint bridge/import d
 - [x] Misura LAN su un vero `_DSC7973.NEF`: thumbnail 426 x 640 da 33,2 KiB (0,36 s fredda, 0,03 s calda), viewer 1597 x 2400 da 542,4 KiB (2,01 s fredda, 0,07 s calda), contro 1816,7 KiB e 6048 x 4024 dell'anteprima RAW originale.
 - [x] Primo schermo da 16 thumbnail: 344,3 KiB complessivi, 1,16 s con 15 derivati freddi e 0,18 s a cache calda. Smoke test superato anche per Companion JPG, GoPro JPG/video e video generici.
 - [x] Scorrimento, nitidezza e viewer confermati dall'utente direttamente sul Tab S10 il 2026-10-05.
+
+### Robustezza Review completata il 2026-10-05
+
+- indice serializzato: worker periodico, aggiornamento manuale e rating non possono piu' sovrascriversi a vicenda;
+- scritture JSON e file temporanei delle anteprime rese atomiche con nomi unici;
+- cestino dotato di journal per elemento: dopo un'interruzione recupera un file gia' spostato oppure rimette al suo posto il sidecar se il media non era ancora stato spostato;
+- nomi file, cartelle e messaggi del worker inseriti nel DOM come testo, senza interpretarli come HTML;
+- worker RAW ordinato dal file piu' recente, cosi' gli ultimi scatti ricevono per primi l'anteprima in background.
 
 ## Integrazioni future, non ora
 

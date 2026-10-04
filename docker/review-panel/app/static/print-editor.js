@@ -76,6 +76,10 @@
         const config = state.presets[state.preset];
         if (!config) return 1.48;
         const pair = config.mm || config.ratio;
+        if (!pair) {
+            return state.adjusted.width && state.adjusted.height
+                ? state.adjusted.width / state.adjusted.height : 1.48;
+        }
         const longSide = Math.max(...pair);
         const shortSide = Math.min(...pair);
         if (longSide === shortSide) return 1;
@@ -482,6 +486,13 @@
         state.frameImage = null;
         state.loadingFrame = !!frame;
         state.frameError = false;
+        if (!frame) {
+            state.preset = 'original';
+            state.orientation = state.adjusted.width >= state.adjusted.height
+                ? 'landscape' : 'portrait';
+            $('printPreset').value = state.preset;
+            $('printOrientation').value = state.orientation;
+        }
         changed();
         updateExportUi();
         if (frame) {
@@ -585,9 +596,14 @@
             if (state.openToken !== token) return;
             state.presets = presetData.presets;
             state.frames = frameData.frames;
-            for (const id of ['printPreset', 'printUploadPreset']) {
-                $(id).replaceChildren(...Object.entries(state.presets).map(([key, config]) => new Option(config.label, key)));
-            }
+            const presets = Object.entries(state.presets);
+            $('printPreset').replaceChildren(
+                ...presets.map(([key, config]) => new Option(config.label, key))
+            );
+            $('printUploadPreset').replaceChildren(
+                ...presets.filter(([key]) => key !== 'original')
+                    .map(([key, config]) => new Option(config.label, key))
+            );
             $('printPreset').value = 'P';
             $('printUploadPreset').value = 'P';
             $('printOrientation').value = 'landscape';
@@ -604,7 +620,7 @@
             const remembered = savedFrameId();
             const preferred = state.frames.find((frame) => frame.id === remembered)
                 || (remembered !== 'none' && state.frames.length === 1 ? state.frames[0] : null);
-            const frameReady = preferred ? await chooseFrame(preferred) : true;
+            const frameReady = await chooseFrame(preferred || null);
             if (state.openToken !== token) return;
             updateExportUi();
             if (frameReady) status('Pronta per la stampa. Controlla l’inquadratura e scarica il file.');

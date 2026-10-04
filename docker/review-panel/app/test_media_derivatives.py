@@ -2,6 +2,7 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 import base64
 import io
+import os
 import unittest
 from unittest import mock
 
@@ -91,6 +92,24 @@ class MediaDerivativeTests(unittest.TestCase):
 
         extract.assert_called_once()
         self.assertEqual(raw.read_bytes(), b"untouched raw")
+
+    def test_cache_limit_removes_oldest_files_first(self):
+        cache = Path(self.temporary.name) / "limited-cache"
+        cache.mkdir()
+        files = []
+        for index in range(3):
+            path = cache / f"{index}.jpg"
+            path.write_bytes(bytes([index]) * 10)
+            path.touch()
+            files.append(path)
+        for index, path in enumerate(files):
+            path.touch()
+            os.utime(path, ns=(index + 1, index + 1))
+
+        self.assertEqual(review.trim_cache(cache, 20), 1)
+        self.assertFalse(files[0].exists())
+        self.assertTrue(files[1].exists())
+        self.assertTrue(files[2].exists())
 
 
 if __name__ == "__main__":

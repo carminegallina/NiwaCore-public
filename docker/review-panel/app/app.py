@@ -40,12 +40,15 @@ TRASH_ROOT = STORAGE_ROOT / ".niwa_trash"
 # NIWA Import reads deleted_paths from here so deleted media never come back.
 TRASH_FILE = DATA_ROOT / "review_trash.json"
 TRASH_ID_PATTERN = re.compile("[0-9a-f]{32}")
-TRASH_LOCK = threading.Lock()
+TRASH_JOURNAL_NAME = ".niwa-item.json"
+TRASH_LOCK = threading.RLock()
 JPG_EXPORT_LOCK = threading.Lock()
 PRINT_FRAME_LOCK = threading.Lock()
 EDITOR_PREVIEW_LOCK = threading.Lock()
+INDEX_REBUILD_LOCK = threading.Lock()
 
 PRINT_PRESETS = {
+    "original": {"label": "Originale"},
     "P": {"label": "P · Cartolina", "mm": [148, 100], "pixels": [1748, 1181]},
     "L": {"label": "L · Foto", "mm": [119, 89], "pixels": [1406, 1051]},
     "C": {"label": "C · Carta", "mm": [86, 54], "pixels": [1016, 638]},
@@ -64,6 +67,7 @@ PREVIEW_SCAN_INTERVAL_SECONDS = 20
 RAW_PREVIEW_VERSION = 2
 DERIVATIVE_VERSION = 1
 DERIVATIVE_SIZES = {"thumb": 640, "viewer": 2400}
+JPG_EXPORT_MAX_BYTES = 2 * 1024 * 1024 * 1024
 PREVIEW_STABLE_SECONDS = 60
 PREVIEW_RETRY_SECONDS = 300
 DEFAULT_PAGE_SIZE = 80
@@ -234,6 +238,17 @@ def human_size(size):
         value /= 1024
 
 
+def atomic_write_json(path, payload, **dump_options):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_name(f".{path.name}.{uuid.uuid4().hex}.tmp")
+    try:
+        with open(temporary, "w", encoding="utf-8") as stream:
+            json.dump(payload, stream, **dump_options)
+        os.replace(temporary, path)
+    finally:
+        temporary.unlink(missing_ok=True)
+
+
 def media_kind(path):
     suffix = path.suffix.lower()
     if suffix in RAW_EXTENSIONS:
@@ -381,11 +396,7 @@ def load_review_index():
 
 
 def save_review_index(index):
-    DATA_ROOT.mkdir(parents=True, exist_ok=True)
-    temp_path = REVIEW_INDEX_FILE.with_suffix(".tmp")
-    with open(temp_path, "w", encoding="utf-8") as f:
-        json.dump(index, f, indent=2)
-    temp_path.replace(REVIEW_INDEX_FILE)
+    atomic_write_json(REVIEW_INDEX_FILE, index, indent=2)
 
 
 def index_summary(index):
@@ -440,6 +451,31 @@ def cleanup_orphan_raw_previews(raw_files):
             except OSError:
                 pass
 
+    return removed + trim_cache(JPG_EXPORT_ROOT, JPG_EXPORT_MAX_BYTES)
+
+
+def trim_cache(directory, maximum_bytes):
+    if not directory.is_dir():
+        return 0
+    files = []
+    total = 0
+    for path in directory.glob("*.jpg"):
+        try:
+            stat = path.stat()
+        except OSError:
+            continue
+        files.append((stat.st_mtime_ns, stat.st_size, path))
+        total += stat.st_size
+    removed = 0
+    for _mtime, size, path in sorted(files):
+        if total <= maximum_bytes:
+            break
+        try:
+            path.unlink()
+        except OSError:
+            continue
+        total -= size
+        removed += 1
     return removed
 
 
@@ -505,12 +541,38 @@ def cleanup_orphan_media_derivatives():
     return removed
 
 
+def cleanup_orphan_editor_previews():
+    expected = set()
+    for path, relative in iter_photo_files(PHOTO_EXTENSIONS):
+        try:
+            expected.add(editor_preview_path(path, relative).resolve())
+        except OSError:
+            continue
+    if not EDITOR_PREVIEW_ROOT.exists():
+        return 0
+    removed = 0
+    for cache_file in EDITOR_PREVIEW_ROOT.glob("*.jpg"):
+        try:
+            if cache_file.resolve() in expected:
+                continue
+            cache_file.unlink()
+            removed += 1
+        except OSError:
+            pass
+    return removed
+
+
 def update_index_state(**updates):
     with INDEX_LOCK:
         INDEX_STATE.update(updates)
 
 
 def rebuild_review_index():
+    with INDEX_REBUILD_LOCK:
+        return rebuild_review_index_locked()
+
+
+def rebuild_review_index_locked():
     started = time.time()
     update_index_state(running=True, message="Indicizzazione media in corso.")
 
@@ -538,6 +600,7 @@ def rebuild_review_index():
 
         cleanup_orphan_video_thumbnails()
         cleanup_orphan_media_derivatives()
+        cleanup_orphan_editor_previews()
 
         index = {
             "version": INDEX_VERSION,
@@ -599,22 +662,23 @@ def scan_media(section, kind_filter="all", use_index=True):
 
 
 def update_index_rating(section, file_id, rating):
-    index = load_review_index()
-    if not index:
-        return
+    with INDEX_REBUILD_LOCK:
+        index = load_review_index()
+        if not index:
+            return
 
-    changed = False
-    items = index.get("sections", {}).get(section, {}).get("items", [])
-    for item in items:
-        if item.get("id") == file_id:
-            item["rating"] = rating
-            changed = True
-            break
+        changed = False
+        items = index.get("sections", {}).get(section, {}).get("items", [])
+        for item in items:
+            if item.get("id") == file_id:
+                item["rating"] = rating
+                changed = True
+                break
 
-    if changed:
-        index["updated"] = time.strftime("%Y-%m-%d %H:%M:%S")
-        index["updated_ts"] = time.time()
-        save_review_index(index)
+        if changed:
+            index["updated"] = time.strftime("%Y-%m-%d %H:%M:%S")
+            index["updated_ts"] = time.time()
+            save_review_index(index)
 
 
 def scan_photos():
@@ -622,31 +686,36 @@ def scan_photos():
 
 
 def load_trash():
-    try:
-        payload = json.loads(TRASH_FILE.read_text(encoding="utf-8"))
-    except (OSError, ValueError):
-        payload = {}
-    if not isinstance(payload, dict):
-        payload = {}
-    items = payload.get("items")
-    deleted = payload.get("deleted_paths")
-    return {
-        "version": 1,
-        "items": items if isinstance(items, dict) else {},
-        "deleted_paths": [
-            path for path in deleted if isinstance(path, str)
-        ] if isinstance(deleted, list) else [],
-    }
+    with TRASH_LOCK:
+        try:
+            payload = json.loads(TRASH_FILE.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            payload = {}
+        if not isinstance(payload, dict):
+            payload = {}
+        items = payload.get("items")
+        deleted = payload.get("deleted_paths")
+        trash = {
+            "version": 1,
+            "items": items if isinstance(items, dict) else {},
+            "deleted_paths": [
+                path for path in deleted if isinstance(path, str)
+            ] if isinstance(deleted, list) else [],
+        }
+        changed, journals = recover_trash_journals(trash)
+        if changed:
+            save_trash(trash)
+        for journal in journals:
+            journal.unlink(missing_ok=True)
+            try:
+                journal.parent.rmdir()
+            except OSError:
+                pass
+        return trash
 
 
 def save_trash(trash):
-    TRASH_FILE.parent.mkdir(parents=True, exist_ok=True)
-    temporary = TRASH_FILE.with_name(TRASH_FILE.name + ".tmp")
-    temporary.write_text(
-        json.dumps(trash, indent=2, sort_keys=True),
-        encoding="utf-8",
-    )
-    os.replace(temporary, TRASH_FILE)
+    atomic_write_json(TRASH_FILE, trash, indent=2, sort_keys=True)
 
 
 def storage_relative(section, relative):
@@ -665,6 +734,64 @@ def safe_relative(value):
 def plain_name(value):
     name = str(value or "")
     return name if name and Path(name).name == name else None
+
+
+def recover_trash_journals(trash):
+    if not TRASH_ROOT.is_dir():
+        return False, []
+
+    changed = False
+    completed = []
+    deleted = set(trash["deleted_paths"])
+    for folder in TRASH_ROOT.iterdir():
+        if not folder.is_dir() or not TRASH_ID_PATTERN.fullmatch(folder.name):
+            continue
+        journal = folder / TRASH_JOURNAL_NAME
+        if not journal.is_file():
+            continue
+        try:
+            item = json.loads(journal.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        config = MEDIA_SECTIONS.get(item.get("section")) if isinstance(item, dict) else None
+        relative = safe_relative(item.get("relative", "")) if config else None
+        name = plain_name(item.get("name")) if config else None
+        if item.get("id") != folder.name or not relative or not name:
+            continue
+
+        stored = folder / name
+        original = config["root"] / relative
+        deleted_path = storage_relative(item["section"], relative)
+        if stored.is_file():
+            if trash["items"].get(folder.name) != item:
+                trash["items"][folder.name] = item
+                changed = True
+            if deleted_path not in deleted:
+                deleted.add(deleted_path)
+                changed = True
+            completed.append(journal)
+            continue
+
+        if not original.is_file():
+            continue
+        sidecar_name = plain_name(item.get("sidecar"))
+        parked_sidecar = folder / (sidecar_name or "")
+        target_sidecar = xmp_path_for(original)
+        if sidecar_name and parked_sidecar.is_file() and not target_sidecar.exists():
+            target_sidecar.parent.mkdir(parents=True, exist_ok=True)
+            os.replace(parked_sidecar, target_sidecar)
+        if trash["items"].pop(folder.name, None) is not None:
+            changed = True
+        if deleted_path in deleted:
+            deleted.discard(deleted_path)
+            changed = True
+        completed.append(journal)
+
+    normalized_deleted = sorted(deleted)
+    if normalized_deleted != trash["deleted_paths"]:
+        trash["deleted_paths"] = normalized_deleted
+        changed = True
+    return changed, completed
 
 
 def remove_empty_folders(folder, root):
@@ -702,8 +829,6 @@ def trash_media(section, file_ids):
     moved = 0
     missing = 0
     deleted_at = time.strftime("%Y-%m-%d %H:%M:%S")
-    # ponytail: the trash list is saved once per batch, to spare the SD card.
-    # A crash mid-batch leaves moved files safe in .niwa_trash but unlisted.
     with TRASH_LOCK:
         trash = load_trash()
         deleted = set(trash["deleted_paths"])
@@ -720,12 +845,8 @@ def trash_media(section, file_ids):
             folder = TRASH_ROOT / trash_id
             folder.mkdir(parents=True)
             sidecar = xmp_path_for(path)
-            os.replace(path, folder / path.name)
-            sidecar_name = None
-            if sidecar.is_file():
-                os.replace(sidecar, folder / sidecar.name)
-                sidecar_name = sidecar.name
-            trash["items"][trash_id] = {
+            sidecar_name = sidecar.name if sidecar.is_file() else None
+            item = {
                 "id": trash_id,
                 "section": section,
                 "relative": relative.as_posix(),
@@ -734,11 +855,18 @@ def trash_media(section, file_ids):
                 "size": size,
                 "deleted_at": deleted_at,
             }
+            journal = folder / TRASH_JOURNAL_NAME
+            atomic_write_json(journal, item, indent=2, sort_keys=True)
+            if sidecar_name:
+                os.replace(sidecar, folder / sidecar.name)
+            os.replace(path, folder / path.name)
+            trash["items"][trash_id] = item
             deleted.add(storage_relative(section, relative))
+            trash["deleted_paths"] = sorted(deleted)
+            save_trash(trash)
+            journal.unlink(missing_ok=True)
             remove_empty_folders(path.parent, root)
             moved += 1
-        trash["deleted_paths"] = sorted(deleted)
-        save_trash(trash)
     if moved:
         refresh_index_quietly()
     return {"moved": moved, "missing": missing}
@@ -949,7 +1077,8 @@ def render_raw_jpg(path, relative):
 
 def print_ratio(preset, orientation):
     config = PRINT_PRESETS.get(preset)
-    if config is None or orientation not in {"landscape", "portrait"}:
+    if (config is None or preset == "original"
+            or orientation not in {"landscape", "portrait"}):
         raise ValueError("Formato o orientamento non valido.")
     pair = config.get("mm", config.get("ratio"))
     long_side, short_side = max(pair), min(pair)
@@ -961,6 +1090,10 @@ def print_ratio(preset, orientation):
 
 def print_output_size(preset, orientation, source_size, frame_size=None):
     config = PRINT_PRESETS[preset]
+    if preset == "original":
+        width, height = source_size
+        shrink = min(1.0, 6000 / max(width, height))
+        return max(1, round(width * shrink)), max(1, round(height * shrink))
     if "pixels" in config:
         width, height = config["pixels"]
         return (width, height) if orientation == "landscape" else (height, width)
@@ -1171,7 +1304,8 @@ def render_print_export(path, relative, payload):
     preset = str(payload.get("preset", "P"))
     orientation = str(payload.get("orientation", "landscape"))
     file_type = str(payload.get("file_type", "jpg")).lower()
-    if preset not in PRINT_PRESETS or orientation not in {"landscape", "portrait"}:
+    if (preset not in PRINT_PRESETS
+            or orientation not in {"landscape", "portrait"}):
         raise ValueError("Formato di esportazione non valido.")
     if file_type not in {"jpg", "png"}:
         raise ValueError("Scegli JPG o PNG.")
@@ -1350,11 +1484,7 @@ def load_preview_state():
 
 
 def save_preview_state(state):
-    CACHE_ROOT.mkdir(parents=True, exist_ok=True)
-    temp_path = PREVIEW_STATE_FILE.with_suffix(".tmp")
-    with open(temp_path, "w", encoding="utf-8") as f:
-        json.dump(state, f, indent=2)
-    temp_path.replace(PREVIEW_STATE_FILE)
+    atomic_write_json(PREVIEW_STATE_FILE, state, indent=2)
 
 
 def preview_is_cached(path, relative):
@@ -1439,6 +1569,10 @@ def run_preview_scan():
     state = load_preview_state()
     files_state = state.setdefault("files", {})
     raw_files = list(iter_photo_files(RAW_EXTENSIONS))
+    raw_files.sort(
+        key=lambda pair: photo_signature(pair[0]).get("mtime_ns", 0),
+        reverse=True,
+    )
     # Trashed RAWs keep their cached previews, so the trash view can show them.
     kept_files = raw_files + trashed_photo_raws()
     existing_keys = {state_key(relative) for _path, relative in kept_files}
@@ -1584,7 +1718,7 @@ def extract_raw_preview(path, relative):
         return cache_path
 
     tags = ["JpgFromRaw", "PreviewImage", "OtherImage", "ThumbnailImage"]
-    temp_path = cache_path.with_suffix(".tmp")
+    temp_path = CACHE_ROOT / f".{uuid.uuid4().hex}.tmp.jpg"
 
     for tag in tags:
         try:
@@ -1618,7 +1752,7 @@ def extract_video_thumbnail(section, path, relative):
     if cache_path.exists() and cache_path.stat().st_size > 0:
         return cache_path
 
-    temp_path = cache_path.with_suffix(".tmp.jpg")
+    temp_path = VIDEO_CACHE_ROOT / f".{uuid.uuid4().hex}.tmp.jpg"
     attempts = [
         ["ffmpeg", "-y", "-ss", "00:00:01", "-i", str(path), "-frames:v", "1", "-vf", "scale=900:-2", "-q:v", "5", str(temp_path)],
         ["ffmpeg", "-y", "-ss", "00:00:00.2", "-i", str(path), "-frames:v", "1", "-vf", "scale=900:-2", "-q:v", "5", str(temp_path)],
@@ -1939,6 +2073,7 @@ let SELECTING = false;
 const SELECTED = new Map();
 let TRASH_ITEMS = [];
 let LIVE_REFRESH_BUSY = false;
+let LAST_MEDIA_STATUS = '';
 
 const SECTION_LABELS = {
     photo: 'foto',
@@ -1972,24 +2107,55 @@ function setGoProFilter(filter){
     loadMedia(true);
 }
 
+function appendText(parent, className, value){
+    const element = document.createElement('div');
+    element.className = className;
+    element.textContent = value == null ? '' : String(value);
+    parent.appendChild(element);
+    return element;
+}
+
+function fillMediaCard(card, item, trashed=false){
+    const image = document.createElement('img');
+    image.className = 'thumb' + (item.kind === 'video' ? ' video-thumb' : '');
+    image.loading = 'lazy';
+    image.decoding = 'async';
+    image.src = item.thumbnail_url || item.preview_url;
+    image.alt = '';
+    card.appendChild(image);
+    if(item.kind === 'video'){
+        appendText(card, 'play-badge', 'Play');
+    }
+
+    const info = document.createElement('div');
+    info.className = 'info';
+    appendText(info, 'name', item.name);
+    appendText(info, 'meta', `${item.size_label} - ${item.mtime_label}`);
+    if(trashed){
+        appendText(info, 'meta', `Eliminato ${item.deleted_at || ''}`);
+        appendText(info, 'meta', item.folder);
+    }
+    const badge = document.createElement('span');
+    badge.className = 'badge';
+    badge.textContent = item.extension || '';
+    info.appendChild(badge);
+    card.appendChild(info);
+}
+
+function setLabeledStatus(elementId, label, message){
+    const element = document.getElementById(elementId);
+    const strong = document.createElement('strong');
+    strong.textContent = label;
+    element.replaceChildren(strong, document.createTextNode(` ${message}`));
+}
+
 function itemCard(item){
     const card = document.createElement('div');
     card.className = 'card' + (SELECTED.has(item.id) ? ' selected' : '');
     card.dataset.id = item.id;
     card.onclick = ()=> SELECTING ? toggleSelected(item, card) : openPhoto(item.id);
 
-    const thumb = item.kind === 'video'
-        ? `<img class="thumb video-thumb" loading="lazy" decoding="async" src="${item.thumbnail_url || item.preview_url}" alt=""><div class="play-badge">Play</div>`
-        : `<img class="thumb" loading="lazy" decoding="async" src="${item.thumbnail_url || item.preview_url}" alt="">`;
-
-    card.innerHTML = `
-        ${thumb}
-        <div class="info">
-            <div class="name">${item.name}</div>
-            <div class="meta">${item.size_label} - ${item.mtime_label}</div>
-            <span class="badge">${item.extension}</span>
-        </div>
-    `;
+    fillMediaCard(card, item);
     return card;
 }
 
@@ -2038,10 +2204,12 @@ async function loadMedia(reset=true){
         TOTAL_ITEMS = data.pagination ? data.pagination.total : PHOTOS.length;
         HAS_MORE = Boolean(data.pagination && data.pagination.has_more);
 
-        status.textContent = `${PHOTOS.length}/${TOTAL_ITEMS} file caricati da ${data.storage_path || data.root}`;
+        LAST_MEDIA_STATUS = `${PHOTOS.length}/${TOTAL_ITEMS} file caricati da ${data.storage_path || data.root}`;
+        status.textContent = LAST_MEDIA_STATUS;
 
         if(!PHOTOS.length){
-            gallery.innerHTML = `<div class="empty">${data.empty_message || 'Nessun file trovato.'}</div>`;
+            gallery.replaceChildren();
+            appendText(gallery, 'empty', data.empty_message || 'Nessun file trovato.');
             renderLoadMore();
             return;
         }
@@ -2088,6 +2256,8 @@ async function refreshLivePhotos(){
         if(total !== TOTAL_ITEMS || incoming.length !== PHOTOS.length ||
            incoming.some((item, index)=>item.id !== PHOTOS[index].id)){
             await loadMedia(true);
+        }else if(LAST_MEDIA_STATUS){
+            document.getElementById('status').textContent = LAST_MEDIA_STATUS;
         }
     }catch(e){
         document.getElementById('status').textContent =
@@ -2104,8 +2274,10 @@ async function loadIndexStatus(){
         const index = data.index || {};
         const worker = data.worker || {};
         const message = worker.running ? 'Indicizzazione in corso...' : (worker.message || 'Indice pronto.');
-        document.getElementById('indexStatus').innerHTML =
-            `<strong>Indice media:</strong> ${index.total_items || 0} file. ${message}`;
+        setLabeledStatus(
+            'indexStatus', 'Indice media:',
+            `${index.total_items || 0} file. ${message}`
+        );
     }catch(e){
         document.getElementById('indexStatus').textContent = 'Indice: stato non disponibile.';
     }
@@ -2140,8 +2312,10 @@ async function loadPreviewStatus(){
         const videoCached = data.video_cached || 0;
         const current = worker.current ? ` - ${worker.current}` : '';
 
-        document.getElementById('workerStatus').innerHTML =
-            `<strong>Anteprime:</strong> RAW ${cached}/${total}, video ${videoCached}/${videoTotal}. ${worker.message || ''}${current}`;
+        setLabeledStatus(
+            'workerStatus', 'Anteprime:',
+            `RAW ${cached}/${total}, video ${videoCached}/${videoTotal}. ${worker.message || ''}${current}`
+        );
     }catch(e){
         document.getElementById('workerStatus').textContent = 'Anteprime: stato non disponibile.';
     }
@@ -2508,16 +2682,7 @@ function trashCard(item){
     card.className = 'card' + (SELECTED.has(item.id) ? ' selected' : '');
     card.dataset.id = item.id;
     card.onclick = ()=>toggleSelected(item, card);
-    card.innerHTML = `
-        <img class="thumb" loading="lazy" src="${item.preview_url}" alt="">
-        <div class="info">
-            <div class="name">${item.name}</div>
-            <div class="meta">${item.size_label} - ${item.mtime_label}</div>
-            <div class="meta">Eliminato ${item.deleted_at}</div>
-            <div class="meta">${item.folder}</div>
-            <span class="badge">${item.extension}</span>
-        </div>
-    `;
+    fillMediaCard(card, item, true);
     return card;
 }
 
@@ -2557,7 +2722,8 @@ async function loadTrash(){
             ? `${TRASH_ITEMS.length} file nel cestino - ${data.total_size_label}. Lo spazio si libera solo con Svuota cestino.`
             : 'Il cestino è vuoto.';
         if(!TRASH_ITEMS.length){
-            gallery.innerHTML = '<div class="empty">Nessun file nel cestino.</div>';
+            gallery.replaceChildren();
+            appendText(gallery, 'empty', 'Nessun file nel cestino.');
         }
         TRASH_ITEMS.forEach((item)=>gallery.appendChild(trashCard(item)));
         renderSelection();
@@ -2803,7 +2969,8 @@ def api_print_frames():
         return jsonify({"error": "PNG troppo grande (massimo 16 MB)."}), 413
     preset = request.form.get("preset", "")
     orientation = request.form.get("orientation", "")
-    if preset not in PRINT_PRESETS or orientation not in {"landscape", "portrait"}:
+    if (preset not in PRINT_PRESETS or preset == "original"
+            or orientation not in {"landscape", "portrait"}):
         return jsonify({"error": "Formato o orientamento non valido."}), 400
     name = request.form.get("name", "").strip()[:80] or Path(upload.filename or "Cornice").stem[:80]
     collection = request.form.get("collection", "Generiche").strip()[:80] or "Generiche"

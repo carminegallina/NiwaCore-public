@@ -325,6 +325,15 @@ Trash:
 /mnt/niwa-storage/.niwa_trash/<trash id>/  (media plus its XMP sidecar)
 /home/niwa/niwa/data/review_trash.json  (trash list and deleted_paths)
 
+Review reliability pass deployed on 2026-10-05:
+- index rebuilds and rating updates are serialized and JSON writes are atomic
+- trash moves use a per-item journal so an interrupted operation is recoverable
+- preview temporary files use unique names
+- external filenames and worker messages are inserted in the DOM as text
+- editor preview orphans are cleaned and the RAW-to-JPG cache is capped at 2 GiB
+- the RAW preview worker processes the newest shots first
+- the no-frame print option exports with the original photo ratio
+
 Current behavior:
 - shows RAW/JPG files from photo
 - extracts embedded RAW previews with ExifTool when available

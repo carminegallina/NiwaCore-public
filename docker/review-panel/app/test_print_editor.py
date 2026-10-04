@@ -118,6 +118,22 @@ class PrintEditorTests(unittest.TestCase):
             invalid = self.client.post("/api/print/export", json={**base, field: value})
             self.assertEqual(invalid.status_code, 400)
 
+    def test_no_frame_original_format_preserves_photo_ratio(self):
+        response = self.client.post("/api/print/export", json={
+            "id": media_id("TEST.JPG"), "preset": "original",
+            "orientation": "landscape", "file_type": "jpg",
+        })
+        self.assertEqual(response.status_code, 200, response.get_data(as_text=True))
+        result = response.get_json()
+        self.assertEqual((result["width"], result["height"]), (1600, 1200))
+        download = self.client.get(result["download_url"])
+        with Image.open(io.BytesIO(download.data)) as image:
+            self.assertEqual(image.size, (1600, 1200))
+        download.close()
+
+        rejected_frame = self.upload(preset="original")
+        self.assertEqual(rejected_frame.status_code, 400)
+
     def test_color_and_luminance_controls_change_only_the_export(self):
         source = Image.new("RGB", (40, 40))
         for y in range(40):

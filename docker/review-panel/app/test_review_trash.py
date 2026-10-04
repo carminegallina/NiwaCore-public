@@ -4,8 +4,11 @@ import base64
 import io
 import json
 import os
+import threading
+import time
 import unittest
 import zipfile
+from concurrent.futures import ThreadPoolExecutor
 from unittest import mock
 
 import app as review
@@ -202,6 +205,60 @@ class ReviewTrashTests(unittest.TestCase):
         response = self.client.post("/api/media/photo/trash", json={"ids": [file_id("../secret.NEF")]})
         self.assertEqual(response.status_code, 400)
         self.assertFalse(review.TRASH_FILE.exists())
+
+    def test_recovers_a_moved_file_if_trash_json_save_is_interrupted(self):
+        relative = "imports/day1/DSC_1.NEF"
+        with mock.patch.object(review, "save_trash", side_effect=OSError("power loss")):
+            with self.assertRaises(OSError):
+                review.trash_media("photo", [file_id(relative)])
+
+        self.assertFalse((self.photo / relative).exists())
+        self.assertEqual(len(list(review.TRASH_ROOT.glob(f"*/{review.TRASH_JOURNAL_NAME}"))), 1)
+        listing = self.client.get("/api/trash").get_json()
+        self.assertEqual(listing["count"], 1)
+        self.assertEqual(self.deleted_paths(), [f"photo/{relative}"])
+        restored = self.client.post("/api/trash/restore", json={"all": True}).get_json()
+        self.assertEqual(restored["restored"], 1)
+        self.assertTrue((self.photo / relative).is_file())
+
+    def test_rolls_back_a_sidecar_if_media_move_is_interrupted(self):
+        relative = "imports/day1/DSC_1.NEF"
+        media = self.photo / relative
+        real_replace = os.replace
+
+        def interrupted_replace(source, destination):
+            if Path(source) == media:
+                raise OSError("power loss")
+            return real_replace(source, destination)
+
+        with mock.patch.object(review.os, "replace", side_effect=interrupted_replace):
+            with self.assertRaises(OSError):
+                review.trash_media("photo", [file_id(relative)])
+
+        listing = self.client.get("/api/trash").get_json()
+        self.assertEqual(listing["count"], 0)
+        self.assertTrue(media.is_file())
+        self.assertTrue(media.with_suffix(".xmp").is_file())
+
+    def test_index_rebuilds_are_serialized(self):
+        active = 0
+        maximum = 0
+        guard = threading.Lock()
+
+        def slow_scan(_section, _kind):
+            nonlocal active, maximum
+            with guard:
+                active += 1
+                maximum = max(maximum, active)
+            time.sleep(0.01)
+            with guard:
+                active -= 1
+            return []
+
+        with mock.patch.object(review, "scan_media_filesystem", side_effect=slow_scan):
+            with ThreadPoolExecutor(max_workers=2) as executor:
+                list(executor.map(lambda _value: review.rebuild_review_index(), range(2)))
+        self.assertEqual(maximum, 1)
 
 
 if __name__ == "__main__":
