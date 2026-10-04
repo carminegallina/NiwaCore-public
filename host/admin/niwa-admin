@@ -19,6 +19,7 @@ Commands:
   hotspot-up
   hotspot-channel <1|6|11>
   hotspot-request
+  hotspot-scan
   service-restart <service>
   service-status <service>
 
@@ -122,21 +123,50 @@ set_hotspot_channel() {
   return 1
 }
 
+# Only numbers leave this function: 2.4 GHz channels and signal levels, no
+# network names. Scanning while the hotspot is up needs `ap-force`.
+scan_hotspot_neighbours() {
+  local tmp networks
+  install -d -m 0755 "${HOTSPOT_DIR}"
+  tmp="$(mktemp "${HOTSPOT_DIR}/.scan.XXXXXX")"
+  if networks="$(timeout 25 iw dev wlan0 scan ap-force | awk '
+      function emit() {
+        if (freq >= 2412 && freq <= 2484 && signal != "") {
+          printf "%s{\"channel\":%d,\"signal\":%.1f}", (count++ ? "," : ""), (freq == 2484 ? 14 : (freq - 2407) / 5), signal
+        }
+      }
+      /^BSS / { emit(); freq = 0; signal = "" }
+      $1 == "freq:" { freq = int($2) }
+      $1 == "signal:" { signal = $2 + 0 }
+      END { emit() }')"; then
+    printf '{"ok":true,"message":"Scansione completata","networks":[%s],"updated":"%s"}
+'       "${networks}" "$(date -Iseconds)" > "${tmp}"
+  else
+    printf '{"ok":false,"message":"Il Wi-Fi del Raspberry non riesce a scansionare mentre fa da hotspot","networks":[],"updated":"%s"}
+'       "$(date -Iseconds)" > "${tmp}"
+  fi
+  chmod 0644 "${tmp}"
+  mv -fT "${tmp}" "${HOTSPOT_DIR}/scan.json"
+}
+
 # Run by niwa-hotspot.service when NIWA System drops a request file.
 apply_hotspot_request() {
-  local request="${HOTSPOT_DIR}/request" channel=""
+  local request="${HOTSPOT_DIR}/request" value=""
   if [[ ! -e "${request}" && ! -L "${request}" ]]; then
     write_hotspot_status true "Stato aggiornato"
     return 0
   fi
   # The container wrote this file: read a few bytes of a regular file only.
   if [[ -f "${request}" && ! -L "${request}" ]]; then
-    channel="$(timeout 2 head -c 3 -- "${request}" | tr -dc '0-9' || true)"
+    value="$(timeout 2 head -c 4 -- "${request}" | tr -dc 'a-z0-9' || true)"
   fi
   rm -rf -- "${request}"
-  case "${channel}" in
+  case "${value}" in
     1|6|11)
-      set_hotspot_channel "${channel}"
+      set_hotspot_channel "${value}"
+      ;;
+    scan)
+      scan_hotspot_neighbours
       ;;
     *)
       write_hotspot_status false "Richiesta non valida"
@@ -166,6 +196,9 @@ case "${1:-}" in
     ;;
   hotspot-request)
     apply_hotspot_request
+    ;;
+  hotspot-scan)
+    scan_hotspot_neighbours
     ;;
   service-restart)
     validate_service "${2:-}"

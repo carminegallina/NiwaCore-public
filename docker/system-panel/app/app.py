@@ -438,22 +438,81 @@ def build_status():
     }
 
 
-def hotspot_state():
+def read_hotspot_json(name):
     try:
-        status = json.loads((HOTSPOT_DIR / "status.json").read_text(encoding="utf-8"))
+        data = json.loads((HOTSPOT_DIR / name).read_text(encoding="utf-8"))
     except (OSError, ValueError):
-        status = {}
-    if not isinstance(status, dict):
-        status = {}
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def channel_load(networks):
+    # ponytail: rough airtime/interference score, each neighbour weighs its dB
+    # above a -100 dBm floor, scaled down by channel distance (no overlap at 5+).
+    # Good enough to rank 1/6/11; real spectrum analysis would need other hardware.
+    load = {}
+    for candidate in HOTSPOT_CHANNELS:
+        score, count, strongest = 0.0, 0, None
+        for network in networks:
+            try:
+                channel, signal = int(network["channel"]), float(network["signal"])
+            except (KeyError, TypeError, ValueError):
+                continue
+            distance = abs(channel - int(candidate))
+            if distance >= 5:
+                continue
+            count += 1
+            score += max(0.0, signal + 100) * (1 - distance / 5)
+            strongest = signal if strongest is None else max(strongest, signal)
+        load[candidate] = {"networks": count, "strongest": strongest, "score": round(score, 1)}
+    return load
+
+
+def hotspot_scan(current_channel):
+    scan = read_hotspot_json("scan.json")
+    networks = scan.get("networks") if isinstance(scan.get("networks"), list) else []
+    load = channel_load(networks) if scan.get("ok") is True else {}
+    recommended = ""
+    if load:
+        best = min(entry["score"] for entry in load.values())
+        # Prefer staying put on a tie: a switch drops the Wi-Fi for a few seconds.
+        if current_channel in load and load[current_channel]["score"] == best:
+            recommended = current_channel
+        else:
+            recommended = next(channel for channel, entry in load.items() if entry["score"] == best)
+    return {
+        "ok": scan.get("ok") is True,
+        "message": str(scan.get("message", "")),
+        "updated": str(scan.get("updated", "")),
+        "total": len(networks),
+        "channels": load,
+        "recommended": recommended,
+    }
+
+
+def hotspot_state():
+    status = read_hotspot_json("status.json")
+    try:
+        pending = (HOTSPOT_DIR / "request").read_text(encoding="utf-8").strip()[:4]
+    except OSError:
+        pending = ""
+    channel = str(status.get("channel", ""))
     return {
         "available": HOTSPOT_DIR.is_dir(),
-        "pending": (HOTSPOT_DIR / "request").exists(),
-        "channel": str(status.get("channel", "")),
+        "pending": pending,
+        "channel": channel,
         "ok": status.get("ok") is True,
         "message": str(status.get("message", "")),
         "updated": str(status.get("updated", "")),
         "channels": HOTSPOT_CHANNELS,
+        "scan": hotspot_scan(channel),
     }
+
+
+def drop_hotspot_request(value):
+    temp = HOTSPOT_DIR / ".request.tmp"
+    temp.write_text(value, encoding="utf-8")
+    temp.replace(HOTSPOT_DIR / "request")
 
 
 @app.after_request
@@ -498,9 +557,19 @@ def api_hotspot_channel():
         return jsonify({"error": "Canale non valido: scegli 1, 6 o 11."}), 400
     if not HOTSPOT_DIR.is_dir():
         return jsonify({"error": "Cartella richieste hotspot non montata."}), 503
-    temp = HOTSPOT_DIR / ".request.tmp"
-    temp.write_text(channel, encoding="utf-8")
-    temp.replace(HOTSPOT_DIR / "request")
+    drop_hotspot_request(channel)
+    return jsonify(hotspot_state()), 202
+
+
+@app.route("/api/hotspot/scan", methods=["POST"])
+def api_hotspot_scan():
+    if not request.is_json:
+        return jsonify({"error": "Richiesta non valida."}), 400
+    if not HOTSPOT_DIR.is_dir():
+        return jsonify({"error": "Cartella richieste hotspot non montata."}), 503
+    if (HOTSPOT_DIR / "request").exists():
+        return jsonify({"error": "Il Raspberry sta gia' lavorando sull'hotspot, riprova tra poco."}), 409
+    drop_hotspot_request("scan")
     return jsonify(hotspot_state()), 202
 
 
@@ -520,7 +589,7 @@ body{margin:0;font-family:Arial,sans-serif;background:radial-gradient(circle at 
 h1{margin:0 0 6px;font-size:32px;letter-spacing:0;color:#fff4ec}.subtitle{color:var(--muted);line-height:1.45}.topbar{display:flex;justify-content:space-between;gap:14px;align-items:flex-start;margin-bottom:18px}.brand-heading{display:flex;align-items:center;gap:12px;min-width:0}.brand-logo{width:52px;height:52px;border-radius:50%;border:1px solid rgba(213,154,132,.42);background:#f2dfcf;box-shadow:0 16px 34px rgba(0,0,0,.28);flex:0 0 auto}.brand-copy{min-width:0}.button{display:inline-flex;align-items:center;justify-content:center;background:rgba(64,45,42,.92);color:white;text-decoration:none;padding:10px 12px;border-radius:10px;border:1px solid var(--line);min-height:40px;box-shadow:inset 0 1px 0 rgba(255,255,255,.04)}.button:hover{background:rgba(87,61,56,.96);border-color:rgba(213,154,132,.42)}
 .hero{display:grid;grid-template-columns:minmax(0,1.25fr) minmax(260px,.75fr);gap:14px;align-items:stretch;margin-bottom:14px}.card{background:linear-gradient(180deg,rgba(42,31,29,.94),rgba(18,14,14,.96));border:1px solid var(--line);border-radius:12px;padding:16px;box-shadow:0 18px 34px rgba(0,0,0,.25)}.overall{display:grid;grid-template-columns:auto 1fr;gap:14px;align-items:center}.mark{width:76px;height:76px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:bold;font-size:26px;border:1px solid rgba(255,255,255,.18);box-shadow:0 18px 34px rgba(0,0,0,.25)}.mark.ok{background:rgba(34,197,94,.16);color:#86efac;border-color:rgba(34,197,94,.42)}.mark.warning{background:rgba(250,204,21,.15);color:#fde68a;border-color:rgba(250,204,21,.45)}.mark.error{background:rgba(239,68,68,.16);color:#fecaca;border-color:rgba(239,68,68,.45)}.headline{font-size:30px;font-weight:bold;margin-bottom:4px}.muted{color:var(--muted);line-height:1.45}.metrics{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}.metric{background:rgba(21,17,18,.92);border:1px solid rgba(203,144,124,.20);border-radius:10px;padding:12px}.metric-value{font-size:24px;font-weight:bold}.metric-label{color:var(--muted);font-size:13px;margin-top:4px}
 .section-head{display:flex;justify-content:space-between;gap:10px;align-items:center;margin:20px 0 10px}h2{margin:0;font-size:20px;color:#fff4ec}.updated{color:var(--muted);font-size:13px}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:12px}.service-card{display:flex;flex-direction:column;gap:10px;min-height:150px}.service-head{display:flex;justify-content:space-between;gap:10px;align-items:flex-start}.service-name{font-weight:bold}.group{color:var(--muted);font-size:12px;margin-top:3px}.status-pill{border-radius:999px;padding:5px 9px;font-weight:bold;font-size:12px;border:1px solid rgba(255,255,255,.16);white-space:nowrap}.status-pill.ok{background:rgba(34,197,94,.14);color:#86efac;border-color:rgba(34,197,94,.36)}.status-pill.warning{background:rgba(250,204,21,.14);color:#fde68a;border-color:rgba(250,204,21,.38)}.status-pill.error{background:rgba(239,68,68,.14);color:#fecaca;border-color:rgba(239,68,68,.40)}.detail{color:#eadbd4;line-height:1.4;font-size:14px;flex:1}.service-link{color:#f0b8a2;text-decoration:none;font-size:13px}.service-link:hover{text-decoration:underline}.bar{height:12px;background:#151112;border:1px solid rgba(203,144,124,.18);border-radius:999px;overflow:hidden;margin-top:10px}.bar-fill{height:100%;background:linear-gradient(90deg,#d59a84,#f0b8a2);width:0}.ips{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}.ip{background:rgba(64,45,42,.92);border:1px solid var(--line);border-radius:999px;padding:5px 8px;color:#ffe0d1;font-size:12px}.loading{color:var(--muted);padding:16px}.error-box{border-color:rgba(239,68,68,.42);color:#fecaca}
-.hotspot-card{display:grid;gap:12px}.channel-buttons{display:flex;gap:8px;flex-wrap:wrap}.channel-button{cursor:pointer;font:inherit;min-width:110px}.channel-button.active{background:linear-gradient(180deg,#d59a84,#9f6f63);border-color:rgba(240,184,162,.45)}.channel-button:disabled{opacity:.55;cursor:default}.hotspot-current{font-weight:bold;font-size:18px}
+.hotspot-card{display:grid;gap:12px}.channel-buttons{display:flex;gap:8px;flex-wrap:wrap}.channel-button{cursor:pointer;font:inherit;min-width:110px}.channel-button.active{background:linear-gradient(180deg,#d59a84,#9f6f63);border-color:rgba(240,184,162,.45)}.channel-button:disabled{opacity:.55;cursor:default}.hotspot-current{font-weight:bold;font-size:18px}.scan-list{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:8px}.scan-entry{background:rgba(21,17,18,.92);border:1px solid rgba(203,144,124,.20);border-radius:10px;padding:10px;font-size:14px;line-height:1.4}.scan-entry.best{border-color:rgba(34,197,94,.55)}.scan-entry strong{display:block}.scan-best{color:#86efac;font-size:12px;font-weight:bold}
 @media(max-width:820px){body{padding:12px}.topbar{display:block}.brand-logo{width:44px;height:44px}.topbar .button{margin-top:10px}.hero{grid-template-columns:1fr}.overall{grid-template-columns:1fr}.mark{width:62px;height:62px}.headline{font-size:25px}.metrics{grid-template-columns:1fr}.section-head{display:block}.updated{margin-top:5px}.service-card{min-height:auto}}
 </style>
 </head>
@@ -573,7 +642,10 @@ h1{margin:0 0 6px;font-size:32px;letter-spacing:0;color:#fff4ec}.subtitle{color:
     <button class="button channel-button" data-channel="6" onclick="setHotspotChannel('6')">Canale 6</button>
     <button class="button channel-button" data-channel="11" onclick="setHotspotChannel('11')">Canale 11</button>
   </div>
-  <div class="muted">Sul posto scegli il canale con meno reti vicine. Cambiandolo il Wi-Fi NIWA-AP cade per qualche secondo: tablet ed ESP32 si ricollegano da soli.</div>
+  <div><button class="button channel-button" id="scanButton" onclick="scanHotspot()">Cerca il canale piu libero</button></div>
+  <div class="muted" id="scanMessage"></div>
+  <div class="scan-list" id="scanList"></div>
+  <div class="muted">La ricerca non spegne il Wi-Fi. Cambiare canale invece fa cadere NIWA-AP per qualche secondo: tablet ed ESP32 si ricollegano da soli.</div>
 </div>
 
 <div class="section-head">
@@ -683,7 +755,7 @@ function renderHotspot(data){
   if(!data.available){
     current.textContent = 'Cambio canale non disponibile';
     message.textContent = 'La cartella condivisa con il Raspberry non e montata nel container.';
-  }else if(data.pending){
+  }else if(data.pending && data.pending !== 'scan'){
     current.textContent = 'Cambio canale in corso...';
     message.textContent = 'Il Wi-Fi puo cadere per qualche secondo.';
   }else{
@@ -692,9 +764,69 @@ function renderHotspot(data){
   }
   document.getElementById('hotspotUpdated').textContent = data.updated ? `Esito: ${data.updated}` : '-';
   document.querySelectorAll('.channel-button').forEach((button)=>{
-    button.classList.toggle('active', button.dataset.channel === data.channel);
-    button.disabled = HOTSPOT_BUSY || data.pending || !data.available;
+    button.classList.toggle('active', !!button.dataset.channel && button.dataset.channel === data.channel);
+    button.disabled = HOTSPOT_BUSY || !!data.pending || !data.available;
   });
+  renderScan(data.scan, data.pending === 'scan');
+}
+
+function renderScan(scan, scanning){
+  const message = document.getElementById('scanMessage');
+  const list = document.getElementById('scanList');
+  list.replaceChildren();
+  if(scanning){
+    message.textContent = 'Ricerca delle reti vicine in corso...';
+    return;
+  }
+  if(!scan.updated){
+    message.textContent = 'Nessuna ricerca fatta: premi il pulsante sul posto.';
+    return;
+  }
+  if(!scan.ok){
+    message.textContent = `${scan.message} (${scan.updated}). Usa un'app tipo WiFi Analyzer sul tablet.`;
+    return;
+  }
+  message.textContent = `${scan.total} reti a 2,4 GHz trovate (${scan.updated}). Il consiglio pesa quante reti si sovrappongono e quanto sono forti.`;
+  Object.entries(scan.channels).forEach(([channel, entry])=>{
+    const box = document.createElement('div');
+    box.className = 'scan-entry' + (channel === scan.recommended ? ' best' : '');
+    const title = document.createElement('strong');
+    title.textContent = `Canale ${channel}`;
+    box.appendChild(title);
+    if(channel === scan.recommended){
+      const best = document.createElement('span');
+      best.className = 'scan-best';
+      best.textContent = 'CONSIGLIATO';
+      box.appendChild(best);
+    }
+    const detail = document.createElement('div');
+    detail.textContent = entry.networks
+      ? `${entry.networks} ${entry.networks === 1 ? 'rete vicina' : 'reti vicine'}, la piu forte ${Math.round(entry.strongest)} dBm`
+      : 'Nessuna rete vicina';
+    box.appendChild(detail);
+    list.appendChild(box);
+  });
+}
+
+async function scanHotspot(){
+  HOTSPOT_BUSY = true;
+  let before = '';
+  try{
+    before = (await loadHotspot()).scan.updated;
+    const res = await fetch('/api/hotspot/scan', {method:'POST', headers:{'Content-Type':'application/json'}, body:'{}'});
+    const data = await res.json().catch(()=>({}));
+    if(!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+    renderHotspot(data);
+    for(let attempt = 0; attempt < 20; attempt++){
+      await new Promise((resolve)=>setTimeout(resolve, 2000));
+      const next = await loadHotspot().catch(()=>null);
+      if(next && !next.pending && next.scan.updated !== before) break;
+    }
+  }catch(error){
+    alert('Ricerca non avviata: ' + error.message);
+  }
+  HOTSPOT_BUSY = false;
+  loadHotspot().catch(()=>{});
 }
 
 async function loadHotspot(){

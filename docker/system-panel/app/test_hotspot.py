@@ -33,7 +33,31 @@ class HotspotChannelTest(unittest.TestCase):
             '{"channel":"1","ok":true,"message":"Canale 1 attivo","updated":"2026-10-05T01:00:00+02:00"}'
         )
         data = self.client.get("/api/hotspot").get_json()
-        self.assertEqual((data["channel"], data["ok"], data["pending"]), ("1", True, False))
+        self.assertEqual((data["channel"], data["ok"], data["pending"]), ("1", True, ""))
+
+    def test_scan_recommends_the_least_crowded_channel(self):
+        (system.HOTSPOT_DIR / "status.json").write_text('{"channel":"1","ok":true}')
+        (system.HOTSPOT_DIR / "scan.json").write_text(
+            '{"ok":true,"updated":"now","networks":['
+            '{"channel":1,"signal":-40},{"channel":2,"signal":-60},'
+            '{"channel":6,"signal":-85},{"channel":11,"signal":-70},{"channel":11,"signal":-75}]}'
+        )
+        scan = self.client.get("/api/hotspot").get_json()["scan"]
+        self.assertEqual(scan["recommended"], "6")
+        self.assertEqual(scan["channels"]["1"]["networks"], 2)
+        self.assertEqual(scan["channels"]["6"]["strongest"], -60)  # channel 2 still overlaps 6
+
+    def test_scan_tie_keeps_the_current_channel(self):
+        (system.HOTSPOT_DIR / "status.json").write_text('{"channel":"11","ok":true}')
+        (system.HOTSPOT_DIR / "scan.json").write_text('{"ok":true,"updated":"now","networks":[]}')
+        self.assertEqual(self.client.get("/api/hotspot").get_json()["scan"]["recommended"], "11")
+
+    def test_scan_request_is_queued_once(self):
+        first = self.client.post("/api/hotspot/scan", json={})
+        self.assertEqual(first.status_code, 202)
+        self.assertEqual((system.HOTSPOT_DIR / "request").read_text(), "scan")
+        self.assertEqual(first.get_json()["pending"], "scan")
+        self.assertEqual(self.client.post("/api/hotspot/scan", json={}).status_code, 409)
 
 
 if __name__ == "__main__":
