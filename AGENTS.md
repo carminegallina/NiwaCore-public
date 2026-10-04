@@ -103,7 +103,8 @@ NIWA Import host service:
 - Port: 5057
 - Local URL after installation: http://10.42.0.1:5057
 - Note: installed and enabled; GoPro microSD validation completed on USB 3.0,
-  Nikon Z6 II CFexpress Type B validation remains pending
+  Nikon Z6 II camera-to-Review import through the ESP32-S3 bridge is physically
+  validated; direct CFexpress Type B reader validation remains pending
 
 ## Storage
 
@@ -417,16 +418,15 @@ which also pulls the bridge token from the Raspberry over SSH:
 
 .\firmware\tools\niwa-bridge-provision.cmd -Port COM4
 
-Current Nikon bridge state (2026-10-03):
-- target date: 2026-10-08, using existing hardware without a direct Nikon-to-Pi cable
+Current Nikon bridge state (2026-10-05):
 - previous builds used Arduino ESP32 3.3.11, whose enabled USB enumeration
   filter rejects every device when `enum_filter_cb` is null
-- firmware 1.0.1 adds `allowUsbEnumeration` and startup version diagnostics;
-  flashed on COM4 with NVS credentials preserved
+- firmware 1.2.1 is flashed on COM4 with NVS credentials preserved
 - physical USB host enumeration passed with a Kingston flash drive
   (`0951:1666`), confirming the software cause; HW-678 host operation works
-- Nikon PTP and real upload validation remain pending; the earlier conclusion
-  that HW-678 cannot act as USB host is superseded
+- Nikon PTP, resumable upload, checksum verification and publication in Review
+  passed with the real Z6 II; recent shots interrupt older backlog safely
+- dual-slot duplicates are suppressed and slot 2 is used when slot 1 is absent
 - use the right COM port for PC serial/power and left USB port with the
   existing passive OTG adapter plus A-to-C Nikon data cable
 - keep rear `USB-OTG` and front `IN-OUT` bridges closed, matching reported tests
@@ -484,12 +484,12 @@ High priority:
 - DJI database extension
 - Multi-brand drone database expansion
 - Battery manager per drone
-- Media import assistant for Nikon photo/video and GoPro, mandatory future feature
+- Continue hardening the deployed Nikon/GoPro media import assistant
 - Event folder workflow if needed later
-- Review performance/indexing improvements
+- Review shot grouping and capture-date metadata improvements
 
 Medium priority:
-- Print workflow
+- Physical SELPHY CP1500 print validation for the deployed Review editor
 - SD import assistant
 - Checksums for import
 - Drone internal storage workflow research
@@ -513,10 +513,10 @@ Advanced:
 
 Latest validated stable code checkpoint:
 
-fd0f3de Add optional Companion camera capture flow
+0d9f98f fix: harden Review media operations
 
 Useful next-thread prompt:
 
-Continue NIWA in C:\Dev\portfolio\NiwaCore. Read AGENTS.md, PROJECT_HISTORY.md, ROADMAP.md and SYSTEM_SNAPSHOT.md. Stable validated checkpoint is fd0f3de Add optional Companion camera capture flow, physically validated on 2026-06-04 after flashing ESP32-CAM on COM4. NIWA Companion has a separate panel on port 5058 and an animated OLED avatar firmware. Keep ESP32-CAM as an avatar/camera/sensor node and the Raspberry as the local-first backend core. Do not implement fake AI. Next task: add on-demand low-FPS live camera preview for the Companion page, processing frames only while that page is open/visible.
+Continue NIWA in C:\Dev\portfolio\NiwaCore. Read AGENTS.md, PROJECT_HISTORY.md, ROADMAP.md, SYSTEM_SNAPSHOT.md and docs/REVIEW_PRINT_EDITOR_ROADMAP.md. Stable validated checkpoint is 0d9f98f fix: harden Review media operations. Nikon Z6 II import through the ESP32-S3 bridge, Review print editor, derived gallery images and Review reliability fixes are deployed and validated; the Tab S10 scrolling check passed. Preserve all current workflows. Next major Review task: evolve the JSON index toward shot grouping and reliable capture timestamps before redesigning the lighttable UI.
 
 ## Imported Claude Cowork project instructions
