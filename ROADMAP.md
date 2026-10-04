@@ -360,7 +360,7 @@ Status:
 - Expanded preview cache cleanup for orphaned RAW/video preview files
 - Compact lighttable layout: captions over the thumbnails, collapsible index/preview
   status, viewer actions grouped with a close button; same endpoints and actions
-  (tested locally 2026-10-05, Raspberry deploy pending)
+  (deployed on the Raspberry 2026-10-05)
 
 Future improvements:
 - background watcher for new files
