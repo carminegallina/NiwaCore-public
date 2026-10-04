@@ -111,6 +111,40 @@ class MediaDerivativeTests(unittest.TestCase):
         self.assertTrue(files[1].exists())
         self.assertTrue(files[2].exists())
 
+    def test_preview_worker_prepares_newest_shots_in_batches(self):
+        root = Path(self.temporary.name)
+        cache_root = root / "previews"
+        raws = []
+        for index in range(3):
+            path = self.photo_root / f"DSC_{index}.NEF"
+            path.write_bytes(b"raw" + bytes([index]))
+            os.utime(path, (1_700_000_000 + index, 1_700_000_000 + index))
+            raws.append((path, Path(path.name)))
+
+        def fake_embedded_preview(path, relative):
+            output = review.cache_path_for(path, relative)
+            output.parent.mkdir(parents=True, exist_ok=True)
+            Image.new("RGB", (3000, 2000), (90, 90, 90)).save(output, format="JPEG")
+            return output
+
+        with mock.patch.multiple(
+            review,
+            CACHE_ROOT=cache_root,
+            PREVIEW_STATE_FILE=cache_root / "preview_state.json",
+            JPG_EXPORT_ROOT=root / "jpg",
+            TRASH_FILE=root / "trash.json",
+            TRASH_ROOT=root / "trash",
+            PREVIEW_BATCH_SECONDS=0,
+        ), mock.patch.object(review, "extract_raw_preview", side_effect=fake_embedded_preview):
+            self.assertTrue(review.run_preview_scan())
+            ready = [review.raw_derivatives_ready(*raw) for raw in raws]
+            self.assertEqual(ready, [False, False, True], "newest shot goes first")
+
+            with mock.patch.object(review, "PREVIEW_BATCH_SECONDS", 60):
+                self.assertTrue(review.run_preview_scan())
+                self.assertTrue(all(review.raw_derivatives_ready(*raw) for raw in raws))
+                self.assertFalse(review.run_preview_scan(), "nothing left: the worker may sleep")
+
 
 if __name__ == "__main__":
     unittest.main()

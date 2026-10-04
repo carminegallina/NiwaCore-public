@@ -509,6 +509,10 @@ wrapper, which validates it and restores the previous channel on failure.
 A 1 -> 6 -> 1 test kept Wi-Fi off for about 4 s. The panel can also scan
 the neighbouring networks without dropping the hotspot and recommend the
 least crowded channel; the switch stays a manual choice.
+Review preview worker, same day: it now works through the backlog in batches,
+newest shots first, and prepares grid and viewer images too. The 51 photos
+on the SSD were ready in about a minute, and opening one in the viewer went
+from about 2 s cold to an instant response.
 
 ## Current philosophy
 

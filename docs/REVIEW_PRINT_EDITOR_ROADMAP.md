@@ -144,7 +144,7 @@ Piano proposto nell'analisi Review del 2026-10-04 (ordine consigliato). Le funzi
 7. [ ] Editor di stampa: stesse funzioni, controlli raggruppati in Cornice, Inquadratura, Regolazioni, Output; barra export che non copre i controlli; stato di caricamento visibile; riepilogo formato/orientamento/tipo file accanto all'export.
 8. [ ] Solo alla fine: aggiornamenti via SSE al posto del polling.
 
-Ancora aperto dalla stessa analisi: il worker RAW genera una sola anteprima ogni 20 s e aspetta 60 s dalla scrittura del file. Con molti scatti accumula minuti di ritardo; i file pubblicati atomicamente da NIWA Import potrebbero essere elaborati subito.
+[x] Worker RAW (2026-10-05): prima generava una sola anteprima ogni 20 s; ora lavora a lotti di circa 10 s, ripartendo sempre dagli scatti piu' recenti, e prepara anche miniatura e anteprima viewer. Sul Raspberry 39 foto completate in circa 60 s (carico circa 1,2 su 4 core); anteprima viewer servita in 10-20 ms invece di circa 2 s a freddo. L'attesa di 60 s resta solo per i file appena scritti: l'import da scheda conserva la data originale e il bridge applica l'ora di scatto, quindi di solito non si applica; il tablet ottiene comunque le immagini su richiesta.
 
 ## Integrazioni future, non ora
 

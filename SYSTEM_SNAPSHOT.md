@@ -332,6 +332,11 @@ Review reliability pass deployed on 2026-10-05:
 - external filenames and worker messages are inserted in the DOM as text
 - editor preview orphans are cleaned and the RAW-to-JPG cache is capped at 2 GiB
 - the RAW preview worker processes the newest shots first
+- worker update deployed 2026-10-05: works in batches of about 10 s instead
+  of one RAW every 20 s, and also prepares the 640 px grid and 2400 px viewer
+  images; 39 shots in about 60 s, viewer images served in 10-20 ms. Rollback:
+  `app/app.py.bak-claude-worker-20261005`, image
+  `niwa-review-before-worker-20261005`
 - the no-frame print option exports with the original photo ratio
 
 Review compact lighttable deployed on 2026-10-05 (UI only, same endpoints):

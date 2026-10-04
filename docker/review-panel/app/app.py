@@ -70,6 +70,9 @@ DERIVATIVE_SIZES = {"thumb": 640, "viewer": 2400}
 JPG_EXPORT_MAX_BYTES = 2 * 1024 * 1024 * 1024
 PREVIEW_STABLE_SECONDS = 60
 PREVIEW_RETRY_SECONDS = 300
+# The worker rescans after this much work, so shots that arrived meanwhile
+# (newest first) do not wait behind a long backlog.
+PREVIEW_BATCH_SECONDS = 10
 DEFAULT_PAGE_SIZE = 80
 MAX_PAGE_SIZE = 220
 
@@ -1505,6 +1508,16 @@ def video_thumb_is_cached(section, path, relative):
     return cache_path.exists() and cache_path.stat().st_size > 0
 
 
+def raw_derivatives_ready(path, relative):
+    try:
+        return all(
+            derivative_path_for("photo", path, relative, variant).is_file()
+            for variant in DERIVATIVE_SIZES
+        )
+    except OSError:
+        return False
+
+
 def raw_is_stable(path):
     try:
         stat = path.stat()
@@ -1552,8 +1565,9 @@ def preview_worker_loop():
     update_worker_state(running=True, message="Worker anteprime attivo.")
 
     while True:
+        worked = False
         try:
-            run_preview_scan()
+            worked = run_preview_scan()
         except Exception as exc:
             update_worker_state(
                 errors=WORKER_STATE.get("errors", 0) + 1,
@@ -1561,7 +1575,8 @@ def preview_worker_loop():
                 current=None,
             )
 
-        time.sleep(PREVIEW_SCAN_INTERVAL_SECONDS)
+        if not worked:
+            time.sleep(PREVIEW_SCAN_INTERVAL_SECONDS)
 
 
 def run_preview_scan():
@@ -1604,10 +1619,13 @@ def run_preview_scan():
         message="Scansione RAW in corso.",
     )
 
+    started = time.monotonic()
+    worked = False
     for path, relative in raw_files:
         key = state_key(relative)
+        preview_cached = preview_is_cached(path, relative)
 
-        if preview_is_cached(path, relative):
+        if preview_cached and raw_derivatives_ready(path, relative):
             files_state[key] = {
                 **photo_signature(path),
                 "status": "cached",
@@ -1630,6 +1648,9 @@ def run_preview_scan():
             }
             continue
 
+        if worked and time.monotonic() - started >= PREVIEW_BATCH_SECONDS:
+            break
+
         update_worker_state(
             current=key,
             queued=queued,
@@ -1637,10 +1658,20 @@ def run_preview_scan():
             message=f"Genero anteprima: {path.name}",
         )
 
+        worked = True
         preview_path = extract_raw_preview(path, relative)
+        error = "No embedded JPEG preview found"
+        if preview_path:
+            # Grid and viewer images too, so the tablet never waits for them.
+            try:
+                for variant in DERIVATIVE_SIZES:
+                    render_media_derivative("photo", path, relative, variant)
+            except Exception as exc:
+                preview_path = None
+                error = f"Derived image failed: {exc}"
 
         if preview_path:
-            cached += 1
+            cached += 0 if preview_cached else 1
             files_state[key] = {
                 **photo_signature(path),
                 "status": "cached",
@@ -1658,7 +1689,7 @@ def run_preview_scan():
                 **photo_signature(path),
                 "status": "error",
                 "last_error": time.time(),
-                "error": "No embedded JPEG preview found",
+                "error": error,
                 "updated": time.time(),
             }
             update_worker_state(
@@ -1667,9 +1698,6 @@ def run_preview_scan():
                 message=f"Anteprima non disponibile: {path.name}",
             )
 
-        save_preview_state(state)
-        return
-
     update_worker_state(
         queued=queued,
         cached=cached,
@@ -1677,6 +1705,7 @@ def run_preview_scan():
         message=f"Anteprime cache: {cached}/{total}",
     )
     save_preview_state(state)
+    return worked
 
 
 def placeholder_svg(title, message):
