@@ -502,6 +502,11 @@ Review lighttable, same day: the gallery is denser (captions sit on the
 thumbnails, index and preview status fold behind one line) and the viewer
 groups its actions bottom-right with an explicit close button. No endpoint or
 action changed.
+Hotspot channel from the tablet, same day: NIWA System switches NIWA-AP
+between channels 1, 6 and 11 without giving the container any privilege. It
+drops a request file; a host path unit runs the restricted niwa-admin
+wrapper, which validates it and restores the previous channel on failure.
+A 1 -> 6 -> 1 test kept Wi-Fi off for about 4 s.
 
 ## Current philosophy
 

@@ -149,8 +149,10 @@ Checks:
 - done 2026-10-03: upload speed from about 223 to about 850 KB/s (hotspot
   channel 1, overlapped camera reads and Wi-Fi sends, 2 MB chunks)
 - pending: a new shot taken while the camera is attached
-- pending: hotspot channel switch from the tablet and camera power for long
-  transfers, see `docs/TASKS.md`
+- done 2026-10-05: hotspot channel switch (1, 6, 11) from NIWA System,
+  tested 1 -> 6 -> 1 with about 4 s off-air
+- pending: tablet and ESP32 reconnection after a switch during a transfer,
+  and camera power for long transfers, see `docs/TASKS.md`
 - keep the existing hardware and avoid a direct Nikon-to-Raspberry connection;
   assess event readiness only after those checks pass
 

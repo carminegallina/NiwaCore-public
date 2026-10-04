@@ -768,6 +768,9 @@ Current behavior:
 
 Validation completed:
 - passwordless `import-status` passed
+- 2026-10-05: hotspot units installed; requests from NIWA System applied in
+  about 2 s; invalid values and a planted symlink rejected; 1 -> 6 -> 1
+  switch with about 4 s off-air, no clients connected
 - allowed Docker service status passed
 - arbitrary `shell` action was rejected
 - non-allowlisted `ssh.service` status was rejected
