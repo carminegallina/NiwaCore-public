@@ -3,7 +3,9 @@ from pathlib import Path
 import base64
 import hashlib
 import html
+import io
 import json
+import math
 import mimetypes
 import os
 import re
@@ -24,6 +26,11 @@ VIDEO_ROOT = Path("/storage/video")
 GOPRO_ROOT = Path("/storage/gopro")
 COMPANION_ROOT = Path("/storage/companion")
 CACHE_ROOT = Path("/storage/.niwa_cache/review_previews")
+DERIVATIVE_ROOT = Path("/storage/.niwa_cache/review_media")
+JPG_EXPORT_ROOT = Path("/storage/.niwa_cache/review_jpg")
+EDITOR_PREVIEW_ROOT = Path("/storage/.niwa_cache/review_editor")
+PRINT_FRAME_ROOT = Path("/storage/.niwa_frames")
+PRINT_EXPORT_ROOT = Path("/storage/exports/print")
 VIDEO_CACHE_ROOT = Path("/storage/.niwa_cache/review_video_thumbs")
 PREVIEW_STATE_FILE = CACHE_ROOT / "preview_state.json"
 DATA_ROOT = Path("/data")
@@ -34,13 +41,29 @@ TRASH_ROOT = STORAGE_ROOT / ".niwa_trash"
 TRASH_FILE = DATA_ROOT / "review_trash.json"
 TRASH_ID_PATTERN = re.compile("[0-9a-f]{32}")
 TRASH_LOCK = threading.Lock()
+JPG_EXPORT_LOCK = threading.Lock()
+PRINT_FRAME_LOCK = threading.Lock()
+EDITOR_PREVIEW_LOCK = threading.Lock()
 
-INDEX_VERSION = 1
+PRINT_PRESETS = {
+    "P": {"label": "P · Cartolina", "mm": [148, 100], "pixels": [1748, 1181]},
+    "L": {"label": "L · Foto", "mm": [119, 89], "pixels": [1406, 1051]},
+    "C": {"label": "C · Carta", "mm": [86, 54], "pixels": [1016, 638]},
+    "1:1": {"label": "1:1", "ratio": [1, 1]},
+    "3:2": {"label": "3:2", "ratio": [3, 2]},
+    "4:3": {"label": "4:3", "ratio": [4, 3]},
+    "4:5": {"label": "4:5", "ratio": [4, 5]},
+    "9:16": {"label": "9:16", "ratio": [9, 16]},
+}
+
+INDEX_VERSION = 2
 INDEX_SCAN_INTERVAL_SECONDS = 120
 PREVIEW_SCAN_INTERVAL_SECONDS = 20
 # Part of every RAW preview cache key: bump it to regenerate them all.
 # 2: previews carry the RAW orientation, so vertical shots show upright.
 RAW_PREVIEW_VERSION = 2
+DERIVATIVE_VERSION = 1
+DERIVATIVE_SIZES = {"thumb": 640, "viewer": 2400}
 PREVIEW_STABLE_SECONDS = 60
 PREVIEW_RETRY_SECONDS = 300
 DEFAULT_PAGE_SIZE = 80
@@ -260,13 +283,15 @@ def media_item_from_path(section, path, relative):
         return None
 
     file_id = encode_id(relative)
-    preview_url = f"/api/media-file/{section}/{file_id}"
-    if section == "photo" and suffix in RAW_EXTENSIONS:
-        preview_url = f"/api/preview/{file_id}"
-    elif section == "gopro" and suffix in RAW_EXTENSIONS:
-        preview_url = f"/api/preview/gopro/{file_id}"
-    elif kind == "video":
-        preview_url = f"/api/video-thumb/{section}/{file_id}"
+    cache_version = f"{stat.st_mtime_ns:x}-{stat.st_size:x}"
+    thumbnail_url = (
+        f"/api/media-image/thumb/{section}/{file_id}?v={cache_version}"
+    )
+    preview_url = (
+        f"/api/video-thumb/{section}/{file_id}"
+        if kind == "video" else
+        f"/api/media-image/viewer/{section}/{file_id}?v={cache_version}"
+    )
 
     return {
         "id": file_id,
@@ -283,9 +308,14 @@ def media_item_from_path(section, path, relative):
             "%Y-%m-%d %H:%M",
             time.localtime(stat.st_mtime)
         ),
+        "thumbnail_url": thumbnail_url,
         "preview_url": preview_url,
         "media_url": f"/api/media-file/{section}/{file_id}",
         "download_url": f"/api/download/{section}/{file_id}",
+        "download_jpg_url": (
+            f"/api/download-jpg/{section}/{file_id}"
+            if section == "photo" and suffix in RAW_EXTENSIONS else None
+        ),
         "rating": read_rating(path),
     }
 
@@ -384,28 +414,31 @@ def index_summary(index):
 
 def cleanup_orphan_raw_previews(raw_files):
     expected = set()
+    expected_jpg = set()
     for path, relative in raw_files:
         try:
             expected.add(cache_path_for(path, relative).resolve())
+            expected_jpg.add(jpg_export_path_for(path, relative).resolve())
         except OSError:
             continue
-
-    if not CACHE_ROOT.exists():
-        return 0
 
     removed = 0
-    for cache_file in CACHE_ROOT.glob("*.jpg"):
-        try:
-            resolved = cache_file.resolve()
-        except OSError:
+    for directory, keep in ((CACHE_ROOT, expected),
+                            (JPG_EXPORT_ROOT, expected_jpg)):
+        if not directory.exists():
             continue
-        if resolved in expected:
-            continue
-        try:
-            cache_file.unlink()
-            removed += 1
-        except OSError:
-            pass
+        for cache_file in directory.glob("*.jpg"):
+            try:
+                resolved = cache_file.resolve()
+            except OSError:
+                continue
+            if resolved in keep:
+                continue
+            try:
+                cache_file.unlink()
+                removed += 1
+            except OSError:
+                pass
 
     return removed
 
@@ -441,6 +474,37 @@ def cleanup_orphan_video_thumbnails():
     return removed
 
 
+def cleanup_orphan_media_derivatives():
+    expected = set()
+    for section, config in MEDIA_SECTIONS.items():
+        for path, relative in iter_media_files(config["root"], config["extensions"]):
+            for variant in DERIVATIVE_SIZES:
+                try:
+                    expected.add(
+                        derivative_path_for(section, path, relative, variant).resolve()
+                    )
+                except OSError:
+                    continue
+
+    if not DERIVATIVE_ROOT.exists():
+        return 0
+
+    removed = 0
+    for cache_file in DERIVATIVE_ROOT.glob("*.jpg"):
+        try:
+            resolved = cache_file.resolve()
+        except OSError:
+            continue
+        if resolved in expected:
+            continue
+        try:
+            cache_file.unlink()
+            removed += 1
+        except OSError:
+            pass
+    return removed
+
+
 def update_index_state(**updates):
     with INDEX_LOCK:
         INDEX_STATE.update(updates)
@@ -473,6 +537,7 @@ def rebuild_review_index():
             total_items += len(items)
 
         cleanup_orphan_video_thumbnails()
+        cleanup_orphan_media_derivatives()
 
         index = {
             "version": INDEX_VERSION,
@@ -841,11 +906,419 @@ def cache_path_for(path, relative):
     return CACHE_ROOT / f"{digest}.jpg"
 
 
+def jpg_export_path_for(path, relative):
+    stat = path.stat()
+    key = f"jpg-v1|{relative}|{stat.st_mtime_ns}|{stat.st_size}".encode("utf-8")
+    return JPG_EXPORT_ROOT / f"{hashlib.sha1(key).hexdigest()}.jpg"
+
+
+def render_raw_jpg(path, relative):
+    """Develop full-size sRGB JPEG once; never use the compressed RAW preview."""
+    import rawpy
+    from PIL import Image, ImageCms
+
+    output = jpg_export_path_for(path, relative)
+    with JPG_EXPORT_LOCK:
+        if output.is_file() and output.stat().st_size > 0:
+            return output
+        JPG_EXPORT_ROOT.mkdir(parents=True, exist_ok=True)
+        temporary = JPG_EXPORT_ROOT / f"{uuid.uuid4().hex}.tmp"
+        try:
+            with rawpy.imread(str(path)) as raw:
+                pixels = raw.postprocess(
+                    use_camera_wb=True,
+                    no_auto_bright=True,
+                    output_color=rawpy.ColorSpace.sRGB,
+                    output_bps=8,
+                )
+            profile = ImageCms.ImageCmsProfile(
+                ImageCms.createProfile("sRGB")
+            ).tobytes()
+            Image.fromarray(pixels).save(
+                temporary,
+                format="JPEG",
+                quality=100,
+                subsampling=0,
+                icc_profile=profile,
+            )
+            os.replace(temporary, output)
+        finally:
+            temporary.unlink(missing_ok=True)
+    return output
+
+
+def print_ratio(preset, orientation):
+    config = PRINT_PRESETS.get(preset)
+    if config is None or orientation not in {"landscape", "portrait"}:
+        raise ValueError("Formato o orientamento non valido.")
+    pair = config.get("mm", config.get("ratio"))
+    long_side, short_side = max(pair), min(pair)
+    if preset == "1:1":
+        return 1.0
+    return (long_side / short_side if orientation == "landscape"
+            else short_side / long_side)
+
+
+def print_output_size(preset, orientation, source_size, frame_size=None):
+    config = PRINT_PRESETS[preset]
+    if "pixels" in config:
+        width, height = config["pixels"]
+        return (width, height) if orientation == "landscape" else (height, width)
+    if frame_size:
+        return frame_size
+    width, height = source_size
+    ratio = print_ratio(preset, orientation)
+    if width / height > ratio:
+        width = round(height * ratio)
+    else:
+        height = round(width / ratio)
+    shrink = min(1.0, 6000 / max(width, height))
+    return max(1, round(width * shrink)), max(1, round(height * shrink))
+
+
+def print_frame_metadata(frame_id):
+    if not re.fullmatch(r"[0-9a-f]{32}", frame_id):
+        abort(404)
+    metadata_path = PRINT_FRAME_ROOT / f"{frame_id}.json"
+    image_path = PRINT_FRAME_ROOT / f"{frame_id}.png"
+    if not metadata_path.is_file() or not image_path.is_file():
+        abort(404)
+    try:
+        data = json.loads(metadata_path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        abort(404)
+    if data.get("id") != frame_id:
+        abort(404)
+    return data, image_path
+
+
+def print_frames():
+    if not PRINT_FRAME_ROOT.is_dir():
+        return []
+    frames = []
+    for metadata_path in PRINT_FRAME_ROOT.glob("*.json"):
+        frame_id = metadata_path.stem
+        if not re.fullmatch(r"[0-9a-f]{32}", frame_id):
+            continue
+        try:
+            data = json.loads(metadata_path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        if data.get("id") == frame_id and (PRINT_FRAME_ROOT / f"{frame_id}.png").is_file():
+            data["url"] = f"/api/print/frames/{frame_id}/image"
+            data["thumbnail_url"] = f"/api/print/frames/{frame_id}/thumbnail"
+            frames.append(data)
+    return sorted(frames, key=lambda frame: (frame.get("collection", "").lower(), frame.get("name", "").lower()))
+
+
+def editor_source(path, relative):
+    from PIL import Image, ImageCms, ImageOps
+
+    if path.suffix.lower() in RAW_EXTENSIONS:
+        import rawpy
+        with rawpy.imread(str(path)) as raw:
+            pixels = raw.postprocess(
+                use_camera_wb=True,
+                no_auto_bright=True,
+                output_color=rawpy.ColorSpace.sRGB,
+                output_bps=8,
+            )
+        return Image.fromarray(pixels)
+    with Image.open(path) as original:
+        image = ImageOps.exif_transpose(original)
+        profile = original.info.get("icc_profile")
+        if profile:
+            try:
+                image = ImageCms.profileToProfile(
+                    image, io.BytesIO(profile), ImageCms.createProfile("sRGB"),
+                    outputMode="RGB",
+                )
+            except Exception:
+                image = image.convert("RGB")
+        else:
+            image = image.convert("RGB")
+        return image.copy()
+
+
+def light_lut(exposure, shadows, highlights):
+    result = []
+    for level in range(256):
+        value = ((level / 255) ** 2.2 * (2 ** exposure)) ** (1 / 2.2)
+        value = min(1.0, value)
+        value += shadows * 0.30 * (1 - value) ** 2
+        value += highlights * 0.30 * value ** 2
+        result.append(round(max(0.0, min(1.0, value)) * 255))
+    return result * 3
+
+
+def color_lut(contrast, temperature, tint):
+    """Per-channel 8-bit adjustments used only on the exported copy."""
+    channels = []
+    gains = (
+        1 + temperature * 0.15 + tint * 0.08,
+        1 - tint * 0.16,
+        1 - temperature * 0.15 + tint * 0.08,
+    )
+    for gain in gains:
+        channels.extend(
+            round(max(0, min(255, ((level - 127.5) * (1 + contrast) + 127.5) * gain)))
+            for level in range(256)
+        )
+    return channels
+
+
+def apply_color_controls(photo, contrast, temperature, tint, vibrance, saturation):
+    from PIL import Image, ImageChops, ImageEnhance
+
+    if contrast or temperature or tint:
+        photo = photo.point(color_lut(contrast, temperature, tint))
+    if saturation:
+        photo = ImageEnhance.Color(photo).enhance(1 + saturation)
+    if vibrance:
+        red, green, blue = photo.split()
+        brightest = ImageChops.lighter(ImageChops.lighter(red, green), blue)
+        darkest = ImageChops.darker(ImageChops.darker(red, green), blue)
+        low_color_mask = ImageChops.invert(ImageChops.subtract(brightest, darkest))
+        boosted = ImageEnhance.Color(photo).enhance(1 + vibrance)
+        photo = Image.composite(boosted, photo, low_color_mask)
+    return photo
+
+
+def reduce_luminance_noise(photo, amount):
+    from PIL import Image, ImageFilter
+
+    if not amount:
+        return photo
+    luminance, blue_difference, red_difference = photo.convert("YCbCr").split()
+    blurred = luminance.filter(ImageFilter.GaussianBlur(radius=0.5 + 1.5 * amount))
+    softened = Image.blend(luminance, blurred, amount)
+    return Image.merge("YCbCr", (softened, blue_difference, red_difference)).convert("RGB")
+
+
+def editor_preview_path(path, relative):
+    stat = path.stat()
+    key = f"editor-v1|{relative}|{stat.st_mtime_ns}|{stat.st_size}".encode("utf-8")
+    return EDITOR_PREVIEW_ROOT / f"{hashlib.sha1(key).hexdigest()}.jpg"
+
+
+def render_editor_preview(path, relative):
+    from PIL import Image
+
+    output = editor_preview_path(path, relative)
+    with EDITOR_PREVIEW_LOCK:
+        if output.is_file() and output.stat().st_size:
+            return output
+        EDITOR_PREVIEW_ROOT.mkdir(parents=True, exist_ok=True)
+        if path.suffix.lower() in RAW_EXTENSIONS:
+            source_path = render_raw_jpg(path, relative)
+            with Image.open(source_path) as source:
+                image = source.copy()
+        else:
+            image = editor_source(path, relative)
+        image.thumbnail((1400, 1400), Image.Resampling.LANCZOS)
+        temporary = EDITOR_PREVIEW_ROOT / f"{uuid.uuid4().hex}.tmp"
+        try:
+            image.save(temporary, format="JPEG", quality=93, subsampling=0)
+            os.replace(temporary, output)
+        finally:
+            temporary.unlink(missing_ok=True)
+    return output
+
+
+def print_number(payload, key, minimum, maximum, default):
+    try:
+        number = float(payload.get(key, default))
+    except (TypeError, ValueError):
+        raise ValueError(f"Valore {key} non valido.") from None
+    if not math.isfinite(number) or number < minimum or number > maximum:
+        raise ValueError(f"Valore {key} fuori intervallo.")
+    return number
+
+
+def print_transform(image, size, zoom, offset_x, offset_y, rotation):
+    from PIL import Image, ImageChops
+
+    width, height = size
+    source_width, source_height = image.size
+    angle = math.radians(rotation)
+    cosine, sine = math.cos(angle), math.sin(angle)
+    # Keep the photo scale fixed while rotating; zoom changes only on request.
+    scale = max(width / source_width, height / source_height) * zoom
+    center_x = width * (0.5 + offset_x)
+    center_y = height * (0.5 + offset_y)
+    coefficients = (
+        cosine / scale,
+        sine / scale,
+        source_width / 2 - (cosine * center_x + sine * center_y) / scale,
+        -sine / scale,
+        cosine / scale,
+        source_height / 2 + (sine * center_x - cosine * center_y) / scale,
+    )
+    transformed = image.transform(
+        size, Image.Transform.AFFINE, coefficients,
+        resample=Image.Resampling.BICUBIC, fillcolor=(255, 255, 255),
+    )
+    coverage = Image.new("L", image.size, 255).transform(
+        size, Image.Transform.AFFINE, coefficients,
+        resample=Image.Resampling.NEAREST, fillcolor=0,
+    )
+    return transformed, coverage
+
+
+def render_print_export(path, relative, payload):
+    from PIL import Image, ImageChops, ImageCms
+
+    preset = str(payload.get("preset", "P"))
+    orientation = str(payload.get("orientation", "landscape"))
+    file_type = str(payload.get("file_type", "jpg")).lower()
+    if preset not in PRINT_PRESETS or orientation not in {"landscape", "portrait"}:
+        raise ValueError("Formato di esportazione non valido.")
+    if file_type not in {"jpg", "png"}:
+        raise ValueError("Scegli JPG o PNG.")
+    frame_id = payload.get("frame_id")
+    frame = None
+    frame_info = None
+    if frame_id:
+        frame_info, frame_path = print_frame_metadata(str(frame_id))
+        if frame_info["preset"] != preset or frame_info["orientation"] != orientation:
+            raise ValueError("La cornice non corrisponde al formato scelto.")
+        with Image.open(frame_path) as frame_image:
+            frame = frame_image.convert("RGBA")
+    exposure = print_number(payload, "exposure", -2, 2, 0)
+    shadows = print_number(payload, "shadows", -1, 1, 0)
+    highlights = print_number(payload, "highlights", -1, 1, 0)
+    contrast = print_number(payload, "contrast", -100, 100, 0) / 100
+    temperature = print_number(payload, "temperature", -100, 100, 0) / 100
+    tint = print_number(payload, "tint", -100, 100, 0) / 100
+    vibrance = print_number(payload, "vibrance", -100, 100, 0) / 100
+    saturation = print_number(payload, "saturation", -100, 100, 0) / 100
+    luminance_noise = print_number(payload, "luminance_noise", 0, 100, 0) / 100
+    zoom = print_number(payload, "zoom", 1, 6, 1)
+    offset_x = print_number(payload, "offset_x", -10, 10, 0)
+    offset_y = print_number(payload, "offset_y", -10, 10, 0)
+    rotation = print_number(payload, "rotation", -180, 180, 0)
+
+    image = editor_source(path, relative)
+    image = image.point(light_lut(exposure, shadows, highlights))
+    size = print_output_size(preset, orientation, image.size, frame.size if frame else None)
+    if max(size) > 6000 or size[0] * size[1] > 36_000_000:
+        raise ValueError("Dimensioni di esportazione troppo grandi.")
+    photo, coverage = print_transform(image, size, zoom, offset_x, offset_y, rotation)
+    if frame:
+        if frame.size != size:
+            frame = frame.resize(size, Image.Resampling.LANCZOS)
+        transparent = ImageChops.invert(frame.getchannel("A"))
+    else:
+        transparent = Image.new("L", size, 255)
+    missing = ImageChops.multiply(ImageChops.invert(coverage), transparent)
+    if missing.point(lambda value: 255 if value > 32 else 0).getbbox():
+        raise ValueError("La foto non copre tutta l'area visibile: ingrandiscila o riduci lo spostamento.")
+    photo = apply_color_controls(photo, contrast, temperature, tint, vibrance, saturation)
+    photo = reduce_luminance_noise(photo, luminance_noise)
+    if frame:
+        photo.paste(frame, (0, 0), frame)
+
+    collection = (frame_info or {}).get("collection", "Generiche")
+    folder_name = re.sub(r"[^a-zA-Z0-9_-]+", "-", collection).strip("-")[:48] or "Generiche"
+    destination = PRINT_EXPORT_ROOT / folder_name
+    destination.mkdir(parents=True, exist_ok=True)
+    source_name = re.sub(r"[^a-zA-Z0-9_-]+", "-", path.stem).strip("-")[:48] or "Foto"
+    filename = f"{source_name}_{preset.replace(':', '-')}_{uuid.uuid4().hex[:10]}.{file_type}"
+    output = destination / filename
+    temporary = destination / f".{uuid.uuid4().hex}.tmp"
+    profile = ImageCms.ImageCmsProfile(ImageCms.createProfile("sRGB")).tobytes()
+    print_dpi = {"dpi": (300, 300)} if preset in {"P", "L", "C"} else {}
+    try:
+        if file_type == "jpg":
+            exif = Image.Exif()
+            exif[274] = 1
+            exif[270] = "NIWA Print Export"
+            photo.save(temporary, format="JPEG", quality=100, subsampling=0,
+                       icc_profile=profile, exif=exif.tobytes(), **print_dpi)
+        else:
+            photo.save(temporary, format="PNG", icc_profile=profile, optimize=True,
+                       **print_dpi)
+        os.replace(temporary, output)
+    finally:
+        temporary.unlink(missing_ok=True)
+    export_id = base64.urlsafe_b64encode(str(output.relative_to(PRINT_EXPORT_ROOT)).replace("\\", "/").encode()).decode().rstrip("=")
+    return {
+        "name": filename,
+        "size": output.stat().st_size,
+        "width": size[0],
+        "height": size[1],
+        "download_url": f"/api/print/exports/{export_id}",
+    }
+
+
 def video_thumb_path_for(section, path, relative):
     stat = path.stat()
     key = f"{section}|{relative}|{stat.st_mtime_ns}|{stat.st_size}".encode("utf-8")
     digest = hashlib.sha1(key).hexdigest()
     return VIDEO_CACHE_ROOT / f"{digest}.jpg"
+
+
+def derivative_path_for(section, path, relative, variant):
+    if variant not in DERIVATIVE_SIZES:
+        raise ValueError("Unknown media derivative")
+    stat = path.stat()
+    key = (
+        f"media-v{DERIVATIVE_VERSION}|{variant}|{section}|{relative}|"
+        f"{stat.st_mtime_ns}|{stat.st_size}"
+    ).encode("utf-8")
+    return DERIVATIVE_ROOT / f"{hashlib.sha1(key).hexdigest()}.jpg"
+
+
+def render_media_derivative(section, path, relative, variant):
+    from PIL import Image, ImageOps
+
+    output = derivative_path_for(section, path, relative, variant)
+    if output.is_file() and output.stat().st_size > 0:
+        return output
+
+    kind = media_kind(path)
+    if kind == "raw":
+        raw_relative = relative if section == "photo" else Path(section) / relative
+        source_path = extract_raw_preview(path, raw_relative)
+    elif kind == "video":
+        source_path = extract_video_thumbnail(section, path, relative)
+    else:
+        source_path = path
+    if not source_path:
+        return None
+
+    DERIVATIVE_ROOT.mkdir(parents=True, exist_ok=True)
+    maximum = DERIVATIVE_SIZES[variant]
+    temporary = DERIVATIVE_ROOT / f".{uuid.uuid4().hex}.tmp"
+    try:
+        with Image.open(source_path) as source:
+            source.draft("RGB", (maximum, maximum))
+            image = ImageOps.exif_transpose(source).convert("RGB")
+            image.thumbnail(
+                (maximum, maximum), Image.Resampling.LANCZOS, reducing_gap=3.0
+            )
+            save_options = {
+                "format": "JPEG",
+                "quality": 84 if variant == "thumb" else 90,
+                "optimize": True,
+                "progressive": True,
+            }
+            profile = source.info.get("icc_profile")
+            if profile:
+                save_options["icc_profile"] = profile
+            image.save(temporary, **save_options)
+        os.replace(temporary, output)
+    finally:
+        temporary.unlink(missing_ok=True)
+    return output
+
+
+def send_immutable_image(path):
+    response = send_file(
+        path, mimetype="image/jpeg", conditional=True, max_age=31536000
+    )
+    response.headers["Cache-Control"] = "public, max-age=31536000, immutable"
+    return response
 
 
 def photo_signature(path):
@@ -1241,6 +1714,7 @@ def index():
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>NIWA Review</title>
+<link rel="stylesheet" href="/static/print-editor.css?v=6">
 <style>
 :root{color-scheme:dark;--bg:#0b1220;--panel:#172033;--panel2:#101827;--line:#334155;--text:#f8fafc;--muted:#94a3b8;--soft:#cbd5e1;--blue:#38bdf8}
 *{box-sizing:border-box}
@@ -1274,6 +1748,9 @@ h1{margin:0 0 6px 0;font-size:32px;letter-spacing:0}.subtitle{color:var(--muted)
 .overlay-button{position:absolute;background:rgba(17,24,39,.72);color:white;text-decoration:none;border:none;border-radius:999px;padding:10px 12px;backdrop-filter:blur(8px)}
 .overlay-button:hover{background:rgba(55,65,81,.9)}
 .download-button{top:14px;right:14px}
+.jpg-download-button{top:62px;right:14px}
+.editor-open-button{top:14px;right:14px;cursor:pointer;background:#a77564;font-weight:700}
+.modal-inner.printable .download-button{top:62px}.modal-inner.printable .jpg-download-button{top:110px}
 .nav-button{top:50%;transform:translateY(-50%);width:42px;height:42px;font-size:26px;line-height:20px;display:flex;align-items:center;justify-content:center}
 .nav-prev{left:14px}.nav-next{right:14px}
 .photo-counter{position:absolute;left:14px;top:14px;background:rgba(17,24,39,.72);color:#e5e7eb;border-radius:999px;padding:8px 11px;font-size:13px;backdrop-filter:blur(8px)}
@@ -1299,7 +1776,7 @@ h1{color:#fff4ec}.subtitle{color:var(--muted)}
 .small-button.danger,.overlay-button.danger{background:rgba(127,29,29,.88);border-color:rgba(248,113,113,.45)}
 .small-button.danger:hover,.overlay-button.danger:hover{background:rgba(153,27,27,.96)}
 .delete-button{bottom:14px;right:14px}
-@media(max-width:800px){.topbar{display:block}.brand-logo{width:44px;height:44px}.topbar .button{margin-top:10px}.toolbar{grid-template-columns:1fr}.toolbar-actions{display:grid;grid-template-columns:1fr}.modal{padding:6px}.nav-button{width:36px;height:36px;font-size:22px;opacity:.72}.download-button{top:10px;right:10px}.photo-counter{top:10px;left:10px}}
+@media(max-width:800px){.topbar{display:block}.brand-logo{width:44px;height:44px}.topbar .button{margin-top:10px}.toolbar{grid-template-columns:1fr}.toolbar-actions{display:grid;grid-template-columns:1fr}.modal{padding:6px}.nav-button{width:36px;height:36px;font-size:22px;opacity:.72}.editor-open-button{top:10px;right:10px}.download-button{top:10px;right:10px}.jpg-download-button{top:56px;right:10px}.modal-inner.printable .download-button{top:58px}.modal-inner.printable .jpg-download-button{top:104px}.photo-counter{top:10px;left:10px}}
 </style>
 </head>
 <body>
@@ -1364,8 +1841,78 @@ h1{color:#fff4ec}.subtitle{color:var(--muted)}
 <video id="modalVideo" controls playsinline onclick="event.stopPropagation()"></video>
 <button class="overlay-button nav-button nav-next" onclick="showNextPhoto(event)">&rsaquo;</button>
 <a class="overlay-button download-button" id="downloadLink" href="#" onclick="event.stopPropagation()">Scarica originale</a>
+<a class="overlay-button jpg-download-button" id="downloadJpgLink" href="#" onclick="event.stopPropagation()" style="display:none">Scarica JPG HQ</a>
+<button class="overlay-button editor-open-button" id="editorOpenButton" onclick="openPrintEditor(event)" style="display:none">Prepara stampa</button>
 <button class="overlay-button danger delete-button" onclick="trashCurrentPhoto(event)">Elimina</button>
 <div class="rating" id="ratingStars" onclick="event.stopPropagation()"></div>
+</div>
+</div>
+
+<div class="print-editor" id="printEditor" role="dialog" aria-modal="true" aria-label="Editor stampa" hidden>
+<div class="print-editor-shell">
+<div class="print-editor-head">
+<div><h2>Prepara stampa</h2><div id="printEditorName" class="print-muted"></div></div>
+<button type="button" class="small-button" id="printEditorClose">Torna alla foto</button>
+</div>
+<div class="print-editor-body">
+<div class="print-preview-panel">
+<canvas id="printCanvas" aria-label="Anteprima della foto e della cornice"></canvas>
+<div class="print-muted" id="printEditorStatus">Caricamento anteprima...</div>
+</div>
+<div class="print-controls">
+<div id="printStepFrames">
+<h3>Cornice <span id="printActiveFrame" class="print-active-frame">Caricamento...</span></h3>
+<div class="print-frame-picker">
+<label id="printCollectionFilterLabel">Mostra cornici<select id="printCollectionFilter"><option value="">Tutte le collezioni</option></select></label>
+<div id="printFrameGallery" class="print-frame-carousel" aria-label="Cornici disponibili"></div>
+<button type="button" class="small-button" id="printManageFrames">Gestisci cornici</button>
+</div>
+<h3>Inquadra la foto</h3>
+<div class="print-select-row"><label>Ingrandimento <output id="printZoomValue">1,00×</output><input id="printZoom" type="range" min="1" max="6" step="0.01" value="1"></label><label>Rotazione <output id="printRotationValue">0°</output><input id="printRotation" type="range" min="-180" max="180" step="1" value="0"></label></div>
+<p class="print-muted">Trascina la foto; usa due dita per ingrandire o ruotare. La cornice resta fissa e il movimento si ferma prima di scoprire spazi vuoti. Per muoverla di più, ingrandisci la foto.</p>
+<div class="print-actions print-position-actions"><button type="button" class="small-button" id="printRotate90">Ruota 90°</button><button type="button" class="small-button" id="printResetPosition">Ripristina posizione</button></div>
+<details id="printStepLights" class="print-section"><summary>Regola la foto (facoltativo)</summary>
+<p class="print-muted">Modifiche non distruttive. La foto originale resta invariata.</p>
+<h4>Luce</h4>
+<label>Esposizione <output id="printExposureValue">0</output><input id="printExposure" type="range" min="-2" max="2" step="0.05" value="0"></label>
+<label>Ombre <output id="printShadowsValue">0</output><input id="printShadows" type="range" min="-1" max="1" step="0.05" value="0"></label>
+<label>Alte luci <output id="printHighlightsValue">0</output><input id="printHighlights" type="range" min="-1" max="1" step="0.05" value="0"></label>
+<label>Contrasto <output id="printContrastValue">0</output><input id="printContrast" type="range" min="-100" max="100" step="1" value="0"></label>
+<h4>Colore</h4>
+<label>Temperatura <output id="printTemperatureValue">0</output><input id="printTemperature" type="range" min="-100" max="100" step="1" value="0"></label>
+<label>Tinta <output id="printTintValue">0</output><input id="printTint" type="range" min="-100" max="100" step="1" value="0"></label>
+<label>Vividezza <output id="printVibranceValue">0</output><input id="printVibrance" type="range" min="-100" max="100" step="1" value="0"></label>
+<label>Saturazione <output id="printSaturationValue">0</output><input id="printSaturation" type="range" min="-100" max="100" step="1" value="0"></label>
+<h4>Dettaglio</h4>
+<label>Rumore luminanza <output id="printLuminanceNoiseValue">0</output><input id="printLuminanceNoise" type="range" min="0" max="100" step="1" value="0"></label>
+<div class="print-actions"><button type="button" class="small-button" id="printResetLights">Ripristina regolazioni</button></div>
+</details>
+<details id="printExportOptions" class="print-section"><summary>Formato e opzioni di esportazione</summary>
+<div class="print-select-row">
+<label>Formato<select id="printPreset"></select></label>
+<label>Orientamento<select id="printOrientation"><option value="landscape">Orizzontale</option><option value="portrait">Verticale</option></select></label>
+<label>File<select id="printFileType"><option value="jpg">JPG · stampa</option><option value="png">PNG · digitale</option></select></label>
+</div>
+<p class="print-muted">Con una cornice, il formato segue la cornice. Per la SELPHY scegli JPG e la carta corrispondente (P/L/C).</p>
+</details>
+<div id="printExportResult" class="print-export-result" hidden><span id="printExportResultText"></span><a id="printRedownload" class="small-button" href="#">Scarica di nuovo</a></div>
+<div class="print-export-bar"><span id="printExportSummary" class="print-muted">Preparazione...</span><button type="button" class="small-button print-primary" id="printExport" disabled>Esporta JPG</button></div>
+</div>
+<div id="printStepManage" hidden>
+<h3>Gestisci cornici</h3>
+<p class="print-muted">Carica PNG con una zona trasparente per la foto o elimina quelle che non servono. Le esportazioni già salvate restano disponibili.</p>
+<form id="printFrameUpload" class="print-upload">
+<label>Nome<input name="name" maxlength="80" placeholder="Nome cornice"></label>
+<label>Collezione<input name="collection" maxlength="80" placeholder="Generiche o nome dell'evento" value="Generiche"></label>
+<div class="print-select-row"><label>Formato<select name="preset" id="printUploadPreset"></select></label><label>Orientamento<select name="orientation" id="printUploadOrientation"><option value="landscape">Orizzontale</option><option value="portrait">Verticale</option></select></label></div>
+<label>PNG con zona trasparente<input name="file" type="file" accept="image/png,.png" required></label>
+<button type="submit" class="small-button">Carica cornice</button>
+</form>
+<div id="printFrameManageList" class="print-frame-gallery"></div>
+<div class="print-actions"><button type="button" class="small-button print-primary" id="printManageDone">Torna alla stampa</button></div>
+</div>
+</div>
+</div>
 </div>
 </div>
 
@@ -1391,6 +1938,7 @@ const NL = String.fromCharCode(10);
 let SELECTING = false;
 const SELECTED = new Map();
 let TRASH_ITEMS = [];
+let LIVE_REFRESH_BUSY = false;
 
 const SECTION_LABELS = {
     photo: 'foto',
@@ -1431,8 +1979,8 @@ function itemCard(item){
     card.onclick = ()=> SELECTING ? toggleSelected(item, card) : openPhoto(item.id);
 
     const thumb = item.kind === 'video'
-        ? `<img class="thumb video-thumb" loading="lazy" src="${item.preview_url}" alt=""><div class="play-badge">Play</div>`
-        : `<img class="thumb" loading="lazy" src="${item.preview_url}" alt="">`;
+        ? `<img class="thumb video-thumb" loading="lazy" decoding="async" src="${item.thumbnail_url || item.preview_url}" alt=""><div class="play-badge">Play</div>`
+        : `<img class="thumb" loading="lazy" decoding="async" src="${item.thumbnail_url || item.preview_url}" alt="">`;
 
     card.innerHTML = `
         ${thumb}
@@ -1515,6 +2063,38 @@ async function loadMoreMedia(){
     }
     CURRENT_PAGE += 1;
     await loadMedia(false);
+}
+
+async function refreshLivePhotos(){
+    if(LIVE_REFRESH_BUSY || CURRENT_SECTION !== 'photo' || CURRENT_PAGE !== 1 ||
+       SELECTING || document.visibilityState !== 'visible' ||
+       document.getElementById('modal').classList.contains('open')){
+        return;
+    }
+    LIVE_REFRESH_BUSY = true;
+    const requestId = LOAD_SEQUENCE;
+    try{
+        const res = await fetch(`/api/media/photo?page=1&limit=${PAGE_SIZE}`, {cache:'no-store'});
+        if(!res.ok){ throw new Error(`HTTP ${res.status}`); }
+        const data = await res.json();
+        if(requestId !== LOAD_SEQUENCE || CURRENT_SECTION !== 'photo' ||
+           CURRENT_PAGE !== 1 || SELECTING ||
+           document.visibilityState !== 'visible' ||
+           document.getElementById('modal').classList.contains('open')){
+            return;
+        }
+        const incoming = data.items || [];
+        const total = data.pagination ? data.pagination.total : incoming.length;
+        if(total !== TOTAL_ITEMS || incoming.length !== PHOTOS.length ||
+           incoming.some((item, index)=>item.id !== PHOTOS[index].id)){
+            await loadMedia(true);
+        }
+    }catch(e){
+        document.getElementById('status').textContent =
+            'Aggiornamento automatico non disponibile: ' + e.message;
+    }finally{
+        LIVE_REFRESH_BUSY = false;
+    }
 }
 
 async function loadIndexStatus(){
@@ -1603,6 +2183,12 @@ function renderCurrentPhoto(){
 
     document.getElementById('downloadLink').href = item.download_url;
     document.getElementById('downloadLink').textContent = item.kind === 'raw' ? 'Scarica RAW' : 'Scarica originale';
+    const jpgLink = document.getElementById('downloadJpgLink');
+    jpgLink.style.display = item.download_jpg_url ? 'block' : 'none';
+    if(item.download_jpg_url) jpgLink.href = item.download_jpg_url;
+    const printable = CURRENT_SECTION === 'photo' && item.kind !== 'video';
+    document.querySelector('.modal-inner').classList.toggle('printable', printable);
+    document.getElementById('editorOpenButton').style.display = printable ? 'block' : 'none';
     document.getElementById('photoCounter').textContent = `${CURRENT_INDEX + 1} / ${PHOTOS.length}`;
 
     const rating = document.getElementById('ratingStars');
@@ -1613,6 +2199,14 @@ function renderCurrentPhoto(){
         rating.classList.add('hidden');
         rating.innerHTML = '';
     }
+}
+
+function openPrintEditor(event){
+    event.stopPropagation();
+    const item = PHOTOS[CURRENT_INDEX];
+    if(!item || CURRENT_SECTION !== 'photo' || item.kind === 'video') return;
+    document.getElementById('modal').classList.remove('open');
+    window.NiwaPrintEditor.open(item);
 }
 
 function renderRating(rating){
@@ -2027,7 +2621,12 @@ loadIndexStatus();
 loadPreviewStatus();
 setInterval(loadIndexStatus, 15000);
 setInterval(loadPreviewStatus, 10000);
+setInterval(refreshLivePhotos, 5000);
+document.addEventListener('visibilitychange', ()=>{
+    if(document.visibilityState === 'visible') refreshLivePhotos();
+});
 </script>
+<script src="/static/print-editor.js?v=10"></script>
 </body>
 </html>
 """
@@ -2100,6 +2699,24 @@ def api_preview_section(section, file_id):
     return placeholder_svg(path.name, "Anteprima RAW non disponibile")
 
 
+@app.route("/api/media-image/<variant>/<section>/<file_id>")
+def api_media_image(variant, section, file_id):
+    if variant not in DERIVATIVE_SIZES:
+        abort(404)
+    config = section_config(section)
+    path, relative = resolve_media(config["root"], file_id)
+    if path.suffix.lower() not in config["extensions"]:
+        abort(404)
+    try:
+        image_path = render_media_derivative(section, path, relative, variant)
+    except Exception:
+        app.logger.exception("Cannot render %s image for %s", variant, path)
+        image_path = None
+    if image_path:
+        return send_immutable_image(image_path)
+    return placeholder_svg(path.name, "Anteprima non disponibile")
+
+
 @app.route("/api/media-file/<section>/<file_id>")
 def api_media_file(section, file_id):
     config = section_config(section)
@@ -2144,6 +2761,171 @@ def api_download(section, file_id):
 
     mime = mimetypes.guess_type(path.name)[0] or "application/octet-stream"
     return send_file(path, mimetype=mime, as_attachment=True, download_name=path.name)
+
+
+@app.route("/api/download-jpg/<section>/<file_id>")
+def api_download_jpg(section, file_id):
+    if section != "photo":
+        abort(404)
+    config = section_config(section)
+    path, relative = resolve_media(config["root"], file_id)
+    if path.suffix.lower() not in RAW_EXTENSIONS or path.suffix.lower() not in config["extensions"]:
+        abort(404)
+    try:
+        jpg = render_raw_jpg(path, relative)
+    except Exception:
+        app.logger.exception("Cannot render full-size JPG for %s", path)
+        return jsonify({"error": "Conversione JPG non disponibile per questo RAW."}), 503
+    return send_file(
+        jpg,
+        mimetype="image/jpeg",
+        as_attachment=True,
+        download_name=f"{path.stem}.jpg",
+    )
+
+
+@app.route("/api/print/presets")
+def api_print_presets():
+    return jsonify({"presets": PRINT_PRESETS})
+
+
+@app.route("/api/print/frames", methods=["GET", "POST"])
+def api_print_frames():
+    if request.method == "GET":
+        return jsonify({"frames": print_frames()})
+    if request.content_length and request.content_length > 18 * 1024 * 1024:
+        return jsonify({"error": "PNG troppo grande (massimo 16 MB)."}), 413
+    upload = request.files.get("file")
+    if upload is None:
+        return jsonify({"error": "Seleziona un file PNG."}), 400
+    raw = upload.stream.read(16 * 1024 * 1024 + 1)
+    if len(raw) > 16 * 1024 * 1024:
+        return jsonify({"error": "PNG troppo grande (massimo 16 MB)."}), 413
+    preset = request.form.get("preset", "")
+    orientation = request.form.get("orientation", "")
+    if preset not in PRINT_PRESETS or orientation not in {"landscape", "portrait"}:
+        return jsonify({"error": "Formato o orientamento non valido."}), 400
+    name = request.form.get("name", "").strip()[:80] or Path(upload.filename or "Cornice").stem[:80]
+    collection = request.form.get("collection", "Generiche").strip()[:80] or "Generiche"
+    if any(ord(char) < 32 for char in name + collection):
+        return jsonify({"error": "Nome o collezione non validi."}), 400
+    try:
+        from PIL import Image
+        with Image.open(io.BytesIO(raw)) as image:
+            if image.format != "PNG":
+                raise ValueError("Sono accettati solo file PNG.")
+            width, height = image.size
+            if min(width, height) < 300 or max(width, height) > 6000 or width * height > 36_000_000:
+                raise ValueError("La cornice deve avere dimensioni tra 300 e 6000 px (massimo 36 MP).")
+            image.load()
+            alpha_min, alpha_max = image.convert("RGBA").getchannel("A").getextrema()
+            if alpha_min == 255 or alpha_max == 0:
+                raise ValueError("Il PNG deve contenere grafica visibile e una zona trasparente per la foto.")
+            expected = print_ratio(preset, orientation)
+            if abs(width / height / expected - 1) > 0.003:
+                raise ValueError("Il rapporto del PNG non corrisponde al formato selezionato.")
+            required = print_output_size(preset, orientation, (width, height))
+            if preset in {"P", "L", "C"} and (width < required[0] or height < required[1]):
+                raise ValueError("Risoluzione della cornice insufficiente per la stampa a 300 dpi.")
+            thumbnail = image.convert("RGBA")
+            thumbnail.thumbnail((280, 280), Image.Resampling.LANCZOS)
+            thumbnail_bytes = io.BytesIO()
+            thumbnail.save(thumbnail_bytes, format="PNG", optimize=True)
+    except (OSError, ValueError, Image.DecompressionBombError) as error:
+        return jsonify({"error": str(error)}), 400
+
+    frame_id = uuid.uuid4().hex
+    metadata = {
+        "id": frame_id, "name": name, "collection": collection,
+        "preset": preset, "orientation": orientation,
+        "width": width, "height": height,
+    }
+    with PRINT_FRAME_LOCK:
+        PRINT_FRAME_ROOT.mkdir(parents=True, exist_ok=True)
+        image_path = PRINT_FRAME_ROOT / f"{frame_id}.png"
+        thumbnail_path = PRINT_FRAME_ROOT / f"{frame_id}.thumb.png"
+        metadata_path = PRINT_FRAME_ROOT / f"{frame_id}.json"
+        try:
+            image_path.write_bytes(raw)
+            thumbnail_path.write_bytes(thumbnail_bytes.getvalue())
+            metadata_path.write_text(json.dumps(metadata, ensure_ascii=False), encoding="utf-8")
+        except OSError:
+            image_path.unlink(missing_ok=True)
+            thumbnail_path.unlink(missing_ok=True)
+            metadata_path.unlink(missing_ok=True)
+            raise
+    metadata["url"] = f"/api/print/frames/{frame_id}/image"
+    metadata["thumbnail_url"] = f"/api/print/frames/{frame_id}/thumbnail"
+    return jsonify(metadata), 201
+
+
+@app.route("/api/print/frames/<frame_id>/image")
+def api_print_frame_image(frame_id):
+    _metadata, path = print_frame_metadata(frame_id)
+    return send_file(path, mimetype="image/png")
+
+
+@app.route("/api/print/frames/<frame_id>/thumbnail")
+def api_print_frame_thumbnail(frame_id):
+    _metadata, _path = print_frame_metadata(frame_id)
+    thumbnail = PRINT_FRAME_ROOT / f"{frame_id}.thumb.png"
+    if not thumbnail.is_file():
+        abort(404)
+    return send_file(thumbnail, mimetype="image/png")
+
+
+@app.route("/api/print/frames/<frame_id>", methods=["DELETE"])
+def api_print_frame_delete(frame_id):
+    _metadata, path = print_frame_metadata(frame_id)
+    with PRINT_FRAME_LOCK:
+        path.unlink(missing_ok=True)
+        (PRINT_FRAME_ROOT / f"{frame_id}.thumb.png").unlink(missing_ok=True)
+        (PRINT_FRAME_ROOT / f"{frame_id}.json").unlink(missing_ok=True)
+    return jsonify({"deleted": frame_id})
+
+
+@app.route("/api/print/editor-preview/<file_id>")
+def api_print_editor_preview(file_id):
+    path, relative = resolve_photo(file_id)
+    if path.suffix.lower() not in PHOTO_EXTENSIONS:
+        abort(404)
+    try:
+        preview = render_editor_preview(path, relative)
+    except Exception:
+        app.logger.exception("Cannot render editor preview for %s", path)
+        return jsonify({"error": "Anteprima editor non disponibile."}), 503
+    return send_file(preview, mimetype="image/jpeg")
+
+
+@app.route("/api/print/export", methods=["POST"])
+def api_print_export():
+    payload = request.get_json(silent=True) or {}
+    if not isinstance(payload, dict):
+        return jsonify({"error": "Richiesta non valida."}), 400
+    file_id = payload.get("id")
+    if not isinstance(file_id, str):
+        return jsonify({"error": "Foto non valida."}), 400
+    path, relative = resolve_photo(file_id)
+    if path.suffix.lower() not in PHOTO_EXTENSIONS:
+        abort(404)
+    try:
+        result = render_print_export(path, relative, payload)
+    except NotFound:
+        raise
+    except ValueError as error:
+        return jsonify({"error": str(error)}), 400
+    except Exception:
+        app.logger.exception("Cannot export print image for %s", path)
+        return jsonify({"error": "Esportazione non riuscita; controlla lo spazio SSD e riprova."}), 503
+    return jsonify(result)
+
+
+@app.route("/api/print/exports/<file_id>")
+def api_print_export_download(file_id):
+    path, _relative = resolve_media(PRINT_EXPORT_ROOT, file_id)
+    if path.suffix.lower() not in {".jpg", ".png"}:
+        abort(404)
+    return send_file(path, as_attachment=True, download_name=path.name)
 
 
 @app.route("/api/rating/<file_id>", methods=["POST"])

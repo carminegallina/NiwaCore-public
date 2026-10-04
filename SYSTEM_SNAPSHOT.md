@@ -69,41 +69,41 @@ https://10.42.0.1:9443
 
 ## Local URLs from wired LAN
 
-The Raspberry Ethernet IP currently used for testing is:
+The Raspberry Ethernet IP on 2026-10-04 is (DHCP; may change):
 
-192.168.1.100
+192.168.1.101
 
 Useful URLs from a PC on the same wired LAN:
 
 Homepage:
-http://192.168.1.100:3000
+http://192.168.1.101:3000
 
 FileBrowser:
-http://192.168.1.100:8080
+http://192.168.1.101:8080
 
 Drone Panel:
-http://192.168.1.100:5051
+http://192.168.1.101:5051
 
 NIWA Review:
-http://192.168.1.100:5052
+http://192.168.1.101:5052
 
 NIWA Storage:
-http://192.168.1.100:5053
+http://192.168.1.101:5053
 
 NIWA Shooting Tools:
-http://192.168.1.100:5054
+http://192.168.1.101:5054
 
 NIWA Lights:
-http://192.168.1.100:5055
+http://192.168.1.101:5055
 
 NIWA System:
-http://192.168.1.100:5056
+http://192.168.1.101:5056
 
 NIWA Import:
-http://192.168.1.100:5057
+http://192.168.1.101:5057
 
 NIWA Companion:
-http://192.168.1.100:5058
+http://192.168.1.101:5058
 
 ## Remote URLs through Tailscale
 
@@ -290,6 +290,28 @@ RAW preview cache:
 
 /mnt/niwa-storage/.niwa_cache/review_previews
 
+Review gallery/viewer derivative cache (deployed 2026-10-05):
+
+/mnt/niwa-storage/.niwa_cache/review_media
+
+- grid thumbnails have a maximum side of 640 px
+- fullscreen viewer previews have a maximum side of 2400 px
+- cache URLs include the source modification signature and use immutable browser caching
+- originals remain unchanged and are loaded only for explicit download, print export or video playback
+
+On-demand full-resolution JPG export cache:
+
+/mnt/niwa-storage/.niwa_cache/review_jpg
+
+Print editor deployed in Review on the Raspberry on 2026-10-04:
+- Editor previews: `/mnt/niwa-storage/.niwa_cache/review_editor`
+- Uploaded PNG frames and thumbnails: `/mnt/niwa-storage/.niwa_frames`
+- Final JPG/PNG exports: `/mnt/niwa-storage/exports/print/<collection>`
+- The live Review API and one real Nikon NEF preview/export/download passed.
+  The generated P/JPG was verified at 1748 x 1181 px, 300 dpi with ICC/Exif.
+- See `docs/REVIEW_PRINT_EDITOR_ROADMAP.md` for the remaining frame, Tab S10,
+  ESP end-to-end and SELPHY CP1500 validation steps.
+
 Video thumbnail cache:
 
 /mnt/niwa-storage/.niwa_cache/review_video_thumbs
@@ -312,6 +334,13 @@ Current behavior:
 - gallery and trash share one order: newest capture time first, file path as
   tie-break for shots within the same second
 - caches RAW previews server-side
+- fullscreen RAW viewer offers a separate "Scarica JPG HQ" action; it develops
+  the original RAW on demand with LibRaw/rawpy, camera white balance, sRGB,
+  full resolution, JPEG quality 100 and 4:4:4 chroma, then caches the result
+  without slowing the ESP import or gallery preview. JPEG is still inherently
+  lossy compared with the original RAW; use the RAW as the archival master.
+- tested on a Nikon Z6 II NEF: 6064x4040, 19.1 MB, embedded sRGB profile;
+  first JPG generation about 6.5 s on Pi 4, cached request about 0.16 s
 - generates video thumbnails with ffmpeg when available
 - uses JPEG temporary output names so ffmpeg thumbnails render for imported GoPro MP4 files
 - stores a persistent JSON media index in /data
@@ -882,7 +911,7 @@ Observed after restart:
 - User confirmed dashboard pages work remotely
 
 Known note:
-Portainer on `https://192.168.1.100:9443` uses a local/self-signed HTTPS certificate, so browsers may show `ERR_CERT_AUTHORITY_INVALID`. This is expected for the current private LAN/Tailscale setup.
+Portainer on `https://192.168.1.101:9443` uses a local/self-signed HTTPS certificate, so browsers may show `ERR_CERT_AUTHORITY_INVALID`. This is expected for the current private LAN/Tailscale setup.
 
 ## Safety note
 

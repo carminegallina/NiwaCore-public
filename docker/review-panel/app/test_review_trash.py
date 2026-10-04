@@ -6,6 +6,7 @@ import json
 import os
 import unittest
 import zipfile
+from unittest import mock
 
 import app as review
 
@@ -28,7 +29,8 @@ class ReviewTrashTests(unittest.TestCase):
             name: getattr(review, name)
             for name in (
                 "STORAGE_ROOT", "TRASH_ROOT", "TRASH_FILE", "PHOTO_ROOT",
-                "REVIEW_INDEX_FILE", "CACHE_ROOT", "VIDEO_CACHE_ROOT",
+                "REVIEW_INDEX_FILE", "CACHE_ROOT", "DERIVATIVE_ROOT",
+                "VIDEO_CACHE_ROOT",
             )
         }
         self.section_roots = {
@@ -40,6 +42,7 @@ class ReviewTrashTests(unittest.TestCase):
         review.PHOTO_ROOT = self.photo
         review.REVIEW_INDEX_FILE = self.data / "review_index.json"
         review.CACHE_ROOT = self.storage / ".niwa_cache" / "review_previews"
+        review.DERIVATIVE_ROOT = self.storage / ".niwa_cache" / "review_media"
         review.VIDEO_CACHE_ROOT = self.storage / ".niwa_cache" / "review_video_thumbs"
         for section, config in review.MEDIA_SECTIONS.items():
             config["root"] = self.storage / section
@@ -73,6 +76,26 @@ class ReviewTrashTests(unittest.TestCase):
 
     def deleted_paths(self):
         return json.loads(review.TRASH_FILE.read_text(encoding="utf-8"))["deleted_paths"]
+
+    def test_raw_jpg_download_is_separate_from_original(self):
+        raw_id = file_id("imports/day1/DSC_1.NEF")
+        jpg_id = file_id("imports/day2/DSC_3.JPG")
+        export = self.storage / "export.jpg"
+        export.write_bytes(b"\xff\xd8jpg\xff\xd9")
+        with mock.patch.object(review, "render_raw_jpg", return_value=export) as render:
+            response = self.client.get(f"/api/download-jpg/photo/{raw_id}")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data, export.read_bytes())
+        self.assertIn("DSC_1.jpg", response.headers["Content-Disposition"])
+        render.assert_called_once()
+        response.close()
+        self.assertEqual(
+            self.client.get(f"/api/download-jpg/photo/{jpg_id}").status_code,
+            404,
+        )
+        original = self.client.get(f"/api/download/photo/{raw_id}")
+        self.assertEqual(original.data, b"raw-one")
+        original.close()
 
     def test_trash_moves_media_and_sidecar_then_removes_empty_folders(self):
         result = self.trash("imports/day1/DSC_1.NEF", "imports/day1/DSC_2.NEF")

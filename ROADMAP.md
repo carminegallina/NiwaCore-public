@@ -488,12 +488,17 @@ Future:
 
 ### Print workflow
 
-Future:
-- SELPHY CP1500 workflow
-- print queue
-- edited export folder
-- quick tablet-to-printer workflow
-- do not depend on cloud
+Next: physically validate the deployed, handoff-ready
+[`docs/REVIEW_PRINT_EDITOR_ROADMAP.md`](docs/REVIEW_PRINT_EDITOR_ROADMAP.md).
+
+Scope: Review photo editor -> frame gallery (generic/event PNGs with visible P/L/C
+or digital-ratio badges) -> separate export size/file choices -> edited JPG/PNG
+saved on SSD and downloaded to the tablet. Keep SELPHY printing manual and
+offline-friendly. Text/logo editor tools and print queue are future additions.
+Editor/frame implementation, Raspberry deployment, automated tests, one live
+Nikon NEF preview/export/download and upload of the real P portrait event frame
+and a real-NEF framed export are complete. Tab S10 scrolling was confirmed on
+2026-10-05; ESP-to-print end-to-end flow and CP1500 print tests remain pending.
 
 ## Long-term modules
 
