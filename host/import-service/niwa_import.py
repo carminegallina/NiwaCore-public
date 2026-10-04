@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-from datetime import datetime
+from datetime import datetime, timedelta
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib import request as urlrequest
@@ -1162,6 +1162,27 @@ def bridge_inventory_match(hashes, session, source_key, size, quick_hash):
     return cached
 
 
+def bridge_matching_slot_keys(source_key):
+    """Only Nikon slots 1/2 may share the same capture under two PTP IDs."""
+    yield source_key
+    parts = source_key.split("|")
+    if len(parts) == 5 and parts[0].startswith("nikon-"):
+        other = {"10001": "20001", "20001": "10001"}.get(parts[1])
+        if other:
+            parts[1] = other
+            yield "|".join(parts)
+            try:
+                captured = datetime.strptime(parts[4], "%Y%m%dT%H%M%S")
+            except ValueError:
+                return
+            # Nikon card timestamps can differ by one second for one capture.
+            for seconds in (-1, 1, -2, 2):
+                parts[4] = (captured + timedelta(seconds=seconds)).strftime(
+                    "%Y%m%dT%H%M%S"
+                )
+                yield "|".join(parts)
+
+
 def bridge_deleted_source(hashes, session, source_key, size, quick_hash, expected_sha256):
     """Where this camera object was published, if the user deleted it in Review."""
     deleted = user_deleted_paths()
@@ -1170,9 +1191,10 @@ def bridge_deleted_source(hashes, session, source_key, size, quick_hash, expecte
     candidates = []
     if expected_sha256:
         candidates.append(hashes.get("files", {}).get(expected_sha256))
-    cached = bridge_inventory_match(hashes, session, source_key, size, quick_hash)
-    if cached:
-        candidates.append(cached.get("destination"))
+    for key in bridge_matching_slot_keys(source_key):
+        cached = bridge_inventory_match(hashes, session, key, size, quick_hash)
+        if cached:
+            candidates.append(cached.get("destination"))
     for candidate in candidates:
         if deleted_by_user(candidate, deleted):
             return candidate
@@ -1180,23 +1202,24 @@ def bridge_deleted_source(hashes, session, source_key, size, quick_hash, expecte
 
 
 def bridge_quick_duplicate(hashes, session, source_key, size, quick_hash):
-    cached = bridge_inventory_match(hashes, session, source_key, size, quick_hash)
-    if not cached:
-        return None, None
-    try:
-        digest = bridge_sha256(cached.get("digest"), required=False)
-    except ApiError:
-        return None, None
-    destination_string = cached.get("destination")
-    if not digest or not destination_string:
-        return None, None
-    destination = Path(destination_string)
-    if (
-        bridge_path_is_within(destination, STORAGE_ROOT)
-        and destination.is_file()
-        and sha256_file(destination) == digest
-    ):
-        return destination, digest
+    for key in bridge_matching_slot_keys(source_key):
+        cached = bridge_inventory_match(hashes, session, key, size, quick_hash)
+        if not cached:
+            continue
+        try:
+            digest = bridge_sha256(cached.get("digest"), required=False)
+        except ApiError:
+            continue
+        destination_string = cached.get("destination")
+        if not digest or not destination_string:
+            continue
+        destination = Path(destination_string)
+        if (
+            bridge_path_is_within(destination, STORAGE_ROOT)
+            and destination.is_file()
+            and sha256_file(destination) == digest
+        ):
+            return destination, digest
     return None, None
 
 
@@ -1263,6 +1286,9 @@ def bridge_public_session(session, include_objects=True):
         ),
         "verified_objects": sum(
             item.get("status") == "verified" for item in objects
+        ),
+        "abandoned_objects": sum(
+            item.get("status") == "abandoned" for item in objects
         ),
         "uploading_objects": sum(
             item.get("status") == "uploading" for item in objects
@@ -1928,11 +1954,19 @@ def bridge_complete_session(session_id):
             if session.get("status") not in {"active", "completing"}:
                 raise ApiError("La sessione bridge non puo essere completata.", status=409)
 
+            # A card may disappear after preflight. The camera still owns the
+            # original; a later session will start that upload again.
+            for item in session.get("objects", {}).values():
+                if item.get("status") == "uploading":
+                    item["status"] = "abandoned"
+                    item["updated_at"] = now_label()
             incomplete = [
                 item["object_id"]
                 for item in session.get("objects", {}).values()
-                if item.get("status")
-                not in {"skipped", "verified", "published", "duplicate", "deleted"}
+                if item.get("status") not in {
+                    "skipped", "verified", "published", "duplicate", "deleted",
+                    "abandoned",
+                }
             ]
             if incomplete:
                 raise ApiError(
@@ -1949,7 +1983,9 @@ def bridge_complete_session(session_id):
 
             try:
                 for item in session.get("objects", {}).values():
-                    if item["status"] in {"published", "duplicate", "deleted"}:
+                    if item["status"] in {
+                        "published", "duplicate", "deleted", "abandoned"
+                    }:
                         continue
                     digest = item.get("digest")
                     if not digest:

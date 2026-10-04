@@ -597,6 +597,95 @@ class NiwaImportTests(unittest.TestCase):
         self.assertEqual(rebuild_calls, [])
         self.assertEqual(len(list((self.storage / "photo").rglob("*.JPG"))), 1)
 
+    def test_bridge_nikon_backup_slots_do_not_publish_twice(self):
+        # Nikon backup copies may differ in metadata outside the three quick
+        # fingerprint samples, even though they represent the same capture.
+        for number, first_slot, second_slot in ((1, "10001", "20001"),
+                                                (2, "20001", "10001")):
+            name = f"DSC_{number:04d}.NEF"
+            source = f"nikon-test|{first_slot}|{name}|300000|20261003T224531"
+            other = f"nikon-test|{second_slot}|{name}|300000|20261003T224532"
+            original = bytes([64 + number]) * 300000
+            content = bytearray(original)
+            sample = self.root / name
+            sample.write_bytes(content)
+            quick_hash = niwa_import.quick_fingerprint(sample)["quick_hash"]
+            digest = niwa_import.sha256_file(sample)
+            content[96620] = 1
+            sample.write_bytes(content)
+            self.assertEqual(
+                niwa_import.quick_fingerprint(sample)["quick_hash"], quick_hash
+            )
+            self.assertNotEqual(niwa_import.sha256_file(sample), digest)
+
+            session = niwa_import.bridge_create_session({"source_id": "nikon-test"})
+            first = niwa_import.bridge_preflight(session["session_id"], {
+                "object_id": f"first-{number}",
+                "source_key": source,
+                "filename": name,
+                "size": len(content),
+                "quick_hash": quick_hash,
+            })
+            niwa_import.bridge_receive_chunk(
+                first["upload_id"], 0, len(original) - 1, len(original), original
+            )
+            niwa_import.bridge_complete_upload(first["upload_id"], {"sha256": digest})
+            niwa_import.bridge_complete_session(session["session_id"])
+
+            session = niwa_import.bridge_create_session({"source_id": "nikon-test"})
+            duplicate = niwa_import.bridge_preflight(session["session_id"], {
+                "object_id": f"second-{number}",
+                "source_key": other,
+                "filename": name,
+                "size": len(content),
+                "quick_hash": quick_hash,
+            })
+            self.assertEqual(duplicate["action"], "skip")
+            self.assertEqual(duplicate["reason"], "quick_hash")
+            niwa_import.bridge_complete_session(session["session_id"])
+
+        self.assertEqual(len(list((self.storage / "photo").rglob("*.NEF"))), 2)
+
+    def test_bridge_card_change_closes_session_without_losing_published_photo(self):
+        session = niwa_import.bridge_create_session({"source_id": "nikon-test"})
+        unfinished = niwa_import.bridge_preflight(session["session_id"], {
+            "object_id": "old-slot-1",
+            "source_key": "nikon-test|10001|OLD.NEF|100|20261003T220000",
+            "filename": "OLD.NEF",
+            "size": 100,
+        })
+        self.assertEqual(unfinished["action"], "upload")
+        niwa_import.bridge_receive_chunk(
+            unfinished["upload_id"], 0, 49, 100, b"O" * 50
+        )
+        fresh = niwa_import.bridge_preflight(session["session_id"], {
+            "object_id": "new-slot-2",
+            "source_key": "nikon-test|20001|NEW.NEF|100|20261003T230000",
+            "filename": "NEW.NEF",
+            "size": 100,
+        })
+        content = b"N" * 100
+        niwa_import.bridge_receive_chunk(
+            fresh["upload_id"], 0, 99, 100, content
+        )
+        niwa_import.bridge_complete_upload(fresh["upload_id"], {
+            "sha256": niwa_import.hashlib.sha256(content).hexdigest(),
+        })
+        completed = niwa_import.bridge_complete_session(session["session_id"])
+        self.assertEqual(completed["session"]["status"], "completed")
+        self.assertEqual(completed["session"]["abandoned_objects"], 1)
+        self.assertEqual(len(list((self.storage / "photo").rglob("NEW.NEF"))), 1)
+
+        retry = niwa_import.bridge_create_session({"source_id": "nikon-test"})
+        again = niwa_import.bridge_preflight(retry["session_id"], {
+            "object_id": "old-slot-1",
+            "source_key": "nikon-test|10001|OLD.NEF|100|20261003T220000",
+            "filename": "OLD.NEF",
+            "size": 100,
+        })
+        self.assertEqual(again["action"], "upload")
+        self.assertEqual(again["offset"], 0)
+
     def test_bridge_never_resends_a_photo_deleted_in_review(self):
         content = b"deleted-photo" * 9000
         sample = self.root / "gone.NEF"

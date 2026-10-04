@@ -189,6 +189,35 @@ curl -s http://127.0.0.1:5057/api/bridge/v1/provision/token
 
 ### Upload throughput
 
+Firmware 1.2.1 prioritizes photos created after the camera connection over
+photos already on the card. A background upload checks for new photos about
+every 5 seconds; when one appears, it pauses after a confirmed chunk and later
+resumes from the Raspberry's durable offset. Idle scans also run every 5 seconds.
+The complete photo is still verified before publication. On 2026-10-03 the
+firmware was flashed on COM4 and tested with the Nikon Z6 II: while the bridge
+was importing the older `_DSC7157.NEF`, it paused at the confirmed offset
+44,040,192/46,016,000 bytes, uploaded the new 26,048,566-byte `_DSC7967.NEF`,
+then resumed and verified `_DSC7157.NEF`. The new photo appeared in the Review
+API. Automatic browser refresh was confirmed in NIWA Review.
+
+Live test: connect a camera containing at least two older, not-yet-imported
+photos; while the serial monitor shows an old upload, take a new photo. Expect
+`[PRIORITY] Pausing ...`, publication of the new photo first, and then a resumed
+old upload without repeating confirmed bytes. Repeat once after disconnecting
+and reconnecting the camera. NIWA Review polls for new photos every 5 seconds
+while its first photo page is visible; it does not interrupt selection or an
+open preview.
+
+The tested camera exposes each shot on both card slots (`0x00010001` and
+`0x00020001`). Firmware 1.2.1 scans slot 1 only while it is available; slot 2
+is used only when slot 1 is absent. NIWA Import also recognizes the matching
+capture across the two slots at preflight, so reinserting slot 1 does not
+publish a second copy. It leaves existing `_conflict_` files untouched.
+The physical fallback test imported `_DSC7970.NEF` from slot 2 alone on
+2026-10-03. NIWA Import tolerates a two-second card timestamp difference and
+closes sessions containing uploads interrupted by a card change; an abandoned
+partial upload starts again if that card returns.
+
 Each chunk is read from the camera, then sent to the Raspberry. Since firmware
 1.1.0 the two halves overlap: a dedicated task uploads chunk N while the PTP
 worker reads chunk N+1 into a second buffer. At most one chunk is in flight, so

@@ -92,6 +92,6 @@ switch ($Action) {
             throw "Specifica la porta seriale, ad esempio: -Port COM4"
         }
 
-        Invoke-ArduinoCli monitor --port $Port --config baudrate=115200,dtr=off,rts=off
+        Invoke-ArduinoCli monitor --port $Port --config "baudrate=115200,dtr=off,rts=off"
     }
 }

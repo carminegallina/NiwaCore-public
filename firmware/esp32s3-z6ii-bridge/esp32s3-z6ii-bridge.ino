@@ -38,6 +38,8 @@
 #include <HTTPClient.h>
 #include <Preferences.h>
 #include <WiFi.h>
+#include <algorithm>
+#include <utility>
 #include <vector>
 #include "esp_arduino_version.h"
 #include "esp_err.h"
@@ -45,7 +47,7 @@
 #include "mbedtls/sha256.h"
 #include "usb/usb_host.h"
 
-static constexpr char FIRMWARE_VERSION[] = "1.1.1";
+static constexpr char FIRMWARE_VERSION[] = "1.2.1";
 static constexpr char DEFAULT_WIFI_SSID[] = "NIWA-AP";
 static constexpr char DEFAULT_SERVER_URL[] =
   "http://10.42.0.1:5057/api/bridge/v1";
@@ -72,7 +74,10 @@ static constexpr size_t QUICK_SAMPLE_SIZE = 64 * 1024;
 // this size live in PSRAM while camera reads and uploads overlap.
 static constexpr size_t UPLOAD_CHUNK_SIZE = 2 * 1024 * 1024;
 static constexpr size_t MAX_SESSION_OBJECTS = 50;
-static constexpr uint32_t SCAN_INTERVAL_MS = 12000;
+static constexpr uint32_t SCAN_INTERVAL_MS = 5000;
+static constexpr uint32_t PRIORITY_SCAN_INTERVAL_MS = 5000;
+static constexpr uint32_t PRIMARY_STORAGE_ID = 0x00010001;
+static constexpr uint32_t SECONDARY_STORAGE_ID = 0x00020001;
 static constexpr uint32_t WIFI_TIMEOUT_MS = 25000;
 static constexpr uint8_t HTTP_RETRIES = 4;
 
@@ -163,6 +168,12 @@ static uint16_t gBulkInPacketSize = 64;
 static bool gInterfaceClaimed = false;
 static uint32_t gNextTransaction = 1;
 static std::vector<uint32_t> gHandledHandles;
+static std::vector<uint32_t> gInitialHandles;
+static bool gInitialHandlesReady = false;
+static uint32_t gPausedHandle = 0;
+
+enum class UploadResult { Complete, Paused, Failed };
+static bool newHandlesWaiting();
 
 static uint16_t readLe16(const uint8_t *data) {
   return static_cast<uint16_t>(data[0]) |
@@ -1004,14 +1015,21 @@ static bool isPhoto(const ObjectInfo &object) {
 }
 
 static bool handledContains(uint32_t handle) {
-  for (uint32_t existing : gHandledHandles) {
-    if (existing == handle) return true;
-  }
-  return false;
+  return std::binary_search(gHandledHandles.begin(), gHandledHandles.end(),
+                            handle);
 }
 
 static void markHandled(uint32_t handle) {
-  if (!handledContains(handle)) gHandledHandles.push_back(handle);
+  auto position = std::lower_bound(gHandledHandles.begin(),
+                                   gHandledHandles.end(), handle);
+  if (position == gHandledHandles.end() || *position != handle)
+    gHandledHandles.insert(position, handle);
+}
+
+static bool isNewHandle(uint32_t handle) {
+  return gInitialHandlesReady &&
+         !std::binary_search(gInitialHandles.begin(), gInitialHandles.end(),
+                             handle);
 }
 
 static bool findPtpInterface() {
@@ -1403,11 +1421,12 @@ static void chunkSenderTask(void *argument) {
   }
 }
 
-static bool uploadObject(const ObjectInfo &object,
-                         const PreflightResult &preflight) {
-  if (preflight.skip) return true;
+static UploadResult uploadObject(const ObjectInfo &object,
+                                 const PreflightResult &preflight,
+                                 bool background) {
+  if (preflight.skip) return UploadResult::Complete;
   uint32_t offset = preflight.offset;
-  if (offset > object.size) return false;
+  if (offset > object.size) return UploadResult::Failed;
 
   const bool clientHashAvailable = offset == 0;
   mbedtls_sha256_context hashContext;
@@ -1415,7 +1434,7 @@ static bool uploadObject(const ObjectInfo &object,
     mbedtls_sha256_init(&hashContext);
     if (mbedtls_sha256_starts(&hashContext, 0) != 0) {
       mbedtls_sha256_free(&hashContext);
-      return false;
+      return UploadResult::Failed;
     }
   } else {
     Serial.println(F("[HASH] Resuming after offset 0: server SHA-256 is authoritative."));
@@ -1429,6 +1448,7 @@ static bool uploadObject(const ObjectInfo &object,
   ChunkSend job;
   bool inFlight = false;
   uint32_t lastDone = millis();
+  uint32_t lastPriorityScan = millis();
   uint32_t readOffset = offset;
 
   // Waits for the chunk in flight and checks the server took it all. Must run
@@ -1460,6 +1480,7 @@ static bool uploadObject(const ObjectInfo &object,
   };
 
   bool success = true;
+  bool paused = false;
   while (readOffset < object.size && !gDeviceGone) {
     const uint32_t requested =
       min(preflight.chunkSize, object.size - readOffset);
@@ -1484,6 +1505,17 @@ static bool uploadObject(const ObjectInfo &object,
     if (!finishInFlight()) {
       success = false;
       break;
+    }
+    if (background && offset < object.size &&
+        millis() - lastPriorityScan >= PRIORITY_SCAN_INTERVAL_MS) {
+      lastPriorityScan = millis();
+      if (newHandlesWaiting()) {
+        Serial.printf("[PRIORITY] Pausing %s at durable offset %lu.\n",
+                      object.filename.c_str(),
+                      static_cast<unsigned long>(offset));
+        paused = true;
+        break;
+      }
     }
     job = ChunkSend();
     job.uploadId = &preflight.uploadId;
@@ -1515,11 +1547,12 @@ static bool uploadObject(const ObjectInfo &object,
     }
     mbedtls_sha256_free(&hashContext);
   }
-  if (!success || offset != object.size) return false;
-  if (!completeUpload(preflight.uploadId, fullHash)) return false;
+  if (paused) return UploadResult::Paused;
+  if (!success || offset != object.size) return UploadResult::Failed;
+  if (!completeUpload(preflight.uploadId, fullHash)) return UploadResult::Failed;
   Serial.printf("[VERIFY] %s verified by Raspberry SHA-256.\n",
                 object.filename.c_str());
-  return true;
+  return UploadResult::Complete;
 }
 
 static bool completeApiSession(const String &sessionId) {
@@ -1566,6 +1599,59 @@ static bool getObjectInfo(uint32_t handle, ObjectInfo &object) {
   return parseObjectInfo(payload, handle, object);
 }
 
+static bool collectCameraHandles(std::vector<uint32_t> &handles,
+                                 std::vector<uint32_t> *baseline = nullptr) {
+  std::vector<uint32_t> storageIds;
+  if (!getStorageIds(storageIds)) {
+    Serial.println(F("[SCAN] Cannot read camera storages."));
+    return false;
+  }
+  const bool primaryPresent =
+    std::find(storageIds.begin(), storageIds.end(), PRIMARY_STORAGE_ID) !=
+    storageIds.end();
+  const uint32_t selectedStorage = primaryPresent ? PRIMARY_STORAGE_ID :
+    (std::find(storageIds.begin(), storageIds.end(), SECONDARY_STORAGE_ID) !=
+     storageIds.end() ? SECONDARY_STORAGE_ID : 0);
+  if (!selectedStorage) {
+    Serial.println(F("[SCAN] No Nikon card available; nothing to import."));
+    return false;
+  }
+  Serial.printf("[SCAN] Importing slot %u%s.\n",
+                selectedStorage == PRIMARY_STORAGE_ID ? 1 : 2,
+                primaryPresent ? "" : " (slot 1 absent)");
+  for (uint32_t storageId : storageIds) {
+    if (storageId != selectedStorage && !baseline) continue;
+    std::vector<uint32_t> storageHandles;
+    if (!getObjectHandles(storageId, storageHandles)) {
+      Serial.printf("[SCAN] Cannot read storage 0x%08lX.\n",
+                    static_cast<unsigned long>(storageId));
+      if (storageId == selectedStorage) return false;
+      continue;
+    }
+    Serial.printf("[SCAN] Storage 0x%08lX: %u objects.\n",
+                  static_cast<unsigned long>(storageId),
+                  static_cast<unsigned>(storageHandles.size()));
+    if (baseline)
+      baseline->insert(baseline->end(), storageHandles.begin(),
+                       storageHandles.end());
+    if (storageId == selectedStorage)
+      handles = std::move(storageHandles);
+  }
+  return true;
+}
+
+static bool newHandlesWaiting() {
+  if (!gInitialHandlesReady) return false;
+  std::vector<uint32_t> handles;
+  if (!collectCameraHandles(handles)) return false;
+  for (uint32_t handle : handles) {
+    if (!isNewHandle(handle) || handledContains(handle)) continue;
+    ObjectInfo object;
+    if (getObjectInfo(handle, object) && isPhoto(object)) return true;
+  }
+  return false;
+}
+
 static bool scanCamera(const CameraIdentity &camera,
                        String &apiSessionId,
                        bool &sessionHasObjects,
@@ -1573,7 +1659,7 @@ static bool scanCamera(const CameraIdentity &camera,
   // A checkpoint response may be lost after the Raspberry has already
   // committed the session. Retry this idempotent completion before issuing
   // any new preflight against a session that may no longer be active.
-  if (apiSessionId.length() && sessionHasObjects &&
+  if (apiSessionId.length() && sessionHasObjects && !gPausedHandle &&
       sessionObjectCount >= MAX_SESSION_OBJECTS) {
     Serial.printf("[API] Recovering checkpoint batch (%u objects).\n",
                   static_cast<unsigned>(sessionObjectCount));
@@ -1586,34 +1672,42 @@ static bool scanCamera(const CameraIdentity &camera,
     sessionObjectCount = 0;
   }
 
-  std::vector<uint32_t> storageIds;
-  if (!getStorageIds(storageIds)) {
-    Serial.println(F("[SCAN] Cannot read camera storages."));
+  std::vector<uint32_t> handles;
+  std::vector<uint32_t> initialHandles;
+  if (!collectCameraHandles(handles,
+                            gInitialHandlesReady ? nullptr : &initialHandles))
     return false;
+  if (!gInitialHandlesReady) {
+    gInitialHandles = std::move(initialHandles);
+    std::sort(gInitialHandles.begin(), gInitialHandles.end());
+    gInitialHandles.erase(
+      std::unique(gInitialHandles.begin(), gInitialHandles.end()),
+      gInitialHandles.end());
+    gInitialHandlesReady = true;
+    Serial.printf("[PRIORITY] Baseline: %u existing objects.\n",
+                  static_cast<unsigned>(gInitialHandles.size()));
   }
 
-  Serial.printf("[SCAN] Checking %u camera storage(s)...\n",
-                static_cast<unsigned>(storageIds.size()));
+  // New captures on the selected card go first; older photos follow.
+  std::vector<uint32_t> orderedHandles;
+  orderedHandles.reserve(handles.size());
+  for (uint32_t handle : handles) {
+    if (isNewHandle(handle) && !handledContains(handle))
+      orderedHandles.push_back(handle);
+  }
+  for (uint32_t handle : handles) {
+    if (!isNewHandle(handle) && !handledContains(handle))
+      orderedHandles.push_back(handle);
+  }
   size_t newPhotos = 0;
   size_t imported = 0;
   size_t skipped = 0;
   size_t warnings = 0;
   bool infrastructureFailure = false;
   bool stopScan = false;
+  bool pausedThisScan = false;
 
-  for (uint32_t storageId : storageIds) {
-    if (gDeviceGone || stopScan) break;
-    std::vector<uint32_t> handles;
-    if (!getObjectHandles(storageId, handles)) {
-      ++warnings;
-      continue;
-    }
-    Serial.printf("[SCAN] Storage 0x%08lX: %u objects, %u already handled.\n",
-                  static_cast<unsigned long>(storageId),
-                  static_cast<unsigned>(handles.size()),
-                  static_cast<unsigned>(gHandledHandles.size()));
-
-    for (uint32_t handle : handles) {
+  for (uint32_t handle : orderedHandles) {
       if (gDeviceGone || stopScan) break;
       if (handledContains(handle)) continue;
 
@@ -1621,6 +1715,11 @@ static bool scanCamera(const CameraIdentity &camera,
       if (!getObjectInfo(handle, object)) {
         Serial.printf("[SCAN] ObjectInfo failed for 0x%08lX.\n",
                       static_cast<unsigned long>(handle));
+        ++warnings;
+        continue;
+      }
+      // A camera may expose a handle before the image has finished writing.
+      if (object.size == 0 && object.format != PTP_FORMAT_ASSOCIATION) {
         ++warnings;
         continue;
       }
@@ -1661,20 +1760,32 @@ static bool scanCamera(const CameraIdentity &camera,
       sessionHasObjects = true;
       if (preflight.skip) {
         markHandled(handle);
+        if (handle == gPausedHandle) gPausedHandle = 0;
         ++skipped;
-      } else if (uploadObject(object, preflight)) {
-        markHandled(handle);
-        ++imported;
       } else {
-        // Preflight allocated/resumed an upload. Keep this session open so
-        // the next scan can continue from the server's durable offset.
-        infrastructureFailure = true;
-        stopScan = true;
-        break;
+        const UploadResult result =
+          uploadObject(object, preflight, !isNewHandle(handle));
+        if (result == UploadResult::Complete) {
+          markHandled(handle);
+          if (handle == gPausedHandle) gPausedHandle = 0;
+          ++imported;
+        } else {
+          // An incomplete upload keeps the API session open. On a planned
+          // pause, immediately rescan and serve the new capture first.
+          pausedThisScan = result == UploadResult::Paused;
+          if (pausedThisScan) {
+            gPausedHandle = handle;
+            gForceRescan = true;
+          } else {
+            infrastructureFailure = true;
+          }
+          stopScan = true;
+          break;
+        }
       }
 
       ++sessionObjectCount;
-      if (sessionObjectCount >= MAX_SESSION_OBJECTS) {
+      if (!gPausedHandle && sessionObjectCount >= MAX_SESSION_OBJECTS) {
         Serial.printf("[API] Publishing checkpoint batch (%u objects).\n",
                       static_cast<unsigned>(sessionObjectCount));
         if (!completeApiSession(apiSessionId)) {
@@ -1686,7 +1797,6 @@ static bool scanCamera(const CameraIdentity &camera,
         sessionHasObjects = false;
         sessionObjectCount = 0;
       }
-    }
   }
 
   Serial.printf("[SCAN] New %u, uploaded %u, skipped %u, warnings %u.\n",
@@ -1698,7 +1808,8 @@ static bool scanCamera(const CameraIdentity &camera,
   // Metadata/quick-hash warnings happened before preflight and therefore do
   // not belong to this API session. Publish verified objects now; the warning
   // handles remain unmarked and will be retried in the next scan.
-  if (!gDeviceGone && !infrastructureFailure &&
+  if (!gDeviceGone && !infrastructureFailure && !pausedThisScan &&
+      !gPausedHandle &&
       apiSessionId.length() && sessionHasObjects) {
     if (completeApiSession(apiSessionId)) {
       apiSessionId = "";
@@ -1715,6 +1826,9 @@ static bool runCameraBridge() {
   gBulkReader.reset();
   gNextTransaction = 1;
   gHandledHandles.clear();
+  gInitialHandles.clear();
+  gInitialHandlesReady = false;
+  gPausedHandle = 0;
 
   const uint32_t sessionParameter = 1;
   if (!commandWithoutData(PTP_OC_OPEN_SESSION, 0,
