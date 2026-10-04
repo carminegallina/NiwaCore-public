@@ -4,6 +4,9 @@ set -euo pipefail
 PROJECT_ROOT="/home/niwa/niwa"
 IMPORT_SOURCE="${PROJECT_ROOT}/host/import-service"
 IMPORT_TARGET="/opt/niwa-import"
+HOTSPOT_CONNECTION="Hotspot"
+# Shared with the NIWA System container, which may only write "request" here.
+HOTSPOT_DIR="${PROJECT_ROOT}/data/hotspot"
 
 usage() {
   cat <<'EOF'
@@ -14,6 +17,8 @@ Commands:
   import-restart
   import-status
   hotspot-up
+  hotspot-channel <1|6|11>
+  hotspot-request
   service-restart <service>
   service-status <service>
 
@@ -72,6 +77,74 @@ install_import_service() {
   systemctl --no-pager status niwa-import.service
 }
 
+hotspot_channel_now() {
+  nmcli -g 802-11-wireless.channel connection show "${HOTSPOT_CONNECTION}"
+}
+
+# Written through a fresh temp file and a rename, so a symlink planted in the
+# shared folder is replaced instead of followed.
+write_hotspot_status() {
+  local ok="$1" message="$2" tmp
+  install -d -m 0755 "${HOTSPOT_DIR}"
+  tmp="$(mktemp "${HOTSPOT_DIR}/.status.XXXXXX")"
+  printf '{"channel":"%s","ok":%s,"message":"%s","updated":"%s"}
+'     "$(hotspot_channel_now)" "${ok}" "${message}" "$(date -Iseconds)" > "${tmp}"
+  chmod 0644 "${tmp}"
+  mv -fT "${tmp}" "${HOTSPOT_DIR}/status.json"
+}
+
+set_hotspot_channel() {
+  local channel="$1" previous
+  case "${channel}" in
+    1|6|11) ;;
+    *)
+      echo "Hotspot channel must be 1, 6 or 11." >&2
+      return 1
+      ;;
+  esac
+  previous="$(hotspot_channel_now)"
+  if [[ "${previous}" == "${channel}" ]]; then
+    write_hotspot_status true "Canale ${channel} gia' attivo"
+    return 0
+  fi
+  if ! nmcli connection modify "${HOTSPOT_CONNECTION}" 802-11-wireless.band bg 802-11-wireless.channel "${channel}"; then
+    write_hotspot_status false "Impossibile impostare il canale ${channel}"
+    return 1
+  fi
+  if nmcli connection up "${HOTSPOT_CONNECTION}"; then
+    write_hotspot_status true "Canale ${channel} attivo"
+    return 0
+  fi
+  # Never leave an event without Wi-Fi: go back to the channel that worked.
+  nmcli connection modify "${HOTSPOT_CONNECTION}" 802-11-wireless.channel "${previous}" || true
+  nmcli connection up "${HOTSPOT_CONNECTION}" || true
+  write_hotspot_status false "Canale ${channel} non attivato, ripristinato ${previous}"
+  return 1
+}
+
+# Run by niwa-hotspot.service when NIWA System drops a request file.
+apply_hotspot_request() {
+  local request="${HOTSPOT_DIR}/request" channel=""
+  if [[ ! -e "${request}" && ! -L "${request}" ]]; then
+    write_hotspot_status true "Stato aggiornato"
+    return 0
+  fi
+  # The container wrote this file: read a few bytes of a regular file only.
+  if [[ -f "${request}" && ! -L "${request}" ]]; then
+    channel="$(timeout 2 head -c 3 -- "${request}" | tr -dc '0-9' || true)"
+  fi
+  rm -rf -- "${request}"
+  case "${channel}" in
+    1|6|11)
+      set_hotspot_channel "${channel}"
+      ;;
+    *)
+      write_hotspot_status false "Richiesta non valida"
+      return 1
+      ;;
+  esac
+}
+
 require_root
 
 case "${1:-}" in
@@ -87,6 +160,12 @@ case "${1:-}" in
     ;;
   hotspot-up)
     nmcli connection up Hotspot
+    ;;
+  hotspot-channel)
+    set_hotspot_channel "${2:-}"
+    ;;
+  hotspot-request)
+    apply_hotspot_request
     ;;
   service-restart)
     validate_service "${2:-}"

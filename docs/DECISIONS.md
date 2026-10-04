@@ -27,3 +27,14 @@
 - I percorsi eliminati restano registrati anche dopo lo svuotamento, cosi'
   una foto cancellata non viene mai reimportata da camera o scheda SD.
 - Il bridge pubblica ogni file appena verificato, invece che a fine sessione.
+
+## 2026-10-05
+
+- Il canale dell'hotspot si cambia da NIWA System senza dare privilegi al
+  container: il pannello scrive solo `data/hotspot/request`, un'unita'
+  systemd `.path` sull'host lancia `niwa-admin hotspot-request` che valida
+  (1, 6 o 11) e applica. Scartate le alternative: socket D-Bus di
+  NetworkManager nel container (controllo totale della rete) ed endpoint in
+  NIWA Import (servizio root con un compito diverso).
+- Se il nuovo canale non si attiva, il wrapper torna al canale precedente:
+  l'evento non deve mai restare senza Wi-Fi.

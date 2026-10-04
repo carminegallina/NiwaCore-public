@@ -576,15 +576,21 @@ Port:
 Expected Docker volume:
 
 /mnt/niwa-storage:/storage:ro
+/home/niwa/niwa/data/hotspot:/hotspot  (hotspot channel requests only)
 
 Current behavior:
-- provides a read-only "is NIWA ready?" status panel
+- provides an "is NIWA ready?" status panel
 - checks Homepage, FileBrowser, Glances, Portainer, Samba, SSH and all current NIWA panels
 - checks SSD free space through the read-only storage mount
 - checks expected LAN, hotspot and Tailscale IPs
 - shows uptime and current IP addresses
 - exposes `/api/summary` for the Homepage status badge
 - keeps system actions read-only in v1; no restart controls are exposed
+- one exception: "Canale hotspot" switches NIWA-AP between channels 1, 6
+  and 11. `POST /api/hotspot/channel` (JSON only) writes
+  `data/hotspot/request`; the host `niwa-hotspot.path` unit runs
+  `niwa-admin hotspot-request`, which validates and applies it and writes
+  `data/hotspot/status.json`, read back by `GET /api/hotspot`
 
 Useful commands:
 
@@ -751,6 +757,10 @@ Current behavior:
 - passwordless `sudo -n` access only through `/usr/local/sbin/niwa-admin`
 - supports NIWA Import install, restart and status
 - supports bringing up the existing `Hotspot` NetworkManager connection
+- `hotspot-channel 1|6|11` changes the hotspot channel; if the hotspot does
+  not come back up it restores the previous channel
+- `hotspot-request` applies a channel request from NIWA System; triggered by
+  `/etc/systemd/system/niwa-hotspot.path` and `niwa-hotspot.service`
 - supports restart and status only for explicitly allowed infrastructure services
 - rejects arbitrary commands and services outside the allowlist
 - intentionally does not grant unrestricted `NOPASSWD: ALL`

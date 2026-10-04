@@ -1,0 +1,8 @@
+[Unit]
+Description=Apply a NIWA hotspot channel request
+After=NetworkManager.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/niwa-admin hotspot-request
+TimeoutStartSec=90

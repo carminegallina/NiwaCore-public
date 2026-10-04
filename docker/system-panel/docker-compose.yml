@@ -5,6 +5,7 @@ services:
     network_mode: host
     volumes:
       - /mnt/niwa-storage:/storage:ro
+      - /home/niwa/niwa/data/hotspot:/hotspot
     environment:
       - NIWA_LAN_IP=192.168.1.100
       - NIWA_HOTSPOT_IP=10.42.0.1

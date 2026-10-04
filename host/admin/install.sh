@@ -28,6 +28,16 @@ sudo install -o root -g root -m 0755 "${SOURCE}" "${TARGET}"
 sudo install -o root -g root -m 0440 "${TEMP_SUDOERS}" "${SUDOERS_TARGET}"
 sudo /usr/sbin/visudo -cf "${SUDOERS_TARGET}"
 
+# NIWA System asks for hotspot channel changes through this folder.
+sudo install -d -m 0755 "${PROJECT_ROOT}/data/hotspot"
+# Drop a request left by the panel before the watcher existed: no surprise switch.
+sudo rm -rf -- "${PROJECT_ROOT}/data/hotspot/request"
+sudo install -o root -g root -m 0644 "${PROJECT_ROOT}/host/admin/niwa-hotspot.path" /etc/systemd/system/niwa-hotspot.path
+sudo install -o root -g root -m 0644 "${PROJECT_ROOT}/host/admin/niwa-hotspot.service" /etc/systemd/system/niwa-hotspot.service
+sudo systemctl daemon-reload
+sudo systemctl enable --now niwa-hotspot.path
+sudo systemctl start niwa-hotspot.service
+
 echo
 echo "NIWA restricted admin wrapper installed."
 echo "Checking passwordless access..."

@@ -1,0 +1,9 @@
+[Unit]
+Description=NIWA hotspot channel requests from NIWA System
+
+[Path]
+PathExists=/home/niwa/niwa/data/hotspot/request
+Unit=niwa-hotspot.service
+
+[Install]
+WantedBy=multi-user.target

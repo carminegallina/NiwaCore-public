@@ -1,7 +1,8 @@
-from flask import Flask, jsonify
+from flask import Flask, jsonify, request
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
 import http.client
+import json
 import os
 import shutil
 import socket
@@ -21,6 +22,10 @@ LAN_IP = os.environ.get("NIWA_LAN_IP", "192.168.1.100")
 HOTSPOT_IP = os.environ.get("NIWA_HOTSPOT_IP", "10.42.0.1")
 TAILSCALE_IP = os.environ.get("NIWA_TAILSCALE_IP", "100.64.0.1")
 TIMEZONE_NAME = os.environ.get("NIWA_TIMEZONE", "Europe/Rome")
+# Shared with the host: this container only drops a request file here and the
+# root-owned niwa-admin wrapper validates and applies it.
+HOTSPOT_DIR = Path(os.environ.get("NIWA_HOTSPOT_DIR", "/hotspot"))
+HOTSPOT_CHANNELS = ("1", "6", "11")
 
 GB = 1024 ** 3
 
@@ -433,6 +438,24 @@ def build_status():
     }
 
 
+def hotspot_state():
+    try:
+        status = json.loads((HOTSPOT_DIR / "status.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        status = {}
+    if not isinstance(status, dict):
+        status = {}
+    return {
+        "available": HOTSPOT_DIR.is_dir(),
+        "pending": (HOTSPOT_DIR / "request").exists(),
+        "channel": str(status.get("channel", "")),
+        "ok": status.get("ok") is True,
+        "message": str(status.get("message", "")),
+        "updated": str(status.get("updated", "")),
+        "channels": HOTSPOT_CHANNELS,
+    }
+
+
 @app.after_request
 def add_cors_headers(response):
     response.headers["Access-Control-Allow-Origin"] = "*"
@@ -461,6 +484,26 @@ def api_status():
     return jsonify(build_status())
 
 
+@app.route("/api/hotspot")
+def api_hotspot():
+    return jsonify(hotspot_state())
+
+
+@app.route("/api/hotspot/channel", methods=["POST"])
+def api_hotspot_channel():
+    # JSON only: CORS allows GET alone, so other sites cannot trigger this.
+    payload = request.get_json(silent=True) if request.is_json else None
+    channel = str(payload.get("channel", "")) if isinstance(payload, dict) else ""
+    if channel not in HOTSPOT_CHANNELS:
+        return jsonify({"error": "Canale non valido: scegli 1, 6 o 11."}), 400
+    if not HOTSPOT_DIR.is_dir():
+        return jsonify({"error": "Cartella richieste hotspot non montata."}), 503
+    temp = HOTSPOT_DIR / ".request.tmp"
+    temp.write_text(channel, encoding="utf-8")
+    temp.replace(HOTSPOT_DIR / "request")
+    return jsonify(hotspot_state()), 202
+
+
 @app.route("/")
 def index():
     return """
@@ -477,6 +520,7 @@ body{margin:0;font-family:Arial,sans-serif;background:radial-gradient(circle at 
 h1{margin:0 0 6px;font-size:32px;letter-spacing:0;color:#fff4ec}.subtitle{color:var(--muted);line-height:1.45}.topbar{display:flex;justify-content:space-between;gap:14px;align-items:flex-start;margin-bottom:18px}.brand-heading{display:flex;align-items:center;gap:12px;min-width:0}.brand-logo{width:52px;height:52px;border-radius:50%;border:1px solid rgba(213,154,132,.42);background:#f2dfcf;box-shadow:0 16px 34px rgba(0,0,0,.28);flex:0 0 auto}.brand-copy{min-width:0}.button{display:inline-flex;align-items:center;justify-content:center;background:rgba(64,45,42,.92);color:white;text-decoration:none;padding:10px 12px;border-radius:10px;border:1px solid var(--line);min-height:40px;box-shadow:inset 0 1px 0 rgba(255,255,255,.04)}.button:hover{background:rgba(87,61,56,.96);border-color:rgba(213,154,132,.42)}
 .hero{display:grid;grid-template-columns:minmax(0,1.25fr) minmax(260px,.75fr);gap:14px;align-items:stretch;margin-bottom:14px}.card{background:linear-gradient(180deg,rgba(42,31,29,.94),rgba(18,14,14,.96));border:1px solid var(--line);border-radius:12px;padding:16px;box-shadow:0 18px 34px rgba(0,0,0,.25)}.overall{display:grid;grid-template-columns:auto 1fr;gap:14px;align-items:center}.mark{width:76px;height:76px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:bold;font-size:26px;border:1px solid rgba(255,255,255,.18);box-shadow:0 18px 34px rgba(0,0,0,.25)}.mark.ok{background:rgba(34,197,94,.16);color:#86efac;border-color:rgba(34,197,94,.42)}.mark.warning{background:rgba(250,204,21,.15);color:#fde68a;border-color:rgba(250,204,21,.45)}.mark.error{background:rgba(239,68,68,.16);color:#fecaca;border-color:rgba(239,68,68,.45)}.headline{font-size:30px;font-weight:bold;margin-bottom:4px}.muted{color:var(--muted);line-height:1.45}.metrics{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}.metric{background:rgba(21,17,18,.92);border:1px solid rgba(203,144,124,.20);border-radius:10px;padding:12px}.metric-value{font-size:24px;font-weight:bold}.metric-label{color:var(--muted);font-size:13px;margin-top:4px}
 .section-head{display:flex;justify-content:space-between;gap:10px;align-items:center;margin:20px 0 10px}h2{margin:0;font-size:20px;color:#fff4ec}.updated{color:var(--muted);font-size:13px}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:12px}.service-card{display:flex;flex-direction:column;gap:10px;min-height:150px}.service-head{display:flex;justify-content:space-between;gap:10px;align-items:flex-start}.service-name{font-weight:bold}.group{color:var(--muted);font-size:12px;margin-top:3px}.status-pill{border-radius:999px;padding:5px 9px;font-weight:bold;font-size:12px;border:1px solid rgba(255,255,255,.16);white-space:nowrap}.status-pill.ok{background:rgba(34,197,94,.14);color:#86efac;border-color:rgba(34,197,94,.36)}.status-pill.warning{background:rgba(250,204,21,.14);color:#fde68a;border-color:rgba(250,204,21,.38)}.status-pill.error{background:rgba(239,68,68,.14);color:#fecaca;border-color:rgba(239,68,68,.40)}.detail{color:#eadbd4;line-height:1.4;font-size:14px;flex:1}.service-link{color:#f0b8a2;text-decoration:none;font-size:13px}.service-link:hover{text-decoration:underline}.bar{height:12px;background:#151112;border:1px solid rgba(203,144,124,.18);border-radius:999px;overflow:hidden;margin-top:10px}.bar-fill{height:100%;background:linear-gradient(90deg,#d59a84,#f0b8a2);width:0}.ips{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}.ip{background:rgba(64,45,42,.92);border:1px solid var(--line);border-radius:999px;padding:5px 8px;color:#ffe0d1;font-size:12px}.loading{color:var(--muted);padding:16px}.error-box{border-color:rgba(239,68,68,.42);color:#fecaca}
+.hotspot-card{display:grid;gap:12px}.channel-buttons{display:flex;gap:8px;flex-wrap:wrap}.channel-button{cursor:pointer;font:inherit;min-width:110px}.channel-button.active{background:linear-gradient(180deg,#d59a84,#9f6f63);border-color:rgba(240,184,162,.45)}.channel-button:disabled{opacity:.55;cursor:default}.hotspot-current{font-weight:bold;font-size:18px}
 @media(max-width:820px){body{padding:12px}.topbar{display:block}.brand-logo{width:44px;height:44px}.topbar .button{margin-top:10px}.hero{grid-template-columns:1fr}.overall{grid-template-columns:1fr}.mark{width:62px;height:62px}.headline{font-size:25px}.metrics{grid-template-columns:1fr}.section-head{display:block}.updated{margin-top:5px}.service-card{min-height:auto}}
 </style>
 </head>
@@ -516,6 +560,21 @@ h1{margin:0 0 6px;font-size:32px;letter-spacing:0;color:#fff4ec}.subtitle{color:
   <div class="updated" id="updated">-</div>
 </div>
 <div class="grid" id="checksGrid"><div class="card loading">Caricamento...</div></div>
+
+<div class="section-head">
+  <h2>Canale hotspot</h2>
+  <div class="updated" id="hotspotUpdated">-</div>
+</div>
+<div class="card hotspot-card">
+  <div class="hotspot-current" id="hotspotCurrent">Caricamento...</div>
+  <div class="muted" id="hotspotMessage"></div>
+  <div class="channel-buttons">
+    <button class="button channel-button" data-channel="1" onclick="setHotspotChannel('1')">Canale 1</button>
+    <button class="button channel-button" data-channel="6" onclick="setHotspotChannel('6')">Canale 6</button>
+    <button class="button channel-button" data-channel="11" onclick="setHotspotChannel('11')">Canale 11</button>
+  </div>
+  <div class="muted">Sul posto scegli il canale con meno reti vicine. Cambiandolo il Wi-Fi NIWA-AP cade per qualche secondo: tablet ed ESP32 si ricollegano da soli.</div>
+</div>
 
 <div class="section-head">
   <h2>Servizi</h2>
@@ -616,7 +675,77 @@ async function loadStatus(){
   }
 }
 
+let HOTSPOT_BUSY = false;
+
+function renderHotspot(data){
+  const current = document.getElementById('hotspotCurrent');
+  const message = document.getElementById('hotspotMessage');
+  if(!data.available){
+    current.textContent = 'Cambio canale non disponibile';
+    message.textContent = 'La cartella condivisa con il Raspberry non e montata nel container.';
+  }else if(data.pending){
+    current.textContent = 'Cambio canale in corso...';
+    message.textContent = 'Il Wi-Fi puo cadere per qualche secondo.';
+  }else{
+    current.textContent = data.channel ? `Canale attuale: ${data.channel}` : 'Canale non ancora letto';
+    message.textContent = data.message || 'Nessun esito registrato: installa niwa-hotspot.path sul Raspberry.';
+  }
+  document.getElementById('hotspotUpdated').textContent = data.updated ? `Esito: ${data.updated}` : '-';
+  document.querySelectorAll('.channel-button').forEach((button)=>{
+    button.classList.toggle('active', button.dataset.channel === data.channel);
+    button.disabled = HOTSPOT_BUSY || data.pending || !data.available;
+  });
+}
+
+async function loadHotspot(){
+  const res = await fetch('/api/hotspot', {cache:'no-store'});
+  if(!res.ok) throw new Error(`HTTP ${res.status}`);
+  const data = await res.json();
+  renderHotspot(data);
+  return data;
+}
+
+async function setHotspotChannel(channel){
+  if(!confirm(`Passare l'hotspot NIWA-AP al canale ${channel}?
+
+Il Wi-Fi si spegne per qualche secondo; tablet ed ESP32 si ricollegano da soli e un trasferimento in corso riprende dopo.`)) return;
+  HOTSPOT_BUSY = true;
+  let before = '';
+  try{
+    before = (await loadHotspot()).updated;
+    const res = await fetch('/api/hotspot/channel', {
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({channel})
+    });
+    const data = await res.json().catch(()=>({}));
+    if(!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+    renderHotspot(data);
+  }catch(error){
+    HOTSPOT_BUSY = false;
+    alert('Cambio canale non richiesto: ' + error.message);
+    loadHotspot().catch(()=>{});
+    return;
+  }
+  // The tablet may lose Wi-Fi meanwhile: keep polling through failed requests.
+  for(let attempt = 0; attempt < 45; attempt++){
+    await new Promise((resolve)=>setTimeout(resolve, 2000));
+    try{
+      const data = await loadHotspot();
+      if(!data.pending && data.updated !== before) break;
+    }catch(error){}
+  }
+  HOTSPOT_BUSY = false;
+  try{
+    const data = await loadHotspot();
+    if(data.pending || data.updated === before){
+      document.getElementById('hotspotMessage').textContent = 'Nessuna risposta dal Raspberry: controlla che niwa-hotspot.path sia attivo.';
+    }
+  }catch(error){}
+}
+
 loadStatus();
+loadHotspot().catch(()=>{});
 setInterval(loadStatus, 15000);
 </script>
 </body>
