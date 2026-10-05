@@ -4,7 +4,7 @@ import base64
 import io
 import unittest
 
-from PIL import Image
+from PIL import Image, ImageDraw
 
 import app as review
 
@@ -97,7 +97,7 @@ class PrintEditorTests(unittest.TestCase):
             download = self.client.get(result["download_url"])
             self.assertEqual(download.status_code, 200)
             with Image.open(io.BytesIO(download.data)) as image:
-                self.assertEqual(image.size, (1748, 1181))
+                self.assertEqual(image.size, (1872, 1248), "the SELPHY's whole page")
                 self.assertEqual(image.getpixel((0, 0))[1] > 120, True)
                 self.assertEqual(image.getpixel((1200, 600))[2] > 50, True)
             download.close()
@@ -149,6 +149,20 @@ class PrintEditorTests(unittest.TestCase):
                                               0, 1, 0, 0, 0)
         self.assertGreater(colored.getpixel((0, 0))[0], colored.getpixel((0, 0))[2])
 
+    def test_selphy_page_puts_the_card_between_the_measured_perforations(self):
+        card = Image.new("RGB", (1748, 1181), (30, 60, 220))
+        ImageDraw.Draw(card).rectangle((0, 0, 1747, 1180), outline=(220, 30, 30), width=30)
+        page = review.selphy_page(card, "P", "landscape")
+        self.assertEqual(page.size, (1872, 1248))
+        mm = 300 / 25.4
+        left, right = round(3.5 * mm), 1872 - round(5.0 * mm)
+        red = lambda x, y: page.getpixel((x, y))[0] > 150
+        self.assertTrue(red(left - 20, 624), "the torn-off bleed continues the border")
+        self.assertTrue(red(left + 10, 624) and not red(left + 50, 624), "card edge at 3.5 mm")
+        self.assertTrue(red(right - 10, 624) and not red(right - 50, 624), "card edge at 5 mm")
+        self.assertTrue(red(936, round(2.5 * mm) + 10) and not red(936, round(2.5 * mm) + 50))
+        self.assertIs(review.selphy_page(card, "C", "landscape"), card, "unmeasured paper stays as is")
+
     def test_rotation_keeps_the_photo_covering_the_print(self):
         base = {"id": media_id("TEST.JPG"), "preset": "P", "orientation": "portrait"}
         uncovered = self.client.post("/api/print/export", json={**base, "rotation": 45, "zoom": 1})
@@ -159,9 +173,9 @@ class PrintEditorTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200, response.get_data(as_text=True))
         download = self.client.get(response.get_json()["download_url"])
         with Image.open(io.BytesIO(download.data)) as image:
-            self.assertEqual(image.size, (1181, 1748))
+            self.assertEqual(image.size, (1248, 1872))
             # A clockwise quarter turn brings the red left half to the top.
-            top, bottom = image.getpixel((590, 100)), image.getpixel((590, 1650))
+            top, bottom = image.getpixel((624, 150)), image.getpixel((624, 1720))
         download.close()
         self.assertGreater(top[0], top[2])
         self.assertGreater(bottom[2], bottom[0])

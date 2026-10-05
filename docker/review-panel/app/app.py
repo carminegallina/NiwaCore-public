@@ -1310,6 +1310,45 @@ def print_transform(image, size, zoom, offset_x, offset_y, rotation):
     return transformed, coverage
 
 
+# Borderless, the SELPHY enlarges whatever it gets to this whole page, so a file
+# of exactly the card size printed past the perforations. Where the card really
+# falls, in mm from the page edges: measured on the user's CP1500 with the
+# Canon app on 2026-10-05 (docker/review-panel/selphy_calibration.py).
+# ponytail: one printer measured; print the test sheet again for another unit, or for L and C.
+SELPHY_PAGES = {
+    "P": {
+        "page": (1872, 1248),
+        "landscape": {"left": 3.5, "right": 5.0, "top": 2.5, "bottom": 2.2},
+        # Not measured yet: the landscape margins averaged, until a portrait test sheet.
+        "portrait": {"left": 2.35, "right": 2.35, "top": 4.25, "bottom": 4.25},
+    },
+}
+
+
+def selphy_page(card, preset, orientation):
+    """The card on the printer's whole page, where the SELPHY really prints it.
+    Around it, torn off or off the paper, the card's edges simply continue."""
+    import numpy as np
+    from PIL import Image
+
+    layout = SELPHY_PAGES.get(preset)
+    if not layout:
+        return card
+    page_w, page_h = layout["page"] if orientation == "landscape" else layout["page"][::-1]
+    margin = {side: mm * 300 / 25.4 for side, mm in layout[orientation].items()}
+    area_w = page_w - margin["left"] - margin["right"]
+    area_h = page_h - margin["top"] - margin["bottom"]
+    scale = max(area_w / card.width, area_h / card.height)
+    width, height = round(card.width * scale), round(card.height * scale)
+    pixels = np.asarray(card.convert("RGB").resize((width, height), Image.Resampling.LANCZOS))
+    left = round(margin["left"] + (area_w - width) / 2)
+    top = round(margin["top"] + (area_h - height) / 2)
+    right, bottom = page_w - left - width, page_h - top - height
+    pixels = pixels[max(-top, 0):height - max(-bottom, 0), max(-left, 0):width - max(-right, 0)]
+    pad = ((max(top, 0), max(bottom, 0)), (max(left, 0), max(right, 0)), (0, 0))
+    return Image.fromarray(np.pad(pixels, pad, mode="edge"))
+
+
 def render_print_export(path, relative, payload):
     from PIL import Image, ImageChops, ImageCms
 
@@ -1363,6 +1402,7 @@ def render_print_export(path, relative, payload):
     photo = reduce_luminance_noise(photo, luminance_noise)
     if frame:
         photo.paste(frame, (0, 0), frame)
+    photo = selphy_page(photo, preset, orientation)
 
     collection = (frame_info or {}).get("collection", "Generiche")
     folder_name = re.sub(r"[^a-zA-Z0-9_-]+", "-", collection).strip("-")[:48] or "Generiche"
@@ -1391,8 +1431,8 @@ def render_print_export(path, relative, payload):
     return {
         "name": filename,
         "size": output.stat().st_size,
-        "width": size[0],
-        "height": size[1],
+        "width": photo.width,
+        "height": photo.height,
         "download_url": f"/api/print/exports/{export_id}",
     }
 
@@ -2206,7 +2246,7 @@ body{padding:14px}h1{font-size:26px;margin-bottom:3px}.subtitle{font-size:13px;m
 <label>Orientamento<select id="printOrientation"><option value="landscape">Orizzontale</option><option value="portrait">Verticale</option></select></label>
 <label>File<select id="printFileType"><option value="jpg">JPG · stampa</option><option value="png">PNG · digitale</option></select></label>
 </div>
-<p class="print-muted">Con una cornice, il formato segue la cornice. Per la SELPHY scegli JPG e la carta corrispondente (P/L/C).</p>
+<p class="print-muted">Con una cornice, il formato segue la cornice. Per la SELPHY scegli JPG e la carta corrispondente (P/L/C). La cartolina P esce gia' con il margine che la SELPHY stampa oltre le linee tratteggiate: stampala senza bordi, senza ritagli.</p>
 </details>
 <div id="printExportResult" class="print-export-result" hidden><span id="printExportResultText"></span><a id="printRedownload" class="small-button" href="#">Scarica di nuovo</a></div>
 <div class="print-export-bar"><span id="printExportSummary" class="print-muted">Preparazione...</span><button type="button" class="small-button print-primary" id="printExport" disabled>Esporta JPG</button></div>

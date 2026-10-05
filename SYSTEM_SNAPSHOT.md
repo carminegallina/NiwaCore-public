@@ -360,6 +360,14 @@ Review reliability pass deployed on 2026-10-05:
   30.5 MB, about 4 s to prepare once. Rollback:
   `app/app.py.bak-claude-incoming-20261005`, image
   `niwa-review-before-incoming-20261005`
+- SELPHY P export (deployed 2026-10-05): the card is placed on the printer's
+  whole borderless page (1872 x 1248 px) where the CP1500 really prints it,
+  with the frame's edges continued around it. Measured margins live in
+  `SELPHY_PAGES` in `app.py`; test sheets in
+  `/mnt/niwa-storage/exports/NIWA-prova-SELPHY-P*.jpg`, generator
+  `docker/review-panel/selphy_calibration.py`. Rollback:
+  `app/app.py.bak-claude-selphy-20261005`, image
+  `niwa-review-before-selphy-20261005`
 - the no-frame print option exports with the original photo ratio
 
 Review compact lighttable deployed on 2026-10-05 (UI only, same endpoints):

@@ -35,6 +35,13 @@
       EH-5d + EP-5B o batterie di scorta cariche. Una batteria e' durata circa
       un'ora di trasferimento.
 
+## Stampa SELPHY
+
+- [x] Foglio di prova orizzontale stampato e misurato (3,5 / 5 / 2,5 / 2,2 mm).
+- [ ] Stampare il foglio verticale `NIWA-prova-SELPHY-P-verticale.jpg`
+      (FileBrowser, cartella `exports`) e riportare i quattro numeri.
+- [ ] Stampa reale con le cornici dell'evento verticale e orizzontale.
+
 ## Sicurezza
 
 - [ ] Ricontrollare file sensibili prima di ogni commit.

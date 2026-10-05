@@ -88,6 +88,16 @@ Verifiche da ripetere dopo modifiche: da `docker/review-panel/app`, `python -m u
 - Decidere l'app Android usata dall'operatore per la stampa e provarne comportamento con JPG/PNG, full bleed e correzioni automatiche. NIWA non deve attribuire alla stampante una compatibilita' non verificata.
 - Confermare se la scelta "formato di esportazione" desiderata dall'utente include sia **preset/dimensione** sia **tipo di file JPG/PNG**: questa roadmap li prevede entrambi come controlli distinti.
 
+## Stampa SELPHY senza bordi: margine misurato (2026-10-05)
+
+La prima stampa reale ha mostrato la cornice oltre le linee tratteggiate, sia verticale sia orizzontale. Causa: senza bordi la SELPHY ingrandisce il file fino alla sua pagina intera (1872 x 1248 px, circa 158 x 106 mm), mentre l'editor esportava esattamente il cartoncino (1748 x 1181). Ora la cartolina P viene messa sulla pagina intera nel punto in cui la stampante la stampa davvero, e il margine prolunga i bordi della cornice.
+
+- Misura con il foglio `docker/review-panel/selphy_calibration.py landscape`, stampato dall'app Canon senza bordi: perforazione a 3,5 mm da sinistra e 5 mm da destra, bordo carta a 2,5 mm in alto e 2,2 mm in basso (cartoncino a circa x 41-1813, y 30-1222 px, coerente con lo script Linux di riferimento a +46/+34 px).
+- Valori in `SELPHY_PAGES` in `app.py`, modificabili se si cambia stampante o app.
+- [ ] Verticale: oggi usa la media dei lati orizzontali (errore massimo circa 0,75 mm); stampare `NIWA-prova-SELPHY-P-verticale.jpg` (cartella `exports` sull'SSD) e inserire i valori misurati.
+- [ ] Stampa reale con le due cornici dell'evento dopo la correzione.
+- [ ] L e C restano 1:1 finche' non vengono misurate con un foglio di prova analogo.
+
 ## Revisione tecnica da riprendere
 
 Annotata il 2026-10-04 dopo la revisione delle modifiche realizzate con l'altra IA. Non blocca la discussione sulle prossime integrazioni, ma va chiusa prima di dichiarare un nuovo checkpoint stabile:

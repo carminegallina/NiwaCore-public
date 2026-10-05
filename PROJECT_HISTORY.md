@@ -531,6 +531,12 @@ within its first 3 MB, so Review now shows a bridge upload "in arrivo" with
 its picture at about 10% of the transfer instead of after the whole 30 MB.
 It reads NIWA Import's session file and partial uploads without writing to
 them; the bridge firmware is unchanged.
+SELPHY borderless printing, same day: the first real prints showed the frame
+past the perforations. Borderless, the CP1500 stretches any file to its whole
+1872 x 1248 page; the editor exported the bare 148 x 100 mm card. A test sheet
+measured where the card really falls (3.5, 5, 2.5 and 2.2 mm from the page
+edges), and P exports now carry that page with the frame continued around
+the card.
 
 ## Current philosophy
 

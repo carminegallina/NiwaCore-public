@@ -45,3 +45,9 @@
   circa del NEF, quindi la foto si vede dopo circa il 10% del trasferimento.
   La fase B (il bridge manda prima i primi MB di ogni scatto di una raffica)
   richiede un nuovo firmware ed e' rimandata a dopo l'evento.
+
+- Export cartolina P per la SELPHY: si esporta la pagina intera della stampante
+  (1872 x 1248) con il cartoncino nella posizione misurata e i bordi della
+  cornice prolungati, invece del solo cartoncino 148 x 100 mm che la stampante
+  ingrandiva oltre le perforazioni. I margini sono misurati con un foglio di
+  prova e restano modificabili, perche' dipendono da stampante e app.
