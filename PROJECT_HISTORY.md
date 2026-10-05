@@ -518,6 +518,10 @@ and two different shots with the same name show the plain name plus a
 "stesso nome" label instead of a truncated hash. Selection actions stay off
 until something is selected, Elimina sits apart, and an empty trash shows no
 actions.
+NIWA System away from home, same day: without a cable it would have turned
+red ("LAN cablata" was critical) exactly when the hotspot is all that matters.
+Wired LAN and Tailscale are now informative; the hotspot, SSD and panels stay
+critical. At home it reads 18/18 again, whatever address the router assigns.
 
 ## Current philosophy
 

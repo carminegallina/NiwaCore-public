@@ -318,9 +318,27 @@ def network_checks(ips):
             status = "error" if critical else "warning"
             checks.append(item(status, name, f"{expected} non trovato tra gli IP attivi", item_id, "Rete", critical))
 
-    add_ip_check("lan_ip", "LAN cablata", LAN_IP, True, "192.168.")
+    # Away from home there is no cable and often no internet: both are normal,
+    # so LAN and Tailscale only describe the situation and never raise an alarm.
+    lan = [ip for ip in ips if ip.startswith("192.168.")]
+    if LAN_IP in lan:
+        lan_detail = f"{LAN_IP} presente"
+    elif lan:
+        lan_detail = f"Collegata con {', '.join(lan)}"
+    else:
+        lan_detail = "Non collegata: normale fuori casa"
+    checks.append(item("ok", "LAN cablata", lan_detail, "lan_ip", "Rete", False))
+
     add_ip_check("hotspot_ip", "Hotspot NIWA-AP", HOTSPOT_IP, True, "10.42.")
-    add_ip_check("tailscale_ip", "Tailscale", TAILSCALE_IP, False, "100.")
+
+    tailscale = [ip for ip in ips if ip.startswith("100.")]
+    if TAILSCALE_IP in tailscale:
+        tailscale_detail = f"{TAILSCALE_IP} presente"
+    elif tailscale:
+        tailscale_detail = f"Attivo con {', '.join(tailscale)}"
+    else:
+        tailscale_detail = "Non attivo: serve internet"
+    checks.append(item("ok", "Tailscale", tailscale_detail, "tailscale_ip", "Rete", False))
 
     return checks
 

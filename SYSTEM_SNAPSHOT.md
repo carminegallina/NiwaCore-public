@@ -592,7 +592,10 @@ Current behavior:
 - provides an "is NIWA ready?" status panel
 - checks Homepage, FileBrowser, Glances, Portainer, Samba, SSH and all current NIWA panels
 - checks SSD free space through the read-only storage mount
-- checks expected LAN, hotspot and Tailscale IPs
+- checks the hotspot IP as critical; wired LAN (any 192.168.x address) and
+  Tailscale are informative only, so no cable or no internet away from home
+  is not an alarm (since 2026-10-05; rollback `app/app.py.bak-claude-network-20261005`,
+  image `niwa-system-before-network-20261005`)
 - shows uptime and current IP addresses
 - exposes `/api/summary` for the Homepage status badge
 - keeps system actions read-only in v1; no restart controls are exposed

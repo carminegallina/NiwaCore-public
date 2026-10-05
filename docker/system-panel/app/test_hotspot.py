@@ -35,6 +35,16 @@ class HotspotChannelTest(unittest.TestCase):
         data = self.client.get("/api/hotspot").get_json()
         self.assertEqual((data["channel"], data["ok"], data["pending"]), ("1", True, ""))
 
+    def test_away_from_home_is_not_an_alarm_but_a_missing_hotspot_is(self):
+        def statuses(ips):
+            return {check["id"]: (check["status"], check["detail"]) for check in system.network_checks(ips)}
+
+        away = statuses(["10.42.0.1", "172.17.0.1"])
+        self.assertEqual({status for status, _detail in away.values()}, {"ok"})
+        self.assertIn("fuori casa", away["lan_ip"][1])
+        self.assertIn("192.168.1.101", statuses(["192.168.1.101", "10.42.0.1"])["lan_ip"][1])
+        self.assertEqual(statuses(["192.168.1.101"])["hotspot_ip"][0], "error")
+
     def test_scan_recommends_the_least_crowded_channel(self):
         (system.HOTSPOT_DIR / "status.json").write_text('{"channel":"1","ok":true}')
         (system.HOTSPOT_DIR / "scan.json").write_text(
