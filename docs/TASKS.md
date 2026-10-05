@@ -34,6 +34,12 @@
 - [ ] Alimentare la camera nei trasferimenti lunghi: alimentatore da rete
       EH-5d + EP-5B o batterie di scorta cariche. Una batteria e' durata circa
       un'ora di trasferimento.
+- [x] Validare import diretto CFexpress Lexar RW510 su USB 2.0 e mantenere
+      funzionante il caricamento Nikon tramite ESP32.
+- [x] Correggere l'ordine CFexpress/ESP32 normalizzando i timestamp FAT/exFAT;
+      Import 0.3.1 e Review validati con 31 + 28 test.
+- [ ] Ripetere una prova completa del lettore CFexpress sulla porta USB 3.0 dopo
+      il quirk `usb-storage.quirks=174c:1153:u` applicato al bridge SSD ASM1153.
 
 ## Stampa SELPHY
 

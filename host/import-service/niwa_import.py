@@ -19,7 +19,7 @@ import time
 import traceback
 
 
-APP_VERSION = "0.3.0"
+APP_VERSION = "0.3.1"
 PORT = int(os.environ.get("NIWA_IMPORT_PORT", "5057"))
 PROJECT_ROOT = Path(os.environ.get("NIWA_PROJECT_ROOT", "/home/niwa/niwa"))
 DATA_ROOT = Path(os.environ.get("NIWA_DATA_ROOT", str(PROJECT_ROOT / "data")))
@@ -83,6 +83,7 @@ IGNORED_DIRECTORIES = {
     "$RECYCLE.BIN", ".Spotlight-V100", ".Trashes", "System Volume Information",
 }
 PROFILES = {"camera", "gopro"}
+LOCAL_TIME_FILESYSTEMS = {"exfat", "fat", "fat16", "fat32", "msdos", "vfat"}
 BRIDGE_ALLOWED_EXTENSIONS = {".nef", ".jpg", ".jpeg"}
 BRIDGE_CONTENT_RANGE = re.compile(r"^bytes ([0-9]+)-([0-9]+)/([0-9]+)$")
 BRIDGE_ROUTE_ID = r"([A-Za-z0-9_-]{8,96})"
@@ -599,6 +600,27 @@ def copy_and_verify(source, staged_path):
     return expected_hash, total
 
 
+def local_utc_offset_seconds(timestamp):
+    offset = datetime.fromtimestamp(timestamp).astimezone().utcoffset()
+    return offset.total_seconds() if offset else 0
+
+
+def normalize_card_timestamp(path, fstype):
+    """FAT/exFAT stores camera wall time without a timezone.
+
+    The Raspberry exposes that wall clock as a UTC timestamp, so turn it back
+    into a real local timestamp before Review uses mtime as its capture order.
+    """
+    if str(fstype or "").lower() not in LOCAL_TIME_FILESYSTEMS:
+        return False
+    stat = path.stat()
+    offset_ns = round(local_utc_offset_seconds(stat.st_mtime) * 1_000_000_000)
+    if not offset_ns:
+        return False
+    os.utime(path, ns=(stat.st_atime_ns, stat.st_mtime_ns - offset_ns))
+    return True
+
+
 def unique_destination(destination, digest):
     if not destination.exists():
         return destination, False
@@ -765,6 +787,7 @@ def run_import_locked(device, profile, trigger):
             save_job(job)
             staged_path = staging_job / category / "imports" / session / relative
             digest, copied_bytes = copy_and_verify(source_path, staged_path)
+            normalize_card_timestamp(staged_path, device.get("fstype"))
             job["processed_files"] += 1
             job["bytes_copied"] += copied_bytes
             staged_files.append({

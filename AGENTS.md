@@ -104,7 +104,8 @@ NIWA Import host service:
 - Local URL after installation: http://10.42.0.1:5057
 - Note: installed and enabled; GoPro microSD validation completed on USB 3.0,
   Nikon Z6 II camera-to-Review import through the ESP32-S3 bridge is physically
-  validated; direct CFexpress Type B reader validation remains pending
+  validated; direct CFexpress Type B import is validated on USB 2.0, while a
+  post-quirk USB 3.0 reader test remains pending
 
 ## Storage
 
@@ -556,11 +557,17 @@ backup, listed in SYSTEM_SNAPSHOT.md):
   centred (docs/CORNICI_SELPHY.md)
 - NIWA System: hotspot channel switch and neighbour scan; LAN/Tailscale no
   longer alarm away from home
+- Direct CFexpress: the Lexar RW510 is usable on USB 2.0; the earlier freeze was
+  an ASM1153 SSD UAS reset, not a Review or ESP32 failure. The Raspberry boot
+  line now contains `usb-storage.quirks=174c:1153:u`, so the Kioxia SSD uses
+  `usb-storage` instead of UAS. Import 0.3.1 normalizes FAT/exFAT camera times,
+  Review inherits the host timezone, and CF/ESP photos now share capture order.
 
 Still to verify physically before the 2026-10-08 event (docs/TASKS.md):
 tablet and ESP32 reconnection after a channel switch during a transfer, a
 shot taken while the camera is attached, the full Nikon -> ESP -> Review ->
-editor -> print path, camera power for long transfers.
+editor -> print path, camera power for long transfers, and the CFexpress reader
+on USB 3.0 after the SSD UAS workaround.
 
 Agent working notes:
 - The Raspberry checkout `~/niwa` is stale and dirty: never `git pull` there.

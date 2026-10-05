@@ -541,6 +541,24 @@ Real prints with both event frames came out centred, with only the margin
 colour past the perforations. Frame and SELPHY know-how is collected in
 docs/CORNICI_SELPHY.md for future frames.
 
+## Direct CFexpress storage and capture time correction, 2026-10-05
+
+Connecting the Lexar RW510 did not crash Review itself. Kernel evidence showed
+the separate Kioxia SSD, attached through the ASMedia ASM1153 bridge
+(`174c:1153`), timing out under UAS and resetting on the USB 3 controller. There
+was no undervoltage. The Raspberry boot line now disables UAS only for that
+bridge with `usb-storage.quirks=174c:1153:u`; the SSD stays at SuperSpeed through
+the simpler `usb-storage` driver. Direct CFexpress import works on USB 2.0 and
+the ESP32 Nikon bridge still works; the reader still needs one USB 3.0 retest.
+
+Direct-card files also appeared newer than later ESP32 uploads because FAT/exFAT
+stores the Nikon wall clock without a timezone. NIWA Import 0.3.1 now converts
+that wall clock to the real local instant only on direct FAT/exFAT imports. The
+ESP32 path is unchanged. Review now inherits `/etc/localtime`, and the four
+existing `_DSC7994`-`_DSC7997` JPG files were migrated with a rollback ledger.
+The verified order became `_DSC7999` 22:48, `_DSC7998` 22:47, then `_DSC7997`
+22:30. Raspberry validation passed 31 Import tests and 28 Review tests.
+
 ## Current philosophy
 
 Prioritize:

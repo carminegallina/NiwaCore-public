@@ -7,4 +7,5 @@ services:
     volumes:
       - /mnt/niwa-storage:/storage
       - /home/niwa/niwa/data:/data
+      - /etc/localtime:/etc/localtime:ro
     restart: unless-stopped

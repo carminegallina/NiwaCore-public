@@ -770,6 +770,28 @@ Current state:
 - completed staging is removed immediately; interrupted staging is retained for
   24 hours and cleaned automatically by an hourly maintenance pass
 - current SanDisk SDDR-A631 reader should use Raspberry USB 3.0; the USB 2.0 path produced protocol error `-71`
+- direct Nikon CFexpress import through the Lexar RW510 is physically validated
+  on USB 2.0; a USB 3.0 retest after the storage workaround is still pending
+- version `0.3.1` normalizes FAT/exFAT camera wall-clock mtimes to real local
+  instants before publication, without changing the ESP32 bridge path
+- Review mounts `/etc/localtime` read-only so direct-card and bridge timestamps
+  are displayed and sorted in the same Europe/Rome timezone
+
+Direct CFexpress/SSD incident, 2026-10-05:
+- attaching the Lexar RW510 caused an `uas_eh_abort_handler` and SuperSpeed
+  reset on the separate Kioxia SSD (`sda`, ASMedia ASM1153 `174c:1153`); there
+  was no undervoltage (`throttled=0x0`) and the CFexpress disk itself was `sdb`
+- `/boot/firmware/cmdline.txt` now includes
+  `usb-storage.quirks=174c:1153:u`; after reboot the SSD uses `usb-storage` at
+  5 Gbit/s and no new UAS abort, I/O or EXT4 error appeared in the validation
+- ESP32 wireless import remained operational after the storage change
+- four already imported JPG files (`_DSC7994` through `_DSC7997`) were corrected
+  with rollback metadata in `data/timestamp-fix-20261005.json`; Review then
+  ordered `_DSC7999` (22:48), `_DSC7998` (22:47), `_DSC7997` (22:30)
+- deployed validation passed 31 NIWA Import tests and 28 NIWA Review tests;
+  `/api/health` reported Import `0.3.1`
+- rollback files use suffix `.bak-codex-20261005-timestamp-order`; the previous
+  Review image is tagged `niwa-review-before-20261005-timestamp-order`
 
 One-time Raspberry reinstall or update:
 
@@ -869,7 +891,7 @@ Validation status as of 2026-10-03:
   connection; see `firmware/README.md` for evidence and the next test sequence
 - latest LAN check: `niwahub.station` resolves to `192.168.1.101`; earlier
   `.25` addresses elsewhere in this snapshot describe the previous LAN state
-- NIWA Import `/api/health` returned OK, version `0.3.0`; bridge status requires
+- NIWA Import `/api/health` returned OK, version `0.3.1`; bridge status requires
   authentication and reported zero active sessions before the Nikon test
 
 ## ESP32 firmware tooling

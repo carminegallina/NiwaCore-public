@@ -110,6 +110,20 @@ class NiwaImportTests(unittest.TestCase):
         self.assertEqual(len(list(self.storage.rglob("*.LRV"))), 0)
         self.assertEqual(len(list(self.storage.rglob("*.THM"))), 0)
 
+    def test_fat_card_import_normalizes_local_capture_time(self):
+        self.write_source("DCIM/100NZ6_2/DSC_0002.JPG", b"jpg")
+        source = self.source / "DCIM/100NZ6_2/DSC_0002.JPG"
+        os.utime(source, (1_700_000_000, 1_700_000_000))
+        device = {**self.device(), "fstype": "exfat"}
+
+        with mock.patch.object(
+            niwa_import, "local_utc_offset_seconds", return_value=7200
+        ):
+            niwa_import.run_import(device, "camera", "test")
+
+        published = next((self.storage / "photo").rglob("DSC_0002.JPG"))
+        self.assertAlmostEqual(published.stat().st_mtime, 1_699_992_800, delta=1)
+
     def test_repeated_import_skips_matching_checksums(self):
         self.write_source("DCIM/100NZ6_2/DSC_0001.NEF", b"raw")
 
