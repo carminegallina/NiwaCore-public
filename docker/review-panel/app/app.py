@@ -1508,7 +1508,7 @@ def video_thumb_is_cached(section, path, relative):
     return cache_path.exists() and cache_path.stat().st_size > 0
 
 
-def raw_derivatives_ready(path, relative):
+def photo_derivatives_ready(path, relative):
     try:
         return all(
             derivative_path_for("photo", path, relative, variant).is_file()
@@ -1583,14 +1583,16 @@ def run_preview_scan():
     now = time.time()
     state = load_preview_state()
     files_state = state.setdefault("files", {})
-    raw_files = list(iter_photo_files(RAW_EXTENSIONS))
-    raw_files.sort(
+    # Camera JPGs (RAW+JPG or JPG-only shooting) get grid and viewer images too.
+    photo_files = list(iter_photo_files(PHOTO_EXTENSIONS))
+    photo_files.sort(
         key=lambda pair: photo_signature(pair[0]).get("mtime_ns", 0),
         reverse=True,
     )
+    raw_files = [pair for pair in photo_files if pair[0].suffix.lower() in RAW_EXTENSIONS]
     # Trashed RAWs keep their cached previews, so the trash view can show them.
     kept_files = raw_files + trashed_photo_raws()
-    existing_keys = {state_key(relative) for _path, relative in kept_files}
+    existing_keys = {state_key(relative) for _path, relative in kept_files + photo_files}
     cleanup_orphan_raw_previews(kept_files)
 
     for key, entry in list(files_state.items()):
@@ -1621,11 +1623,12 @@ def run_preview_scan():
 
     started = time.monotonic()
     worked = False
-    for path, relative in raw_files:
+    for path, relative in photo_files:
         key = state_key(relative)
-        preview_cached = preview_is_cached(path, relative)
+        is_raw = path.suffix.lower() in RAW_EXTENSIONS
+        preview_cached = preview_is_cached(path, relative) if is_raw else True
 
-        if preview_cached and raw_derivatives_ready(path, relative):
+        if preview_cached and photo_derivatives_ready(path, relative):
             files_state[key] = {
                 **photo_signature(path),
                 "status": "cached",
@@ -1659,7 +1662,7 @@ def run_preview_scan():
         )
 
         worked = True
-        preview_path = extract_raw_preview(path, relative)
+        preview_path = extract_raw_preview(path, relative) if is_raw else path
         error = "No embedded JPEG preview found"
         if preview_path:
             # Grid and viewer images too, so the tablet never waits for them.
@@ -1675,7 +1678,8 @@ def run_preview_scan():
             files_state[key] = {
                 **photo_signature(path),
                 "status": "cached",
-                "preview": str(preview_path),
+                # Never a JPG original: stale entries have their "preview" deleted.
+                **({"preview": str(preview_path)} if is_raw else {}),
                 "updated": time.time(),
             }
             update_worker_state(

@@ -347,6 +347,10 @@ Review reliability pass deployed on 2026-10-05:
   the live refresh adds new shots when the grid is near the top. Rollback:
   `app/app.py.bak-claude-scroll-20261005`, image
   `niwa-review-before-scroll-20261005`
+- the preview worker also prepares grid and viewer images for camera JPGs in
+  `photo` (RAW+JPG or JPG-only shooting). Rollback:
+  `app/app.py.bak-claude-jpgworker-20261005`, image
+  `niwa-review-before-jpgworker-20261005`
 - the no-frame print option exports with the original photo ratio
 
 Review compact lighttable deployed on 2026-10-05 (UI only, same endpoints):

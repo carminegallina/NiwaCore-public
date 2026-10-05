@@ -137,13 +137,37 @@ class MediaDerivativeTests(unittest.TestCase):
             PREVIEW_BATCH_SECONDS=0,
         ), mock.patch.object(review, "extract_raw_preview", side_effect=fake_embedded_preview):
             self.assertTrue(review.run_preview_scan())
-            ready = [review.raw_derivatives_ready(*raw) for raw in raws]
+            ready = [review.photo_derivatives_ready(*raw) for raw in raws]
             self.assertEqual(ready, [False, False, True], "newest shot goes first")
 
             with mock.patch.object(review, "PREVIEW_BATCH_SECONDS", 60):
                 self.assertTrue(review.run_preview_scan())
-                self.assertTrue(all(review.raw_derivatives_ready(*raw) for raw in raws))
+                self.assertTrue(all(review.photo_derivatives_ready(*raw) for raw in raws))
                 self.assertFalse(review.run_preview_scan(), "nothing left: the worker may sleep")
+
+    def test_preview_worker_prepares_camera_jpgs_without_touching_them(self):
+        root = Path(self.temporary.name)
+        cache_root = root / "previews"
+        state_file = cache_root / "preview_state.json"
+        relative = Path("large.JPG")
+        with mock.patch.multiple(
+            review,
+            CACHE_ROOT=cache_root,
+            PREVIEW_STATE_FILE=state_file,
+            JPG_EXPORT_ROOT=root / "jpg",
+            TRASH_FILE=root / "trash.json",
+            TRASH_ROOT=root / "trash",
+            PREVIEW_STABLE_SECONDS=0,
+        ):
+            self.assertTrue(review.run_preview_scan())
+            self.assertTrue(review.photo_derivatives_ready(self.source, relative))
+            self.assertFalse(review.run_preview_scan(), "a ready JPG is not redone")
+            entry = review.load_preview_state()["files"]["large.JPG"]
+            self.assertNotIn("preview", entry, "the original is never recorded for deletion")
+
+            self.source.rename(self.photo_root / "renamed.JPG")
+            review.run_preview_scan()
+        self.assertEqual((self.photo_root / "renamed.JPG").read_bytes(), self.original)
 
 
 if __name__ == "__main__":
