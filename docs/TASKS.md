@@ -39,7 +39,7 @@
 
 - [x] Foglio di prova orizzontale stampato e misurato (3,5 / 5 / 2,5 / 2,2 mm).
 - [x] Foglio di prova verticale stampato e misurato (1,5 / 2,3 / 3,5 / 5 mm).
-- [ ] Stampa reale con le cornici dell'evento verticale e orizzontale.
+- [x] Stampa reale con le cornici dell'evento verticale e orizzontale: centrate (2026-10-05).
 
 ## Sicurezza
 

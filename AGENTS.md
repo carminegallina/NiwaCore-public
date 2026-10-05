@@ -273,7 +273,16 @@ curl -X POST http://localhost:5052/api/index/rebuild
 curl http://localhost:5052/api/previews/status
 curl http://localhost:5052/api/trash
 curl 'http://localhost:5052/api/media/photo/selection'
-docker exec review-panel python -m unittest test_review_trash
+curl http://localhost:5052/api/incoming
+curl http://localhost:5052/api/print/presets
+curl http://localhost:5052/api/print/frames
+docker exec review-panel python -m unittest test_review_trash test_media_derivatives test_print_editor
+
+From the PC, with Node: `node test_live_refresh.js` and
+`node test_print_editor_gestures.js` in `docker/review-panel/app`.
+
+Frames and SELPHY printing: read `docs/CORNICI_SELPHY.md` before creating,
+adapting or uploading a frame, or touching the print export.
 
 ## NIWA Storage commands
 
@@ -331,6 +340,14 @@ Test API:
 curl http://localhost:5056/api/health
 curl http://localhost:5056/api/summary
 curl http://localhost:5056/api/status
+curl http://localhost:5056/api/hotspot
+docker exec system-panel python -m unittest test_hotspot
+
+The "Canale hotspot" card switches NIWA-AP between channels 1, 6 and 11 and
+can scan for the least crowded one. The container only writes
+`data/hotspot/request`; the host path unit runs `niwa-admin hotspot-request`.
+Wired LAN and Tailscale are informative checks: no cable or no internet away
+from home is not an alarm. The hotspot, SSD and panels stay critical.
 
 ## NIWA Import commands
 
@@ -381,10 +398,17 @@ sudo -n /usr/local/sbin/niwa-admin import-status
 sudo -n /usr/local/sbin/niwa-admin import-install
 sudo -n /usr/local/sbin/niwa-admin import-restart
 sudo -n /usr/local/sbin/niwa-admin hotspot-up
+sudo -n /usr/local/sbin/niwa-admin hotspot-channel 6
+sudo -n /usr/local/sbin/niwa-admin hotspot-scan
 sudo -n /usr/local/sbin/niwa-admin service-status docker.service
 sudo -n /usr/local/sbin/niwa-admin service-restart tailscaled.service
 
 Do not replace this wrapper with unrestricted `NOPASSWD: ALL`.
+
+Installing a new wrapper version (`host/admin/install.sh`) needs the user's
+password: give the user the command
+`ssh -t niwa@niwahub.local "cd ~/niwa && host/admin/install.sh"` to run
+in their own terminal. Never type a password for them.
 
 ## ESP32 firmware workflow
 
@@ -489,7 +513,9 @@ High priority:
 - Review shot grouping and capture-date metadata improvements
 
 Medium priority:
-- Physical SELPHY CP1500 print validation for the deployed Review editor
+- SELPHY CP1500: P postcards validated with real prints on 2026-10-05
+  (measured borderless margins, see docs/CORNICI_SELPHY.md); L and C still
+  need their own test sheet before an event
 - SD import assistant
 - Checksums for import
 - Drone internal storage workflow research
@@ -513,10 +539,45 @@ Advanced:
 
 Latest validated stable code checkpoint:
 
-0d9f98f fix: harden Review media operations
+f255457 fix: measured SELPHY margins for portrait postcards
+
+Deployed and validated on the Raspberry on 2026-10-05 (each with a named
+backup, listed in SYSTEM_SNAPSHOT.md):
+- Review: compact lighttable (captions on thumbnails, foldable status,
+  viewer with close button and grouped actions), stars and RAW/JPG/VIDEO
+  labels on cards, "stesso nome" label for `_conflict_` imports, safer
+  selection bar, endless grid, viewer prefetch, live refresh at any depth
+- Review: preview worker in 10 s batches, newest first, also preparing grid
+  and viewer images for RAWs and camera JPGs
+- Review: "In arrivo dal bridge" strip shows NEFs still uploading once their
+  embedded JPEG (first ~3 MB) is in; it reads NIWA Import files read-only
+- Review print editor: P postcards exported on the SELPHY's whole borderless
+  page with measured margins; real prints with both event frames are
+  centred (docs/CORNICI_SELPHY.md)
+- NIWA System: hotspot channel switch and neighbour scan; LAN/Tailscale no
+  longer alarm away from home
+
+Still to verify physically before the 2026-10-08 event (docs/TASKS.md):
+tablet and ESP32 reconnection after a channel switch during a transfer, a
+shot taken while the camera is attached, the full Nikon -> ESP -> Review ->
+editor -> print path, camera power for long transfers.
+
+Agent working notes:
+- The Raspberry checkout `~/niwa` is stale and dirty: never `git pull` there.
+  Deploy by comparing the live file's sha256 with `git show HEAD:<path>`,
+  backing up `<file>.bak-<agent>-<what>-<date>` plus a Docker image tag
+  `niwa-<panel>-before-<what>-<date>`, copying single files over SSH, then
+  `docker compose up -d --build` and the unit tests inside the container.
+- Running Review locally on Windows: `Path("/storage")` is not absolute there
+  and resolves to `C:\storage`; redirect every `/storage` and `/data` path
+  (including `MEDIA_SECTIONS` roots) to a temporary folder first.
+- Review's index template is a normal Python string: avoid backslashes in its
+  JavaScript (use `[0-9]`, `[.]`, `String.fromCharCode`).
+- The user also works with Claude Code; both read this file. Record plans
+  in the repo, not only in a chat.
 
 Useful next-thread prompt:
 
-Continue NIWA in C:\Dev\portfolio\NiwaCore. Read AGENTS.md, PROJECT_HISTORY.md, ROADMAP.md, SYSTEM_SNAPSHOT.md and docs/REVIEW_PRINT_EDITOR_ROADMAP.md. Stable validated checkpoint is 0d9f98f fix: harden Review media operations. Nikon Z6 II import through the ESP32-S3 bridge, Review print editor, derived gallery images and Review reliability fixes are deployed and validated; the Tab S10 scrolling check passed. Preserve all current workflows. Next major Review task: evolve the JSON index toward shot grouping and reliable capture timestamps before redesigning the lighttable UI.
+Continue NIWA in C:\Dev\portfolio\NiwaCore. Read AGENTS.md, PROJECT_HISTORY.md, ROADMAP.md, SYSTEM_SNAPSHOT.md, docs/REVIEW_PRINT_EDITOR_ROADMAP.md and docs/CORNICI_SELPHY.md. Stable validated checkpoint is f255457. Preserve all current workflows. Before the 2026-10-08 event only fix what the physical tests show. After it: firmware phase B (the bridge sends the first MB of every shot of a burst first), then the JSON index toward shot grouping (NEF+JPG, `_conflict_`) and reliable capture timestamps.
 
 ## Imported Claude Cowork project instructions

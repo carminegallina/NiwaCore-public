@@ -507,7 +507,9 @@ offline-friendly. Text/logo editor tools and print queue are future additions.
 Editor/frame implementation, Raspberry deployment, automated tests, one live
 Nikon NEF preview/export/download and upload of the real P portrait event frame
 and a real-NEF framed export are complete. Tab S10 scrolling was confirmed on
-2026-10-05; ESP-to-print end-to-end flow and CP1500 print tests remain pending.
+2026-10-05. CP1500 P prints validated on 2026-10-05 with measured borderless
+margins (docs/CORNICI_SELPHY.md); the ESP-to-print end-to-end flow remains
+pending, and L/C need their own test sheet.
 
 ## Long-term modules
 

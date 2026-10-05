@@ -37,6 +37,8 @@ Fonti Canon: [specifiche e misure](https://cam.start.canon/en/P001/manual/html/U
 
 ## Regola per le cornici caricate
 
+Guida pratica per creare e adattare cornici e per stamparle: [CORNICI_SELPHY.md](CORNICI_SELPHY.md).
+
 Nel caricamento l'utente sceglie **preset/rapporto**, **orientamento** e collezione **Generiche** o **Evento: nome**; NIWA legge e mostra dimensioni reali del PNG prima di confermare. Il PNG e' un livello superiore con trasparenza dove deve vedersi la foto. Conservare il file originale e creare una miniatura derivata, non sostituirlo con la miniatura.
 
 - Validare realmente il contenuto PNG, alpha/trasparenza, limite di byte e di pixel, rapporto coerente col preset entro il solo arrotondamento dei pixel; rifiutare i file incompatibili con un messaggio comprensibile. Sanitizzare nomi e percorsi; non fidarsi dell'estensione o del nome inviato dal browser.
@@ -95,7 +97,7 @@ La prima stampa reale ha mostrato la cornice oltre le linee tratteggiate, sia ve
 - Misura con il foglio `docker/review-panel/selphy_calibration.py landscape`, stampato dall'app Canon senza bordi: perforazione a 3,5 mm da sinistra e 5 mm da destra, bordo carta a 2,5 mm in alto e 2,2 mm in basso (cartoncino a circa x 41-1813, y 30-1222 px, coerente con lo script Linux di riferimento a +46/+34 px).
 - Valori in `SELPHY_PAGES` in `app.py`, modificabili se si cambia stampante o app.
 - [x] Verticale misurata con il proprio foglio: perforazione a 3,5 mm in alto e 5 mm in basso, bordo carta a 1,5 mm a sinistra e 2,3 mm a destra. L'app Canon ruota le verticali portando il lato alto dove nella pagina orizzontale c'e' la sinistra.
-- [ ] Stampa reale con le due cornici dell'evento dopo la correzione.
+- [x] Stampa reale con le due cornici dell'evento dopo la correzione: centrata, oltre le linee tratteggiate solo il colore di margine (previsto). Guida completa: [CORNICI_SELPHY.md](CORNICI_SELPHY.md).
 - [ ] L e C restano 1:1 finche' non vengono misurate con un foglio di prova analogo.
 
 ## Revisione tecnica da riprendere

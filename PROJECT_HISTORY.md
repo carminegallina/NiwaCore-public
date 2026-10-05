@@ -537,6 +537,9 @@ past the perforations. Borderless, the CP1500 stretches any file to its whole
 measured where the card really falls (3.5, 5, 2.5 and 2.2 mm from the page
 edges), and P exports now carry that page with the frame continued around
 the card.
+Real prints with both event frames came out centred, with only the margin
+colour past the perforations. Frame and SELPHY know-how is collected in
+docs/CORNICI_SELPHY.md for future frames.
 
 ## Current philosophy
 
