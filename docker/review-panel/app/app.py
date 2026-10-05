@@ -1319,8 +1319,8 @@ SELPHY_PAGES = {
     "P": {
         "page": (1872, 1248),
         "landscape": {"left": 3.5, "right": 5.0, "top": 2.5, "bottom": 2.2},
-        # Not measured yet: the landscape margins averaged, until a portrait test sheet.
-        "portrait": {"left": 2.35, "right": 2.35, "top": 4.25, "bottom": 4.25},
+        # Own test sheet: the app turns portraits so their top lands on the left.
+        "portrait": {"left": 1.5, "right": 2.3, "top": 3.5, "bottom": 5.0},
     },
 }
 

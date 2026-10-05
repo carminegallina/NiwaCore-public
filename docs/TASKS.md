@@ -38,8 +38,7 @@
 ## Stampa SELPHY
 
 - [x] Foglio di prova orizzontale stampato e misurato (3,5 / 5 / 2,5 / 2,2 mm).
-- [ ] Stampare il foglio verticale `NIWA-prova-SELPHY-P-verticale.jpg`
-      (FileBrowser, cartella `exports`) e riportare i quattro numeri.
+- [x] Foglio di prova verticale stampato e misurato (1,5 / 2,3 / 3,5 / 5 mm).
 - [ ] Stampa reale con le cornici dell'evento verticale e orizzontale.
 
 ## Sicurezza

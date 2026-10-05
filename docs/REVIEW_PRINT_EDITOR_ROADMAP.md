@@ -94,7 +94,7 @@ La prima stampa reale ha mostrato la cornice oltre le linee tratteggiate, sia ve
 
 - Misura con il foglio `docker/review-panel/selphy_calibration.py landscape`, stampato dall'app Canon senza bordi: perforazione a 3,5 mm da sinistra e 5 mm da destra, bordo carta a 2,5 mm in alto e 2,2 mm in basso (cartoncino a circa x 41-1813, y 30-1222 px, coerente con lo script Linux di riferimento a +46/+34 px).
 - Valori in `SELPHY_PAGES` in `app.py`, modificabili se si cambia stampante o app.
-- [ ] Verticale: oggi usa la media dei lati orizzontali (errore massimo circa 0,75 mm); stampare `NIWA-prova-SELPHY-P-verticale.jpg` (cartella `exports` sull'SSD) e inserire i valori misurati.
+- [x] Verticale misurata con il proprio foglio: perforazione a 3,5 mm in alto e 5 mm in basso, bordo carta a 1,5 mm a sinistra e 2,3 mm a destra. L'app Canon ruota le verticali portando il lato alto dove nella pagina orizzontale c'e' la sinistra.
 - [ ] Stampa reale con le due cornici dell'evento dopo la correzione.
 - [ ] L e C restano 1:1 finche' non vengono misurate con un foglio di prova analogo.
 
