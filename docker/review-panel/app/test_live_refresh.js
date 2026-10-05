@@ -48,6 +48,8 @@ const context = vm.createContext({
     PHOTOS: [{id: 'old'}],
     TOTAL_ITEMS: 1,
     LAST_MEDIA_STATUS: '1/1 file caricati',
+    LIVE_REFRESH_TOP: 300,
+    window: {scrollY: 0},
     document: {
         visibilityState: 'visible',
         getElementById: (id)=>id === 'status' ? status : {
@@ -74,9 +76,36 @@ vm.runInContext(source.slice(start, end), context);
     await vm.runInContext('refreshLivePhotos()', context);
     assert.equal(reloads, 1, 'new photo reloads the gallery');
 
+    // Three pages loaded, first page unchanged: no reload.
+    context.PHOTOS = [{id: 'new'}, {id: 'old'}, {id: 'page2'}, {id: 'page3'}];
+    context.TOTAL_ITEMS = 2;
+    await vm.runInContext('refreshLivePhotos()', context);
+    assert.equal(reloads, 1, 'later pages do not count as a change');
+
+    context.window.scrollY = 2000;
+    await vm.runInContext('refreshLivePhotos()', context);
+    assert.equal(requests, 3, 'deep in the grid the gallery is left alone');
+    context.window.scrollY = 0;
+
     context.SELECTING = true;
     await vm.runInContext('refreshLivePhotos()', context);
-    assert.equal(requests, 2, 'selection mode does not poll');
+    assert.equal(requests, 3, 'selection mode does not poll');
+
+    // Load more: one page at a time, a failed page is not skipped.
+    const more = vm.createContext({
+        HAS_MORE: true, LOADING_MORE: false, CURRENT_PAGE: 1, pages: [], ok: true, near: false,
+        window: {innerHeight: 800},
+        document: {getElementById: ()=>({getBoundingClientRect: ()=>({top: more.near ? 100 : 5000})})}
+    });
+    vm.runInContext(source.slice(source.indexOf('async function loadMoreMedia('),
+        source.indexOf('async function refreshLivePhotos(')) +
+        'async function loadMedia(){ pages.push(CURRENT_PAGE); await null; return ok; }', more);
+    await Promise.all([vm.runInContext('loadMoreMedia()', more), vm.runInContext('loadMoreMedia()', more)]);
+    assert.deepEqual(more.pages, [2], 'a second trigger while loading is ignored');
+    more.ok = false;
+    await vm.runInContext('loadMoreMedia()', more);
+    assert.equal(more.CURRENT_PAGE, 2, 'a failed page is rolled back, not skipped');
+    assert.deepEqual(more.pages, [2, 3], 'a failure does not retry in a loop');
 })().catch((error)=>{
     console.error(error);
     process.exitCode = 1;

@@ -2113,6 +2113,10 @@ const SELECTED = new Map();
 let TRASH_ITEMS = [];
 let LIVE_REFRESH_BUSY = false;
 let LAST_MEDIA_STATUS = '';
+let LOADING_MORE = false;
+let PREFETCHED = [];
+// New shots are merged only near the top, so they never move the grid under a finger.
+const LIVE_REFRESH_TOP = 300;
 
 const SECTION_LABELS = {
     photo: 'foto',
@@ -2265,7 +2269,9 @@ async function loadMedia(reset=true){
             return;
         }
 
-        const incoming = data.items || [];
+        // Shots that arrived meanwhile shift the pages: never show a card twice.
+        const known = reset ? null : new Set(PHOTOS.map((photo)=>photo.id));
+        const incoming = (data.items || []).filter((item)=>!known || !known.has(item.id));
         PHOTOS = reset ? incoming : PHOTOS.concat(incoming);
         TOTAL_ITEMS = data.pagination ? data.pagination.total : PHOTOS.length;
         HAS_MORE = Boolean(data.pagination && data.pagination.has_more);
@@ -2282,25 +2288,46 @@ async function loadMedia(reset=true){
 
         incoming.forEach((item)=>gallery.appendChild(itemCard(item)));
         renderLoadMore();
+        return true;
     }catch(e){
         if(requestId !== LOAD_SEQUENCE || requestSection !== CURRENT_SECTION){
             return;
         }
         status.textContent = 'Errore caricamento media: ' + e.message;
         renderLoadMore();
+        return false;
     }
 }
 
 async function loadMoreMedia(){
-    if(!HAS_MORE){
+    if(!HAS_MORE || LOADING_MORE){
         return;
     }
-    CURRENT_PAGE += 1;
-    await loadMedia(false);
+    LOADING_MORE = true;
+    const page = ++CURRENT_PAGE;
+    let loaded = false;
+    try{
+        loaded = await loadMedia(false);
+    }finally{
+        LOADING_MORE = false;
+    }
+    if(!loaded){
+        // A failed page is retried by the button or the next scroll, not skipped.
+        if(CURRENT_PAGE === page) CURRENT_PAGE = page - 1;
+        return;
+    }
+    maybeLoadMore();
+}
+
+function maybeLoadMore(){
+    const wrap = document.getElementById('loadMoreWrap');
+    if(HAS_MORE && !LOADING_MORE && wrap.getBoundingClientRect().top < window.innerHeight + 800){
+        loadMoreMedia();
+    }
 }
 
 async function refreshLivePhotos(){
-    if(LIVE_REFRESH_BUSY || CURRENT_SECTION !== 'photo' || CURRENT_PAGE !== 1 ||
+    if(LIVE_REFRESH_BUSY || CURRENT_SECTION !== 'photo' || window.scrollY > LIVE_REFRESH_TOP ||
        SELECTING || document.visibilityState !== 'visible' ||
        document.getElementById('modal').classList.contains('open')){
         return;
@@ -2312,15 +2339,16 @@ async function refreshLivePhotos(){
         if(!res.ok){ throw new Error(`HTTP ${res.status}`); }
         const data = await res.json();
         if(requestId !== LOAD_SEQUENCE || CURRENT_SECTION !== 'photo' ||
-           CURRENT_PAGE !== 1 || SELECTING ||
+           window.scrollY > LIVE_REFRESH_TOP || SELECTING ||
            document.visibilityState !== 'visible' ||
            document.getElementById('modal').classList.contains('open')){
             return;
         }
         const incoming = data.items || [];
         const total = data.pagination ? data.pagination.total : incoming.length;
-        if(total !== TOTAL_ITEMS || incoming.length !== PHOTOS.length ||
-           incoming.some((item, index)=>item.id !== PHOTOS[index].id)){
+        const head = PHOTOS.slice(0, incoming.length);
+        if(total !== TOTAL_ITEMS || incoming.length !== head.length ||
+           incoming.some((item, index)=>item.id !== head[index].id)){
             await loadMedia(true);
         }else if(LAST_MEDIA_STATUS){
             document.getElementById('status').textContent = LAST_MEDIA_STATUS;
@@ -2440,6 +2468,19 @@ function renderCurrentPhoto(){
         rating.classList.add('hidden');
         rating.innerHTML = '';
     }
+    prefetchNeighbours();
+}
+
+function prefetchNeighbours(){
+    // Swiping then shows a photo already in the browser cache, even on weak Wi-Fi.
+    PREFETCHED = [-1, 1]
+        .map((step)=>PHOTOS[(CURRENT_INDEX + step + PHOTOS.length) % PHOTOS.length])
+        .filter((item)=>item && item.kind !== 'video')
+        .map((item)=>{
+            const image = new Image();
+            image.src = item.preview_url;
+            return image;
+        });
 }
 
 function openPrintEditor(event){
@@ -2855,6 +2896,9 @@ async function emptyTrash(){
 loadMedia(true);
 renderSelection();
 updateTrashCount();
+new IntersectionObserver((entries)=>{
+    if(entries.some((entry)=>entry.isIntersecting)) maybeLoadMore();
+}, {rootMargin:'800px 0px'}).observe(document.getElementById('loadMoreWrap'));
 loadIndexStatus();
 loadPreviewStatus();
 setInterval(loadIndexStatus, 15000);

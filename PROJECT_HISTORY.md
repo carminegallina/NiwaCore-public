@@ -522,6 +522,10 @@ NIWA System away from home, same day: without a cable it would have turned
 red ("LAN cablata" was critical) exactly when the hotspot is all that matters.
 Wired LAN and Tailscale are now informative; the hotspot, SSD and panels stay
 critical. At home it reads 18/18 again, whatever address the router assigns.
+Review browsing, same day: the grid loads further pages on its own and the
+viewer prefetches the photos either side. The live refresh used to stop as
+soon as a second page was loaded; it now works at any depth and adds new
+shots when the grid is back near the top.
 
 ## Current philosophy
 

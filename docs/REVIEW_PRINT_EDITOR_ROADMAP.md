@@ -142,6 +142,8 @@ Piano proposto nell'analisi Review del 2026-10-04 (ordine consigliato). Le funzi
    - [ ] barra inferiore con stelle, tipo e peso del file; azione Elimina in un menu separato; filmstrip delle foto vicine;
    - [x] barra di selezione: Deseleziona, Scarica, Elimina e Ripristina selezionati spenti senza selezione, Elimina separato dalle azioni neutre; a cestino vuoto la barra non compare. La barra gia' non copriva l'ultima riga (e' `sticky` e occupa il suo spazio);
    - [ ] nel cestino, percorso originale solo nei dettagli invece che su ogni scheda.
+   - [x] viewer: precarica in background la foto precedente e la successiva, cosi' lo scorrimento non aspetta il Wi-Fi (2026-10-05).
+5b. [x] Griglia a caricamento continuo (2026-10-05): la pagina successiva arriva da sola quando ci si avvicina al fondo; il pulsante resta come riserva. Le foto gia' mostrate non si ripetono se nel frattempo arrivano scatti nuovi; una pagina fallita non viene saltata. Il refresh automatico ora funziona con qualunque numero di pagine, ma inserisce gli scatti nuovi solo quando la griglia e' vicino all'inizio, cosi' non la sposta mentre si guardano foto piu' in basso.
 7. [ ] Editor di stampa: stesse funzioni, controlli raggruppati in Cornice, Inquadratura, Regolazioni, Output; barra export che non copre i controlli; stato di caricamento visibile; riepilogo formato/orientamento/tipo file accanto all'export.
 8. [ ] Solo alla fine: aggiornamenti via SSE al posto del polling.
 

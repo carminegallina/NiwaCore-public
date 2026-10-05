@@ -342,6 +342,11 @@ Review reliability pass deployed on 2026-10-05:
   selection actions disabled with nothing selected. Rollback:
   `app/app.py.bak-claude-cards-20261005`, image
   `niwa-review-before-cards-20261005`
+- scroll and viewer deployed 2026-10-05: the grid loads the next page by
+  itself near the end, the viewer prefetches the neighbouring photos, and
+  the live refresh adds new shots when the grid is near the top. Rollback:
+  `app/app.py.bak-claude-scroll-20261005`, image
+  `niwa-review-before-scroll-20261005`
 - the no-frame print option exports with the original photo ratio
 
 Review compact lighttable deployed on 2026-10-05 (UI only, same endpoints):
