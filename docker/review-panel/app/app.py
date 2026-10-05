@@ -39,6 +39,10 @@ STORAGE_ROOT = Path("/storage")
 TRASH_ROOT = STORAGE_ROOT / ".niwa_trash"
 # NIWA Import reads deleted_paths from here so deleted media never come back.
 TRASH_FILE = DATA_ROOT / "review_trash.json"
+# Written by NIWA Import; Review only reads them to show RAWs still arriving.
+BRIDGE_SESSIONS_FILE = DATA_ROOT / "bridge_sessions.json"
+BRIDGE_STAGING_ROOT = Path("/storage/.niwa_bridge_staging")
+INCOMING_ROOT = Path("/storage/.niwa_cache/review_incoming")
 TRASH_ID_PATTERN = re.compile("[0-9a-f]{32}")
 TRASH_JOURNAL_NAME = ".niwa-item.json"
 TRASH_LOCK = threading.RLock()
@@ -46,6 +50,7 @@ JPG_EXPORT_LOCK = threading.Lock()
 PRINT_FRAME_LOCK = threading.Lock()
 EDITOR_PREVIEW_LOCK = threading.Lock()
 INDEX_REBUILD_LOCK = threading.Lock()
+INCOMING_LOCK = threading.Lock()
 
 PRINT_PRESETS = {
     "original": {"label": "Originale"},
@@ -73,6 +78,10 @@ PREVIEW_RETRY_SECONDS = 300
 # The worker rescans after this much work, so shots that arrived meanwhile
 # (newest first) do not wait behind a long backlog.
 PREVIEW_BATCH_SECONDS = 10
+# A RAW's IFDs, which locate its embedded JPEGs, fit well inside this.
+INCOMING_HEADER_BYTES = 256 * 1024
+INCOMING_STALL_SECONDS = 120
+EMBEDDED_JPEG_TAGS = ("JpgFromRaw", "PreviewImage", "OtherImage")
 DEFAULT_PAGE_SIZE = 80
 MAX_PAGE_SIZE = 220
 
@@ -736,7 +745,7 @@ def safe_relative(value):
 
 def plain_name(value):
     name = str(value or "")
-    return name if name and Path(name).name == name else None
+    return name if name not in ("", ".", "..") and Path(name).name == name else None
 
 
 def recover_trash_journals(trash):
@@ -1407,8 +1416,6 @@ def derivative_path_for(section, path, relative, variant):
 
 
 def render_media_derivative(section, path, relative, variant):
-    from PIL import Image, ImageOps
-
     output = derivative_path_for(section, path, relative, variant)
     if output.is_file() and output.stat().st_size > 0:
         return output
@@ -1423,10 +1430,15 @@ def render_media_derivative(section, path, relative, variant):
         source_path = path
     if not source_path:
         return None
+    return write_bounded_jpeg(source_path, output, variant)
 
-    DERIVATIVE_ROOT.mkdir(parents=True, exist_ok=True)
+
+def write_bounded_jpeg(source_path, output, variant):
+    from PIL import Image, ImageOps
+
+    output.parent.mkdir(parents=True, exist_ok=True)
     maximum = DERIVATIVE_SIZES[variant]
-    temporary = DERIVATIVE_ROOT / f".{uuid.uuid4().hex}.tmp"
+    temporary = output.parent / f".{uuid.uuid4().hex}.tmp"
     try:
         with Image.open(source_path) as source:
             source.draft("RGB", (maximum, maximum))
@@ -1448,6 +1460,124 @@ def render_media_derivative(section, path, relative, variant):
     finally:
         temporary.unlink(missing_ok=True)
     return output
+
+
+def embedded_jpeg_span(path):
+    """Offset and length of the best JPEG inside a RAW. Its IFDs come first,
+    so a partial upload already says where the JPEG is."""
+    command = ["exiftool", "-j", "-n"]
+    for tag in EMBEDDED_JPEG_TAGS:
+        command += [f"-{tag}Start", f"-{tag}Length"]
+    try:
+        result = subprocess.run(
+            command + [str(path)], capture_output=True, timeout=15, check=False
+        )
+        tags = json.loads(result.stdout or b"[{}]")[0]
+    except (OSError, subprocess.TimeoutExpired, ValueError, IndexError, KeyError):
+        return None
+    for tag in EMBEDDED_JPEG_TAGS:
+        start, length = tags.get(f"{tag}Start"), tags.get(f"{tag}Length")
+        if isinstance(start, int) and isinstance(length, int) and length > 0:
+            return start, length
+    return None
+
+
+def incoming_bridge_raws():
+    """RAWs the bridge is still sending. NIWA Import owns these files: read only."""
+    try:
+        sessions = json.loads(BRIDGE_SESSIONS_FILE.read_text(encoding="utf-8"))["sessions"]
+        sessions = list(sessions.values())
+    except (OSError, ValueError, TypeError, KeyError, AttributeError):
+        return []
+    staging = BRIDGE_STAGING_ROOT.resolve()
+    found = []
+    for session in sessions:
+        if not isinstance(session, dict) or session.get("status") != "active":
+            continue
+        objects = session.get("objects")
+        for item in (objects.values() if isinstance(objects, dict) else []):
+            if not isinstance(item, dict) or item.get("status") != "uploading":
+                continue
+            name = plain_name(item.get("filename"))
+            session_id = plain_name(session.get("id"))
+            staged_name = plain_name(item.get("staged_name"))
+            if not name or not session_id or not staged_name:
+                continue
+            if Path(name).suffix.lower() not in RAW_EXTENSIONS:
+                continue
+            path = BRIDGE_STAGING_ROOT / session_id / staged_name
+            try:
+                if not path.resolve().is_relative_to(staging) or not path.is_file():
+                    continue
+                stat = path.stat()
+                size = int(item.get("size") or 0)
+            except (OSError, TypeError, ValueError):
+                continue
+            if size <= 0:
+                continue
+            found.append({
+                "key": hashlib.sha1(f"{session_id}|{staged_name}".encode("utf-8")).hexdigest(),
+                "name": name,
+                "path": path,
+                "size": size,
+                "received": min(stat.st_size, size),
+                "mtime": stat.st_mtime,
+                "captured_at": str(item.get("captured_at") or ""),
+            })
+    found.sort(key=lambda entry: entry["captured_at"], reverse=True)
+    return found
+
+
+INCOMING_SPANS = {}
+
+
+def incoming_preview(entry):
+    """Grid and viewer images from the JPEG a RAW embeds, once its bytes arrived."""
+    thumb = INCOMING_ROOT / f"{entry['key']}-thumb.jpg"
+    if thumb.is_file():
+        return True
+    if entry["received"] < INCOMING_HEADER_BYTES:
+        return False
+    with INCOMING_LOCK:
+        if thumb.is_file():
+            return True
+        span = INCOMING_SPANS.get(entry["key"]) or embedded_jpeg_span(entry["path"])
+        if not span:
+            return False
+        INCOMING_SPANS[entry["key"]] = span
+        start, length = span
+        if entry["received"] < start + length:
+            return False
+        INCOMING_ROOT.mkdir(parents=True, exist_ok=True)
+        source = INCOMING_ROOT / f".{uuid.uuid4().hex}.jpg"
+        try:
+            with open(entry["path"], "rb") as handle:
+                handle.seek(start)
+                data = handle.read(length)
+            if len(data) != length or not data.startswith(b"\xff\xd8"):
+                return False
+            source.write_bytes(data)
+            copy_orientation(entry["path"], source)
+            write_bounded_jpeg(source, INCOMING_ROOT / f"{entry['key']}-viewer.jpg", "viewer")
+            # Written last: its presence means both images are ready.
+            write_bounded_jpeg(source, thumb, "thumb")
+        except Exception:
+            app.logger.exception("Cannot preview incoming %s", entry["name"])
+            return False
+        finally:
+            source.unlink(missing_ok=True)
+    return True
+
+
+def prune_incoming(keys):
+    for key in list(INCOMING_SPANS):
+        if key not in keys:
+            INCOMING_SPANS.pop(key, None)
+    if not INCOMING_ROOT.is_dir():
+        return
+    for cached in INCOMING_ROOT.glob("*.jpg"):
+        if cached.name.split("-", 1)[0] not in keys:
+            cached.unlink(missing_ok=True)
 
 
 def send_immutable_image(path):
@@ -1949,6 +2079,8 @@ body{padding:14px}h1{font-size:26px;margin-bottom:3px}.subtitle{font-size:13px;m
 .grid{grid-template-columns:repeat(auto-fill,minmax(155px,1fr));gap:8px}.card{aspect-ratio:3/2;border-radius:11px;box-shadow:0 10px 24px rgba(0,0,0,.2)}.thumb{height:100%;aspect-ratio:auto}.info{position:absolute;inset:auto 0 0;padding:28px 9px 8px;background:linear-gradient(transparent,rgba(10,8,8,.94))}.name{font-size:13px;text-shadow:0 1px 3px #000}.meta{color:#eadbd4;font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.badges{position:absolute;top:8px;left:8px;max-width:calc(100% - 16px);display:flex;gap:4px;flex-wrap:wrap;pointer-events:none}.badge{margin:0;background:rgba(28,20,19,.78);backdrop-filter:blur(6px)}.badge.same-name{background:rgba(120,72,24,.9);border-color:rgba(250,204,21,.45);color:#fde68a}.card-stars{color:#facc15;font-size:12px;letter-spacing:1px;line-height:1;margin-bottom:3px;text-shadow:0 1px 3px #000}
 .trash-card{aspect-ratio:auto}.trash-card .thumb{height:auto;aspect-ratio:3/2}.trash-card .info{position:relative;padding:9px;background:none}
 .modal{background:rgba(5,4,4,.96)}.viewer-meta{position:absolute;left:14px;top:14px;max-width:70%;background:rgba(28,20,19,.76);border-radius:12px;padding:8px 11px;backdrop-filter:blur(8px)}.viewer-name{font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.viewer-meta .photo-counter{position:static;padding:0;background:none;border-radius:0;color:var(--muted);font-size:12px;margin-top:2px}.close-button{right:14px;top:14px;width:42px;height:42px;padding:0;font-size:24px}.viewer-actions{position:absolute;right:14px;bottom:14px;display:flex;gap:7px;align-items:center;flex-wrap:wrap;justify-content:flex-end;max-width:72%}.viewer-actions .overlay-button{position:static;font-size:14px}.card.selected .badges{left:40px}.selection-actions .danger{margin-left:14px}
+.incoming{margin:0 0 12px}.incoming.hidden{display:none}.incoming-title{color:var(--muted);font-size:13px;margin-bottom:6px}.incoming-list{display:flex;gap:8px;overflow-x:auto;padding-bottom:4px}.incoming-card{flex:0 0 160px;position:relative;aspect-ratio:3/2;border-radius:11px;overflow:hidden;border:1px dashed var(--accent);background:#151112;padding:0;color:inherit;font:inherit;text-align:left;cursor:pointer}.incoming-card:disabled{cursor:default}.incoming-card img{width:100%;height:100%;object-fit:cover;display:block}.incoming-wait{display:flex;align-items:center;justify-content:center;height:100%;padding:8px 8px 40px;color:var(--muted);font-size:12px;text-align:center}.incoming-bar{position:absolute;left:0;right:0;bottom:0;height:4px;background:rgba(0,0,0,.45)}.incoming-bar span{display:block;height:100%;background:var(--accent-strong)}
+.modal.incoming-view .viewer-actions,.modal.incoming-view .nav-button,.modal.incoming-view .rating{display:none}
 @media(max-width:800px){body{padding:10px}.brand-logo{width:40px;height:40px}h1{font-size:22px}.topbar .button{min-height:36px;padding:8px 10px}.toolbar{display:grid;grid-template-columns:1fr}.toolbar-actions{display:grid;grid-template-columns:1fr 1fr}.diagnostics{min-width:0}.modal{padding:5px}.nav-button{width:36px;height:36px;font-size:22px;opacity:.72}.viewer-meta{top:8px;left:8px;max-width:68%}.close-button{top:8px;right:8px}.viewer-actions{left:8px;right:8px;bottom:8px;max-width:none;justify-content:center}.viewer-actions .overlay-button{padding:8px 10px;font-size:12px}.rating{left:8px;bottom:58px}.grid{grid-template-columns:repeat(auto-fill,minmax(145px,1fr));gap:7px}}
 </style>
 </head>
@@ -1990,6 +2122,10 @@ body{padding:14px}h1{font-size:26px;margin-bottom:3px}.subtitle{font-size:13px;m
 <button class="small-button" id="refreshIndexButton" onclick="refreshIndex()">Aggiorna indice</button>
 </div>
 </div>
+<section class="incoming hidden" id="incoming" aria-label="Foto in arrivo dal bridge">
+<div class="incoming-title">In arrivo dal bridge</div>
+<div class="incoming-list" id="incomingList"></div>
+</section>
 <div class="grid" id="gallery"></div>
 <div class="load-more-wrap hidden" id="loadMoreWrap">
 <button class="small-button load-more" id="loadMoreButton" onclick="loadMoreMedia()">Carica altri</button>
@@ -2118,6 +2254,7 @@ let TRASH_ITEMS = [];
 let LIVE_REFRESH_BUSY = false;
 let LAST_MEDIA_STATUS = '';
 let LOADING_MORE = false;
+let INCOMING = [];
 let PREFETCHED = [];
 // New shots are merged only near the top, so they never move the grid under a finger.
 const LIVE_REFRESH_TOP = 300;
@@ -2136,6 +2273,7 @@ function setSection(section){
     });
     document.getElementById('goproFilters').classList.toggle('visible', section === 'gopro');
     document.getElementById('workerStatus').style.display = section === 'photo' ? 'block' : 'none';
+    document.getElementById('incoming').classList.toggle('hidden', section !== 'photo' || !INCOMING.length);
     SELECTING = false;
     SELECTED.clear();
     renderSelection();
@@ -2435,6 +2573,7 @@ function renderCurrentPhoto(){
     if(!item){
         return;
     }
+    document.getElementById('modal').classList.remove('incoming-view');
 
     const image = document.getElementById('modalImage');
     const video = document.getElementById('modalVideo');
@@ -2568,7 +2707,69 @@ function closeModal(event){
         return;
     }
     document.getElementById('modalVideo').pause();
-    document.getElementById('modal').classList.remove('open');
+    document.getElementById('modal').classList.remove('open', 'incoming-view');
+}
+
+function incomingCard(item){
+    const card = document.createElement('button');
+    card.type = 'button';
+    card.className = 'incoming-card';
+    card.disabled = !item.preview_url;
+    card.title = item.name;
+    if(item.thumbnail_url){
+        const image = document.createElement('img');
+        image.src = item.thumbnail_url;
+        image.alt = '';
+        card.appendChild(image);
+    }else{
+        appendText(card, 'incoming-wait', 'Anteprima in arrivo...');
+    }
+    const info = document.createElement('div');
+    info.className = 'info';
+    appendText(info, 'name', item.name);
+    appendText(info, 'meta', item.stalled
+        ? `In pausa - ${item.progress}%`
+        : `${item.progress}% di ${item.size_label}`);
+    card.appendChild(info);
+    const bar = document.createElement('div');
+    bar.className = 'incoming-bar';
+    const fill = document.createElement('span');
+    fill.style.width = `${item.progress}%`;
+    bar.appendChild(fill);
+    card.appendChild(bar);
+    card.onclick = ()=>openIncoming(item);
+    return card;
+}
+
+async function loadIncoming(){
+    if(CURRENT_SECTION !== 'photo' || document.visibilityState !== 'visible'){
+        return;
+    }
+    try{
+        const res = await fetch('/api/incoming', {cache:'no-store'});
+        if(!res.ok){ return; }
+        INCOMING = (await res.json()).items || [];
+    }catch(e){
+        return;
+    }
+    if(CURRENT_SECTION !== 'photo'){
+        return;
+    }
+    document.getElementById('incoming').classList.toggle('hidden', !INCOMING.length);
+    document.getElementById('incomingList').replaceChildren(...INCOMING.map(incomingCard));
+}
+
+function openIncoming(item){
+    // View only: the full RAW is still on its way, so no rating, download or delete yet.
+    const video = document.getElementById('modalVideo');
+    video.pause();
+    video.style.display = 'none';
+    const image = document.getElementById('modalImage');
+    image.style.display = 'block';
+    image.src = item.preview_url;
+    document.getElementById('viewerName').textContent = item.name;
+    document.getElementById('photoCounter').textContent = `In arrivo dal bridge: ${item.progress}%`;
+    document.getElementById('modal').classList.add('open', 'incoming-view');
 }
 
 function startSwipe(event){
@@ -2908,6 +3109,8 @@ loadPreviewStatus();
 setInterval(loadIndexStatus, 15000);
 setInterval(loadPreviewStatus, 10000);
 setInterval(refreshLivePhotos, 5000);
+loadIncoming();
+setInterval(loadIncoming, 4000);
 document.addEventListener('visibilitychange', ()=>{
     if(document.visibilityState === 'visible') refreshLivePhotos();
 });
@@ -2983,6 +3186,37 @@ def api_preview_section(section, file_id):
         return send_file(preview_path, mimetype="image/jpeg")
 
     return placeholder_svg(path.name, "Anteprima RAW non disponibile")
+
+
+@app.route("/api/incoming")
+def api_incoming():
+    entries = incoming_bridge_raws()
+    prune_incoming({entry["key"] for entry in entries})
+    now = time.time()
+    items = []
+    for entry in entries:
+        ready = incoming_preview(entry)
+        key = entry["key"]
+        items.append({
+            "key": key,
+            "name": entry["name"],
+            "size_label": human_size(entry["size"]),
+            "progress": int(entry["received"] * 100 / entry["size"]),
+            "stalled": now - entry["mtime"] > INCOMING_STALL_SECONDS,
+            "thumbnail_url": f"/api/incoming/{key}/thumb" if ready else None,
+            "preview_url": f"/api/incoming/{key}/viewer" if ready else None,
+        })
+    return jsonify({"items": items})
+
+
+@app.route("/api/incoming/<key>/<variant>")
+def api_incoming_image(key, variant):
+    if variant not in DERIVATIVE_SIZES or not re.fullmatch("[0-9a-f]{40}", key):
+        abort(404)
+    path = INCOMING_ROOT / f"{key}-{variant}.jpg"
+    if not path.is_file():
+        abort(404)
+    return send_immutable_image(path)
 
 
 @app.route("/api/media-image/<variant>/<section>/<file_id>")

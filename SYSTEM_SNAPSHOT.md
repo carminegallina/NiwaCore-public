@@ -351,6 +351,15 @@ Review reliability pass deployed on 2026-10-05:
   `photo` (RAW+JPG or JPG-only shooting). Rollback:
   `app/app.py.bak-claude-jpgworker-20261005`, image
   `niwa-review-before-jpgworker-20261005`
+- "In arrivo dal bridge" (deployed 2026-10-05): `GET /api/incoming` reads
+  `data/bridge_sessions.json` and the `.partial` files in
+  `/storage/.niwa_bridge_staging` read-only, and once the JPEG a RAW embeds
+  has arrived (about the first 3 MB of a Z6 II NEF) serves grid and viewer
+  images from `/storage/.niwa_cache/review_incoming` via
+  `/api/incoming/<key>/<thumb|viewer>`. Real NEF test: ready at 3.5 of
+  30.5 MB, about 4 s to prepare once. Rollback:
+  `app/app.py.bak-claude-incoming-20261005`, image
+  `niwa-review-before-incoming-20261005`
 - the no-frame print option exports with the original photo ratio
 
 Review compact lighttable deployed on 2026-10-05 (UI only, same endpoints):

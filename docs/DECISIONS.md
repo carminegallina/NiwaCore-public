@@ -38,3 +38,10 @@
   NIWA Import (servizio root con un compito diverso).
 - Se il nuovo canale non si attiva, il wrapper torna al canale precedente:
   l'evento non deve mai restare senza Wi-Fi.
+
+- Anteprima dei RAW in arrivo (fase A) tutta dentro Review: legge in sola
+  lettura il registro sessioni e i file `.partial` di NIWA Import, che resta
+  invariato. Una Z6 II mette la JPEG a piena risoluzione entro i primi 3 MB
+  circa del NEF, quindi la foto si vede dopo circa il 10% del trasferimento.
+  La fase B (il bridge manda prima i primi MB di ogni scatto di una raffica)
+  richiede un nuovo firmware ed e' rimandata a dopo l'evento.

@@ -13,7 +13,8 @@ for(const [name, next] of [
     ['fillMediaCard', 'setLabeledStatus'],
     ['setLabeledStatus', 'itemCard'],
     ['itemCard', 'renderLoadMore'],
-    ['trashCard', 'setTrashCount']
+    ['trashCard', 'setTrashCount'],
+    ['incomingCard', 'loadIncoming']
 ]){
     const body = functionSource(name, next);
     assert.doesNotMatch(body, /innerHTML/, `${name} does not parse media names as HTML`);

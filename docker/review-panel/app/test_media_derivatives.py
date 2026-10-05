@@ -2,6 +2,7 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 import base64
 import io
+import json
 import os
 import unittest
 from unittest import mock
@@ -168,6 +169,91 @@ class MediaDerivativeTests(unittest.TestCase):
             self.source.rename(self.photo_root / "renamed.JPG")
             review.run_preview_scan()
         self.assertEqual((self.photo_root / "renamed.JPG").read_bytes(), self.original)
+
+
+class IncomingBridgeTests(unittest.TestCase):
+    def setUp(self):
+        self.temporary = TemporaryDirectory()
+        root = Path(self.temporary.name)
+        self.staging = root / "staging"
+        (self.staging / "s1").mkdir(parents=True)
+        self.sessions_file = root / "bridge_sessions.json"
+        buffer = io.BytesIO()
+        Image.new("RGB", (3000, 2000), (40, 120, 200)).save(buffer, format="JPEG")
+        self.jpeg = buffer.getvalue()
+        self.start = 4096
+        self.partial = self.staging / "s1" / "up1.partial"
+        self.patches = mock.patch.multiple(
+            review,
+            BRIDGE_SESSIONS_FILE=self.sessions_file,
+            BRIDGE_STAGING_ROOT=self.staging,
+            INCOMING_ROOT=root / "incoming",
+            INCOMING_HEADER_BYTES=1024,
+            INCOMING_SPANS={},
+        )
+        self.patches.start()
+        self.span = mock.patch.object(
+            review, "embedded_jpeg_span", return_value=(self.start, len(self.jpeg))
+        )
+        self.span.start()
+        self.client = review.app.test_client()
+
+    def tearDown(self):
+        self.span.stop()
+        self.patches.stop()
+        self.temporary.cleanup()
+
+    def write_sessions(self, objects, status="active", session_id="s1"):
+        self.sessions_file.write_text(json.dumps({"sessions": {session_id: {
+            "id": session_id, "status": status, "objects": objects,
+        }}}))
+
+    def uploading(self, filename="_DSC0001.NEF", staged="up1.partial", status="uploading"):
+        return {"filename": filename, "staged_name": staged, "status": status,
+                "size": self.start + len(self.jpeg) + 20_000_000}
+
+    def incoming(self):
+        return self.client.get("/api/incoming").get_json()["items"]
+
+    def test_shows_a_raw_as_soon_as_its_embedded_jpeg_arrived(self):
+        self.write_sessions({"a": self.uploading()})
+        self.partial.write_bytes(b"II*" + bytes(self.start - 3) + self.jpeg[:1000])
+        [item] = self.incoming()
+        self.assertEqual(item["name"], "_DSC0001.NEF")
+        self.assertIsNone(item["preview_url"], "half a JPEG is not shown")
+
+        with open(self.partial, "ab") as handle:
+            handle.write(self.jpeg[1000:] + bytes(5000))
+        [item] = self.incoming()
+        for url, maximum in ((item["thumbnail_url"], 640), (item["preview_url"], 2400)):
+            response = self.client.get(url)
+            self.assertEqual(response.status_code, 200)
+            self.assertIn("immutable", response.headers["Cache-Control"])
+            with Image.open(io.BytesIO(response.data)) as image:
+                self.assertLessEqual(max(image.size), maximum)
+            response.close()
+
+        self.write_sessions({"a": self.uploading(status="published")})
+        self.assertEqual(self.incoming(), [])
+        self.assertEqual(list(review.INCOMING_ROOT.glob("*.jpg")), [], "cache pruned once published")
+        self.assertTrue(self.partial.is_file(), "Import's staging file is never touched")
+
+    def test_ignores_jpgs_closed_sessions_and_paths_outside_staging(self):
+        self.partial.write_bytes(bytes(2048))
+        (self.staging / "outside.partial").write_bytes(bytes(2048))
+        self.write_sessions({
+            "jpg": self.uploading(filename="_DSC0002.JPG"),
+            "escape": self.uploading(staged=".."),
+            "nested": self.uploading(staged="../outside.partial"),
+        })
+        self.assertEqual(self.incoming(), [])
+        self.write_sessions({"a": self.uploading()}, status="completed")
+        self.assertEqual(self.incoming(), [])
+        self.write_sessions({"a": self.uploading()}, session_id="..")
+        self.assertEqual(self.incoming(), [])
+        self.sessions_file.write_text("not json")
+        self.assertEqual(self.incoming(), [])
+        self.assertEqual(self.client.get("/api/incoming/" + "0" * 40 + "/../x").status_code, 404)
 
 
 if __name__ == "__main__":

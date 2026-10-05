@@ -526,6 +526,11 @@ Review browsing, same day: the grid loads further pages on its own and the
 viewer prefetches the photos either side. The live refresh used to stop as
 soon as a second page was loaded; it now works at any depth and adds new
 shots when the grid is back near the top.
+Photos still on their way, same day: a Z6 II NEF keeps its full-size JPEG
+within its first 3 MB, so Review now shows a bridge upload "in arrivo" with
+its picture at about 10% of the transfer instead of after the whole 30 MB.
+It reads NIWA Import's session file and partial uploads without writing to
+them; the bridge firmware is unchanged.
 
 ## Current philosophy
 
