@@ -47,6 +47,21 @@
 - [x] Foglio di prova verticale stampato e misurato (1,5 / 2,3 / 3,5 / 5 mm).
 - [x] Stampa reale con le cornici dell'evento verticale e orizzontale: centrate (2026-10-05).
 
+## Download pubblico tramite QR
+
+- [ ] Provare il tethering USB con il cellulare reale senza modificare
+      `wlan0`, `NIWA-AP` o le credenziali del bridge ESP32.
+- [ ] Verificare Internet, scansione canali e trasferimento ESP32 simultanei;
+      controllare anche `vcgencmd get_throttled` e il consumo del telefono.
+- [ ] Scegliere uno storage esterno con URL HTTPS firmati, scadenza e rimozione
+      automatica; nessun port forwarding o pannello NIWA pubblico.
+- [ ] Implementare in Review il QR per una singola foto: JPG originale oppure
+      JPG HQ per RAW, metadati privati rimossi e fallimento offline chiaro.
+- [ ] Validare il download da un telefono sulla propria rete mobile, non
+      collegato a `NIWA-AP`, e verificare revoca/scadenza del link.
+
+Piano completo: `docs/PUBLIC_QR_DOWNLOAD.md`.
+
 ## Sicurezza
 
 - [ ] Ricontrollare file sensibili prima di ogni commit.

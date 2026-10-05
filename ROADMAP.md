@@ -133,6 +133,19 @@ Current status:
 
 ## Immediate next steps
 
+### Download pubblico tramite QR
+
+Idea approvata, non ancora implementata. Gli ospiti non devono collegarsi a
+`NIWA-AP`: `wlan0` resta dedicata a tablet ed ESP32, mentre il Raspberry riceve
+Internet dal tethering USB di un cellulare (o, come seconda scelta, da `wlan1`).
+Review carichera soltanto il JPG scelto su uno storage esterno e mostrera un QR
+con URL HTTPS temporaneo; il Raspberry e i pannelli non saranno esposti.
+
+Prima di scegliere il provider o scrivere codice va completata la prova fisica
+del tethering con hotspot, bridge ESP32 e scansione canali attivi. Piano,
+vincoli di sicurezza e criteri di collaudo sono in
+`docs/PUBLIC_QR_DOWNLOAD.md`.
+
 ### Nikon Z6 II bridge: validate the existing hardware before 2026-10-08
 
 The installed Arduino ESP32 3.3.11 enables a USB enumeration filter that rejects

@@ -517,6 +517,10 @@ Medium priority:
 - SELPHY CP1500: P postcards validated with real prints on 2026-10-05
   (measured borderless margins, see docs/CORNICI_SELPHY.md); L and C still
   need their own test sheet before an event
+- Public single-photo QR download: guests must never join `NIWA-AP`; keep
+  `wlan0` dedicated to tablet/ESP32, test phone USB tethering as the separate
+  Internet uplink, then use expiring HTTPS object links without exposing NIWA.
+  Read `docs/PUBLIC_QR_DOWNLOAD.md` before implementation.
 - SD import assistant
 - Checksums for import
 - Drone internal storage workflow research
