@@ -386,6 +386,20 @@ Review reliability pass deployed on 2026-10-05:
   `niwa-review-before-selphy-20261005`
 - the no-frame print option exports with the original photo ratio
 
+Review direct printing (deployed 2026-10-06, commits 83ced7f and d03e7b5,
+36 tests passed in the container; details in `docs/STAMPA_DIRETTA.md`):
+- the SELPHY CP1500 is on NIWA-AP ("Via Wireless Router"), found at its
+  last address in `/home/niwa/niwa/data/selphy_printer.json` or by scanning
+  10.42.0.0/24 for a SELPHY on IPP port 631 (10.42.0.102 on 2026-10-06)
+- "Stampa" in the print editor (P only) saves the export like "Esporta" and
+  sends it over IPP: borderless P, print-scaling fill, margins from
+  `SELPHY_PAGES["P"]["direct"]`; `POST /api/print/print`,
+  `GET /api/print/jobs/<id>` for the job state and printer problems
+- rollback: the `.bak-claude-stampa-20261006` copies of `app/app.py`,
+  `app/static/print-editor.js`, `app/static/print-editor.css` and
+  `app/test_print_editor.py`, image `niwa-review-before-stampa-20261006`,
+  remove `app/test_direct_print.py`; printer back with Direct Connection On
+
 Review slideshow (deployed 2026-10-06, commit 7bd911d; 32 tests passed in the
 container; rollback `app/app.py.bak-claude-slideshow-20261006`, image
 `niwa-review-before-slideshow-20261006`, then remove `app/static/slideshow.html`

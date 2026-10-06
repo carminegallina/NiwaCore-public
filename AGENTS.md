@@ -574,7 +574,11 @@ still to try on the Tab S10. Then (commit abfdd64) the viewer actions moved
 into a round menu button opposite the stars, and (commit c0860f9) every JPG
 print export is also copied beside its photo as `<photo>_stampa-<format>.jpg`.
 Review now runs with `network_mode: host` so it can reach the SELPHY on
-NIWA-AP; direct printing is in progress, see `docs/STAMPA_DIRETTA.md`.
+NIWA-AP, and (commits 83ced7f, d03e7b5) the print editor has a "Stampa"
+button that sends P prints straight to it over IPP; the real print from the
+tablet is still to validate, see `docs/STAMPA_DIRETTA.md`.
+Review tests: `docker exec review-panel python -m unittest test_review_trash
+test_media_derivatives test_print_editor test_slideshow test_direct_print`.
 
 Still to verify physically before the 2026-10-08 event (docs/TASKS.md):
 tablet and ESP32 reconnection after a channel switch during a transfer, a

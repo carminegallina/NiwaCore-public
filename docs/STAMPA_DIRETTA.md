@@ -68,7 +68,16 @@ Ogni foglio ha impiegato circa 55 s. La SELPHY ricorda solo l'ultimo lavoro
 (il precedente risponde "not found") e durante la stampa ha chiuso una volta
 una richiesta di stato: le richieste di stato vanno ripetute, non segnalate.
 
-## Implementazione (2026-10-06, non ancora installata)
+## Implementazione (installata il 2026-10-06, commit 83ced7f e d03e7b5)
+
+Installata con 36 test passati nel container; Review ha trovato da solo la
+SELPHY su `10.42.0.102` in 2,2 s e l'ha memorizzata in
+`data/selphy_printer.json`. Per un lavoro dimenticato la CP1500 risponde
+0x0404 ("not possible"): ogni errore 0x04xx chiude il controllo dello stato.
+Ritorno indietro: le copie `.bak-claude-stampa-20261006` di `app/app.py`,
+`app/static/print-editor.js`, `app/static/print-editor.css` e
+`app/test_print_editor.py`, l'immagine `niwa-review-before-stampa-20261006`,
+e togliere `app/test_direct_print.py`.
 
 - `SELPHY_PAGES["P"]["direct"]` con le misure sopra; `selphy_page(...,
   direct=True)` le usa solo per "Stampa".
