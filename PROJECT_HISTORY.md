@@ -559,6 +559,19 @@ existing `_DSC7994`-`_DSC7997` JPG files were migrated with a rollback ledger.
 The verified order became `_DSC7999` 22:48, `_DSC7998` 22:47, then `_DSC7997`
 22:30. Raspberry validation passed 31 Import tests and 28 Review tests.
 
+## Review slideshow, 2026-10-06
+
+At a fair the tablet sits idle between shoots, so it can show the work. A
+"Slideshow" switch in the Review viewer marks a photo; `/slideshow` shows only
+the marked ones, full screen, fitted with black bars whichever way the photo
+and the tablet are turned. The choice lives in its own JSON file rather than
+the XMP sidecar, which the rating code rewrites whole. The page only reads the
+index and the existing viewer images, so the gallery, import and print paths
+are unchanged. A tap moves to the next photo and a swipe goes either way, and
+a "Slideshow" tab in Review gathers the marked photos to take them out in one
+go. The tablet must stay awake on its own: a plain HTTP page cannot hold the
+screen on.
+
 ## Current philosophy
 
 Prioritize:

@@ -1,0 +1,153 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>NIWA Slideshow</title>
+<style>
+html,body{margin:0;height:100%;background:#000;overflow:hidden}
+/* touch-action:none keeps swipes for the slideshow instead of browser panning. */
+body{color:#fff7f0;font-family:system-ui,-apple-system,"Segoe UI",sans-serif;cursor:none;touch-action:none;user-select:none;-webkit-tap-highlight-color:transparent}
+body.controls{cursor:auto}
+/* contain: a vertical photo fills the height of a horizontal screen with black
+   sides, a horizontal photo fills the width of a vertical one. */
+.slide{position:fixed;inset:0;width:100%;height:100%;object-fit:contain;background:#000;opacity:0;transition:opacity 1.5s ease;pointer-events:none}
+.slide.show{opacity:1}
+#message{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;text-align:center;padding:24px;color:#c8afa4;font-size:20px;line-height:1.5}
+#message[hidden]{display:none}
+#controls{position:fixed;top:16px;right:16px;display:flex;gap:10px;opacity:0;transition:opacity .3s;pointer-events:none}
+body.controls #controls{opacity:1;pointer-events:auto}
+#controls button,#controls a{background:rgba(28,20,19,.82);color:#fff7f0;border:1px solid rgba(203,144,124,.4);border-radius:999px;padding:12px 18px;font:inherit;font-size:16px;text-decoration:none;cursor:pointer}
+</style>
+</head>
+<body>
+<img class="slide" alt="">
+<img class="slide" alt="">
+<div id="message" hidden></div>
+<div id="controls">
+<button id="fullscreen" type="button">Schermo intero</button>
+<a href="/">Torna a Review</a>
+</div>
+<script>
+const SLIDE_MS = 7000;      // how long each photo stays on screen
+const FADE_MS = 1500;       // same as the .slide transition
+const REFRESH_MS = 60000;   // how often newly chosen photos are picked up
+const CONTROLS_MS = 5000;
+
+const slides = document.querySelectorAll('.slide');
+const message = document.getElementById('message');
+const fullscreenButton = document.getElementById('fullscreen');
+let items = [];             // chosen photos, newest first
+let queue = [];             // photos chosen since the last refresh, shown next
+let position = -1;
+let shownKey = null;
+let front = 0;
+let stepToken = 0;
+let timer = null;
+
+function keyOf(item){
+    return item.section + '/' + item.id;
+}
+
+async function refresh(){
+    try{
+        const res = await fetch('/api/slideshow', {cache:'no-store'});
+        const next = (await res.json()).items || [];
+        const known = new Set(items.map(keyOf));
+        if(items.length) next.forEach((item)=>{ if(!known.has(keyOf(item))) queue.push(keyOf(item)); });
+        items = next;
+        const index = items.findIndex((item)=>keyOf(item) === shownKey);
+        if(index >= 0) position = index;
+        message.textContent = 'Nessuna foto nello slideshow. In Review apri una foto e tocca "Slideshow".';
+    }catch(e){
+        // Keep showing the current photos while Review is unreachable.
+        message.textContent = 'Review non raggiungibile, nuovo tentativo tra un minuto.';
+    }
+    message.hidden = items.length > 0;
+    if(!items.length){
+        slides.forEach((slide)=>slide.classList.remove('show'));
+        shownKey = null;
+    }
+}
+
+// direction 1 = next, -1 = previous. Going forward, newly chosen photos come first.
+function pick(direction){
+    while(direction > 0 && queue.length){
+        const index = items.findIndex((item)=>keyOf(item) === queue[0]);
+        queue.shift();
+        if(index >= 0){
+            position = index;
+            return items[index];
+        }
+    }
+    if(!items.length) return null;
+    position = (position + direction + items.length) % items.length;
+    return items[position];
+}
+
+async function show(item, token){
+    if(!item || keyOf(item) === shownKey) return;
+    const slide = slides[1 - front];
+    slide.src = item.preview_url;
+    try{
+        await slide.decode();
+    }catch(e){
+        return; // unreadable photo: the next step moves on
+    }
+    if(token !== stepToken) return; // a later tap or swipe took over
+    // The new photo fades in above the old one, which leaves only once covered:
+    // no dark dip halfway and no old photo showing beside a vertical one.
+    const old = slides[front];
+    slide.style.zIndex = 1;
+    old.style.zIndex = 0;
+    slide.classList.add('show');
+    setTimeout(()=>{ if(old !== slides[front]) old.classList.remove('show'); }, FADE_MS);
+    front = 1 - front;
+    shownKey = keyOf(item);
+}
+
+// Every step, automatic or by hand, gives the photo shown its full SLIDE_MS.
+async function step(direction){
+    const token = ++stepToken;
+    clearTimeout(timer);
+    await show(pick(direction), token);
+    if(token === stepToken) timer = setTimeout(()=>step(1), SLIDE_MS);
+}
+
+let hideTimer = null;
+function showControls(){
+    document.body.classList.add('controls');
+    clearTimeout(hideTimer);
+    hideTimer = setTimeout(()=>document.body.classList.remove('controls'), CONTROLS_MS);
+}
+
+if(!document.documentElement.requestFullscreen) fullscreenButton.hidden = true;
+fullscreenButton.addEventListener('click', ()=>{
+    if(document.fullscreenElement) document.exitFullscreen();
+    else document.documentElement.requestFullscreen().catch(()=>{});
+});
+document.addEventListener('fullscreenchange', ()=>{
+    fullscreenButton.textContent = document.fullscreenElement ? 'Esci da schermo intero' : 'Schermo intero';
+});
+// Tap: next photo. Swipe left: next, swipe right: previous, as in the Review viewer.
+let pointerStart = null;
+document.addEventListener('pointerdown', (event)=>{
+    pointerStart = event.target.closest('#controls') ? null : {x:event.clientX, y:event.clientY};
+});
+document.addEventListener('pointerup', (event)=>{
+    if(!pointerStart) return;
+    const dx = event.clientX - pointerStart.x;
+    const dy = event.clientY - pointerStart.y;
+    pointerStart = null;
+    showControls();
+    if(Math.abs(dx) >= 50 && Math.abs(dx) > Math.abs(dy)) step(dx < 0 ? 1 : -1);
+    else if(Math.abs(dx) < 15 && Math.abs(dy) < 15) step(1);
+});
+document.addEventListener('pointercancel', ()=>{ pointerStart = null; });
+
+showControls();
+refresh().then(()=>step(1));
+setInterval(refresh, REFRESH_MS);
+</script>
+</body>
+</html>

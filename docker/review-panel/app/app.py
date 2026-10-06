@@ -39,6 +39,8 @@ STORAGE_ROOT = Path("/storage")
 TRASH_ROOT = STORAGE_ROOT / ".niwa_trash"
 # NIWA Import reads deleted_paths from here so deleted media never come back.
 TRASH_FILE = DATA_ROOT / "review_trash.json"
+# Photos chosen in the viewer for /slideshow, as "section/relative path".
+SLIDESHOW_FILE = DATA_ROOT / "review_slideshow.json"
 # Written by NIWA Import; Review only reads them to show RAWs still arriving.
 BRIDGE_SESSIONS_FILE = DATA_ROOT / "bridge_sessions.json"
 BRIDGE_STAGING_ROOT = Path("/storage/.niwa_bridge_staging")
@@ -51,6 +53,7 @@ PRINT_FRAME_LOCK = threading.Lock()
 EDITOR_PREVIEW_LOCK = threading.Lock()
 INDEX_REBUILD_LOCK = threading.Lock()
 INCOMING_LOCK = threading.Lock()
+SLIDESHOW_LOCK = threading.Lock()
 
 PRINT_PRESETS = {
     "original": {"label": "Originale"},
@@ -695,6 +698,32 @@ def update_index_rating(section, file_id, rating):
 
 def scan_photos():
     return scan_media("photo")
+
+
+def slideshow_key(section, relative):
+    return f"{section}/{Path(relative).as_posix()}"
+
+
+def load_slideshow():
+    try:
+        keys = json.loads(SLIDESHOW_FILE.read_text(encoding="utf-8")).get("items")
+    except (OSError, ValueError, AttributeError):
+        return set()
+    if not isinstance(keys, list):
+        return set()
+    return {key for key in keys if isinstance(key, str)}
+
+
+def set_slideshow(section, relative, selected):
+    # Keys of trashed photos stay here, so a restored photo is back in the show.
+    key = slideshow_key(section, relative)
+    with SLIDESHOW_LOCK:
+        keys = load_slideshow()
+        if selected:
+            keys.add(key)
+        else:
+            keys.discard(key)
+        atomic_write_json(SLIDESHOW_FILE, {"items": sorted(keys)}, indent=2)
 
 
 def load_trash():
@@ -2121,6 +2150,8 @@ body{padding:14px}h1{font-size:26px;margin-bottom:3px}.subtitle{font-size:13px;m
 .modal{background:rgba(5,4,4,.96)}.viewer-meta{position:absolute;left:14px;top:14px;max-width:70%;background:rgba(28,20,19,.76);border-radius:12px;padding:8px 11px;backdrop-filter:blur(8px)}.viewer-name{font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.viewer-meta .photo-counter{position:static;padding:0;background:none;border-radius:0;color:var(--muted);font-size:12px;margin-top:2px}.close-button{right:14px;top:14px;width:42px;height:42px;padding:0;font-size:24px}.viewer-actions{position:absolute;right:14px;bottom:14px;display:flex;gap:7px;align-items:center;flex-wrap:wrap;justify-content:flex-end;max-width:72%}.viewer-actions .overlay-button{position:static;font-size:14px}.card.selected .badges{left:40px}.selection-actions .danger{margin-left:14px}
 .incoming{margin:0 0 12px}.incoming.hidden{display:none}.incoming-title{color:var(--muted);font-size:13px;margin-bottom:6px}.incoming-list{display:flex;gap:8px;overflow-x:auto;padding-bottom:4px}.incoming-card{flex:0 0 160px;position:relative;aspect-ratio:3/2;border-radius:11px;overflow:hidden;border:1px dashed var(--accent);background:#151112;padding:0;color:inherit;font:inherit;text-align:left;cursor:pointer}.incoming-card:disabled{cursor:default}.incoming-card img{width:100%;height:100%;object-fit:cover;display:block}.incoming-wait{display:flex;align-items:center;justify-content:center;height:100%;padding:8px 8px 40px;color:var(--muted);font-size:12px;text-align:center}.incoming-bar{position:absolute;left:0;right:0;bottom:0;height:4px;background:rgba(0,0,0,.45)}.incoming-bar span{display:block;height:100%;background:var(--accent-strong)}
 .modal.incoming-view .viewer-actions,.modal.incoming-view .nav-button,.modal.incoming-view .rating{display:none}
+.topbar-links{display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end}
+.viewer-actions .slideshow-button.active{background:var(--accent-strong);color:#1a1210;font-weight:600}
 @media(max-width:800px){body{padding:10px}.brand-logo{width:40px;height:40px}h1{font-size:22px}.topbar .button{min-height:36px;padding:8px 10px}.toolbar{display:grid;grid-template-columns:1fr}.toolbar-actions{display:grid;grid-template-columns:1fr 1fr}.diagnostics{min-width:0}.modal{padding:5px}.nav-button{width:36px;height:36px;font-size:22px;opacity:.72}.viewer-meta{top:8px;left:8px;max-width:68%}.close-button{top:8px;right:8px}.viewer-actions{left:8px;right:8px;bottom:8px;max-width:none;justify-content:center}.viewer-actions .overlay-button{padding:8px 10px;font-size:12px}.rating{left:8px;bottom:58px}.grid{grid-template-columns:repeat(auto-fill,minmax(145px,1fr));gap:7px}}
 </style>
 </head>
@@ -2133,7 +2164,10 @@ body{padding:14px}h1{font-size:26px;margin-bottom:3px}.subtitle{font-size:13px;m
 <div class="subtitle">Gallery locale per foto, video Nikon e media GoPro dal NAS.</div>
 </div>
 </div>
+<div class="topbar-links">
+<a class="button" href="/slideshow">Avvia slideshow</a>
 <a class="button" id="dashboardLink" href="/">Dashboard</a>
+</div>
 </div>
 
 <div class="tabs">
@@ -2141,6 +2175,7 @@ body{padding:14px}h1{font-size:26px;margin-bottom:3px}.subtitle{font-size:13px;m
 <button class="tab" data-section="video" onclick="setSection('video')">Video</button>
 <button class="tab" data-section="gopro" onclick="setSection('gopro')">GoPro</button>
 <button class="tab" data-section="companion" onclick="setSection('companion')">Companion</button>
+<button class="tab" data-section="slideshow" onclick="setSection('slideshow')">Slideshow</button>
 <button class="tab" id="trashTab" data-section="trash" onclick="setSection('trash')">Cestino</button>
 </div>
 
@@ -2178,6 +2213,7 @@ body{padding:14px}h1{font-size:26px;margin-bottom:3px}.subtitle{font-size:13px;m
 <button class="small-button" data-mode="media" data-needs-selection onclick="downloadSelection()">Scarica</button>
 <button class="small-button" data-mode="trash" data-needs-selection onclick="restoreSelection()">Ripristina selezionati</button>
 <button class="small-button danger" data-mode="media" data-needs-selection onclick="trashSelection()">Elimina</button>
+<button class="small-button" data-mode="slideshow" data-needs-selection onclick="removeSelectionFromSlideshow()">Togli dallo slideshow</button>
 <button class="small-button" data-mode="trash" onclick="restoreAll()">Ripristina tutto</button>
 <button class="small-button danger" data-mode="trash" onclick="emptyTrash()">Svuota cestino</button>
 </div>
@@ -2195,6 +2231,7 @@ body{padding:14px}h1{font-size:26px;margin-bottom:3px}.subtitle{font-size:13px;m
 <button class="overlay-button editor-open-button" id="editorOpenButton" onclick="openPrintEditor(event)" style="display:none">Prepara stampa</button>
 <a class="overlay-button download-button" id="downloadLink" href="#">Scarica originale</a>
 <a class="overlay-button jpg-download-button" id="downloadJpgLink" href="#" style="display:none">Scarica JPG HQ</a>
+<button class="overlay-button slideshow-button" id="slideshowToggle" onclick="toggleSlideshow(event)" aria-pressed="false" style="display:none">Slideshow</button>
 <button class="overlay-button danger delete-button" onclick="trashCurrentPhoto(event)">Elimina</button>
 </div>
 <div class="rating" id="ratingStars" onclick="event.stopPropagation()"></div>
@@ -2303,7 +2340,8 @@ const SECTION_LABELS = {
     photo: 'foto',
     video: 'video',
     gopro: 'media GoPro',
-    companion: 'scatti Companion'
+    companion: 'scatti Companion',
+    slideshow: 'foto dello slideshow'
 };
 
 function setSection(section){
@@ -2439,7 +2477,9 @@ async function loadMedia(reset=true){
     renderLoadMore();
 
     try{
-        let url = `/api/media/${requestSection}?page=${CURRENT_PAGE}&limit=${PAGE_SIZE}`;
+        let url = requestSection === 'slideshow'
+            ? '/api/slideshow'
+            : `/api/media/${requestSection}?page=${CURRENT_PAGE}&limit=${PAGE_SIZE}`;
         if(requestSection === 'gopro'){
             url += `&kind=${encodeURIComponent(requestFilter)}`;
         }
@@ -2640,6 +2680,8 @@ function renderCurrentPhoto(){
     const printable = CURRENT_SECTION === 'photo' && item.kind !== 'video';
     document.querySelector('.modal-inner').classList.toggle('printable', printable);
     document.getElementById('editorOpenButton').style.display = printable ? 'block' : 'none';
+    document.getElementById('slideshowToggle').style.display = item.kind === 'video' ? 'none' : 'block';
+    renderSlideshowButton(item);
     document.getElementById('viewerName').textContent = item.name;
     document.getElementById('photoCounter').textContent = `${CURRENT_INDEX + 1} / ${PHOTOS.length}`;
 
@@ -2716,6 +2758,32 @@ async function setRating(rating, event){
     }
 }
 
+function renderSlideshowButton(item){
+    const button = document.getElementById('slideshowToggle');
+    button.classList.toggle('active', !!item.slideshow);
+    button.setAttribute('aria-pressed', item.slideshow ? 'true' : 'false');
+    button.textContent = item.slideshow ? 'In slideshow' : 'Slideshow';
+}
+
+async function toggleSlideshow(event){
+    event.stopPropagation();
+    const item = PHOTOS[CURRENT_INDEX];
+    if(!item || item.kind === 'video') return;
+    try{
+        const res = await fetch(`/api/slideshow/${item.section}/${item.id}`, {
+            method:'POST',
+            headers:{'Content-Type':'application/json'},
+            body:JSON.stringify({selected:!item.slideshow})
+        });
+        const data = await res.json();
+        if(data.error){ throw new Error(data.error); }
+        item.slideshow = data.selected;
+        if(PHOTOS[CURRENT_INDEX] === item) renderSlideshowButton(item);
+    }catch(e){
+        alert('Errore slideshow: ' + e.message);
+    }
+}
+
 function showPreviousPhoto(event){
     if(event){
         event.stopPropagation();
@@ -2748,6 +2816,10 @@ function closeModal(event){
     }
     document.getElementById('modalVideo').pause();
     document.getElementById('modal').classList.remove('open', 'incoming-view');
+    // Photos taken out in the viewer stay there until it closes, so a slip can be undone.
+    if(CURRENT_SECTION === 'slideshow' && PHOTOS.some((photo)=>!photo.slideshow)){
+        loadMedia(true);
+    }
 }
 
 function incomingCard(item){
@@ -2883,8 +2955,9 @@ function renderSelection(){
     const selectButton = document.getElementById('selectButton');
     selectButton.classList.toggle('hidden', trash);
     selectButton.textContent = SELECTING ? 'Annulla selezione' : 'Seleziona';
+    const mode = trash ? 'trash' : (CURRENT_SECTION === 'slideshow' ? 'slideshow' : 'media');
     document.querySelectorAll('#selectionBar [data-mode]').forEach((button)=>{
-        button.classList.toggle('hidden', button.dataset.mode !== (trash ? 'trash' : 'media'));
+        button.classList.toggle('hidden', button.dataset.mode !== mode);
     });
     document.querySelectorAll('#selectionBar [data-needs-selection]').forEach((button)=>{
         button.disabled = !SELECTED.size;
@@ -2924,6 +2997,8 @@ function clearSelection(){
 async function selectAll(){
     if(inTrash()){
         TRASH_ITEMS.forEach((item)=>SELECTED.set(item.id, item.size || 0));
+    }else if(CURRENT_SECTION === 'slideshow'){
+        PHOTOS.forEach((item)=>SELECTED.set(item.id, item.size || 0));
     }else{
         let url = `/api/media/${CURRENT_SECTION}/selection`;
         if(CURRENT_SECTION === 'gopro'){
@@ -2999,6 +3074,24 @@ async function trashSelection(){
     }catch(e){
         alert('Errore eliminazione: ' + e.message);
     }
+}
+
+async function removeSelectionFromSlideshow(){
+    if(!SELECTED.size){
+        return;
+    }
+    if(SELECTED.size >= PHOTOS.length && !confirm(`Togliere TUTTE le ${SELECTED.size} foto dallo slideshow?`)){
+        return;
+    }
+    try{
+        for(const item of PHOTOS.filter((photo)=>SELECTED.has(photo.id))){
+            await postJson(`/api/slideshow/${item.section}/${item.id}`, {selected:false});
+        }
+    }catch(e){
+        alert('Errore slideshow: ' + e.message);
+    }
+    setSelecting(false);
+    await loadMedia(true);
 }
 
 async function trashCurrentPhoto(event){
@@ -3178,6 +3271,9 @@ def api_media(section):
 
     items = scan_media(section, kind_filter)
     page_items, pagination = apply_pagination(items)
+    slideshow = load_slideshow()
+    for item in page_items:
+        item["slideshow"] = slideshow_key(section, item["relative_path"]) in slideshow
     return jsonify({
         "section": section,
         "label": config["label"],
@@ -3527,6 +3623,45 @@ def set_media_rating(section, file_id):
         "rating": final_rating,
         "xmp": str(xmp_path_for(path)),
     })
+
+
+@app.route("/slideshow")
+def slideshow_page():
+    return app.send_static_file("slideshow.html")
+
+
+@app.route("/api/slideshow")
+def api_slideshow():
+    keys = load_slideshow()
+    items = [
+        {**item, "slideshow": True}
+        for section, payload in get_review_index().get("sections", {}).items()
+        for item in payload.get("items", [])
+        if item.get("kind") != "video"
+        and slideshow_key(section, item["relative_path"]) in keys
+    ]
+    items.sort(key=media_order, reverse=True)
+    # Shaped like /api/media so the Review "Slideshow" tab reuses the gallery.
+    return jsonify({
+        "items": items,
+        "storage_path": str(SLIDESHOW_FILE),
+        "empty_message": "Nessuna foto nello slideshow: apri una foto e tocca Slideshow.",
+    })
+
+
+@app.route("/api/slideshow/<section>/<file_id>", methods=["POST"])
+def api_set_slideshow(section, file_id):
+    config = section_config(section)
+    path, relative = resolve_media(config["root"], file_id)
+    if path.suffix.lower() not in config["extensions"] or media_kind(path) == "video":
+        return jsonify({"error": "Lo slideshow mostra solo foto."}), 400
+
+    selected = bool((request.get_json(silent=True) or {}).get("selected"))
+    try:
+        set_slideshow(section, relative, selected)
+    except OSError as exc:
+        return jsonify({"error": str(exc)}), 500
+    return jsonify({"ok": True, "selected": selected})
 
 
 def requested_ids(payload):

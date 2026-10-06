@@ -370,6 +370,23 @@ Review reliability pass deployed on 2026-10-05:
   `niwa-review-before-selphy-20261005`
 - the no-frame print option exports with the original photo ratio
 
+Review slideshow (written 2026-10-06, not yet deployed):
+- `/slideshow` (button "Avvia slideshow" in the Review top bar) shows only the
+  photos marked with "Slideshow" in the viewer, full screen: vertical and
+  horizontal photos fit the screen with black bars, 7 s each with a 1.5 s
+  cross-fade; photos marked later join within a minute, shown next
+- on the slideshow a tap shows the next photo, a swipe left the next and a
+  swipe right the previous; each tap also shows "Schermo intero" and
+  "Torna a Review" for 5 s
+- the Review "Slideshow" tab lists the marked photos together; its selection
+  bar offers "Togli dallo slideshow" instead of download and delete
+- choices live in `/home/niwa/niwa/data/review_slideshow.json` as
+  `section/relative path`; `GET /api/slideshow` lists them,
+  `POST /api/slideshow/<section>/<id>` with `{"selected": true|false}` sets one
+- videos are refused; trashed photos leave the show and return on restore
+- an HTTP page cannot keep the tablet awake: keep it charging with
+  "Rimani attivo" on in the Android developer options
+
 Review compact lighttable deployed on 2026-10-05 (UI only, same endpoints):
 - captions over thumbnails, index/preview status behind a collapsible summary
 - viewer: name and counter top-left, close button, actions grouped bottom-right
@@ -441,7 +458,8 @@ curl -X POST http://localhost:5052/api/index/rebuild
 curl http://localhost:5052/api/previews/status
 curl http://localhost:5052/api/trash
 curl 'http://localhost:5052/api/media/photo/selection'
-docker exec review-panel python -m unittest test_review_trash
+curl http://localhost:5052/api/slideshow
+docker exec review-panel python -m unittest test_review_trash test_slideshow
 
 ## NIWA Storage
 

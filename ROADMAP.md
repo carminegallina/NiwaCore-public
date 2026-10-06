@@ -45,6 +45,9 @@ Current status:
 - XMP sidecar star ratings for RAW, JPG and video files across photo, video and
   GoPro sections
 - GoPro all/photo/video filter
+- Tablet slideshow at `/slideshow` with only the photos marked "Slideshow" in
+  the viewer, tap and swipe navigation, and a "Slideshow" tab to review and
+  remove them (written 2026-10-06, to deploy and try on the Tab S10)
 
 ### NIWA Storage
 

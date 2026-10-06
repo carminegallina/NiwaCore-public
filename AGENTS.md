@@ -277,7 +277,8 @@ curl 'http://localhost:5052/api/media/photo/selection'
 curl http://localhost:5052/api/incoming
 curl http://localhost:5052/api/print/presets
 curl http://localhost:5052/api/print/frames
-docker exec review-panel python -m unittest test_review_trash test_media_derivatives test_print_editor
+curl http://localhost:5052/api/slideshow
+docker exec review-panel python -m unittest test_review_trash test_media_derivatives test_print_editor test_slideshow
 
 From the PC, with Node: `node test_live_refresh.js` and
 `node test_print_editor_gestures.js` in `docker/review-panel/app`.

@@ -40,6 +40,10 @@
       Import 0.3.1 e Review validati con 31 + 28 test.
 - [ ] Ripetere una prova completa del lettore CFexpress sulla porta USB 3.0 dopo
       il quirk `usb-storage.quirks=174c:1153:u` applicato al bridge SSD ASM1153.
+- [ ] Slideshow di Review sul Tab S10: icona di `/slideshow` sulla schermata
+      Home, tablet in carica con "Rimani attivo" (Opzioni sviluppatore),
+      schermo intero (non provabile nel browser del PC), foto verticali e
+      orizzontali in entrambi i versi, tocco e scorrimento col dito.
 
 ## Stampa SELPHY
 
