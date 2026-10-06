@@ -92,10 +92,21 @@ e togliere `app/test_direct_print.py`.
   lavoro ogni 3 s fino a "Stampata" o all'errore.
 - Test: `test_direct_print.py` con una finta SELPHY IPP.
 
+## Validazione (2026-10-06)
+
+Dal Tab S10: tre stampe vere di `_DSC7991` con cornice P, centrate come con
+l'app, messaggi dell'editor arrivati fino a "Stampata"; nessun download sul
+tablet; `_DSC7991_stampa-P.jpg` accanto all'originale con la data della foto,
+sostituito a ogni nuova stampa. Dopo l'uso la SELPHY e' uscita dalla rete
+(spenta o spegnimento automatico): "Stampa" risponde allora "Stampante non
+trovata su NIWA-AP", e basta riaccenderla.
+
 ## Prossimi passi
 
-1. Installare sul Raspberry e stampare una foto vera con cornice dal tablet.
-2. Tablet: verificare che l'app Canon trovi la SELPHY attraverso `NIWA-AP`.
+1. Riaccesa, la SELPHY deve tornare da sola su `NIWA-AP`; provare anche
+   dopo un cambio di canale dell'hotspot.
+2. Tablet: verificare che l'app Canon trovi la SELPHY attraverso `NIWA-AP`
+   (stampa manuale di riserva alla fiera).
 3. Errori da provare davvero: stampante spenta, carta finita, inchiostro
    finito, stampa annullata (i nomi esatti degli stati della CP1500 vanno
    osservati: `PRINTER_REASONS` in `app.py` traduce quelli standard).

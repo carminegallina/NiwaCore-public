@@ -61,7 +61,11 @@
 - [x] Stampati via IPP i fogli di prova P orizzontale e verticale: misure
       dedicate alla stampa diretta (2026-10-06).
 - [x] Pulsante "Stampa" con stato del lavoro, test con finta SELPHY IPP.
-- [ ] Installarlo e stampare una foto vera con cornice dal tablet.
+- [x] Installato e validato dal tablet: tre stampe vere di una foto con
+      cornice P, centrate come con l'app, messaggi fino a "Stampata"
+      (2026-10-06).
+- [ ] Prima della fiera: verificare che, riaccesa, la SELPHY torni da sola su
+      `NIWA-AP` e che l'app Canon la trovi li' (stampa manuale di riserva).
 - [ ] Provare davvero stampante spenta, carta finita, inchiostro finito.
 
 Piano completo: `docs/STAMPA_DIRETTA.md`.
