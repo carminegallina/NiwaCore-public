@@ -312,6 +312,10 @@ Print editor deployed in Review on the Raspberry on 2026-10-04:
   gallery lists it right beside it; a new export of the same photo and
   format replaces that copy. PNG exports stay only in `exports/print`.
   NIWA Import ignores these copies (it compares camera file names only).
+  Deployed 2026-10-06, commit c0860f9, 33 tests passed in the container;
+  rollback: the `.bak-claude-beside-20261006` copies of `app/app.py`,
+  `app/static/print-editor.js` and `app/test_print_editor.py`, image
+  `niwa-review-before-beside-20261006`.
 - The live Review API and one real Nikon NEF preview/export/download passed.
   The generated P/JPG was verified at 1748 x 1181 px, 300 dpi with ICC/Exif.
 - See `docs/REVIEW_PRINT_EDITOR_ROADMAP.md` for the remaining frame, Tab S10,

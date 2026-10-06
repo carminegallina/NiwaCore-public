@@ -571,7 +571,8 @@ backup, listed in SYSTEM_SNAPSHOT.md):
 Deployed on 2026-10-06 (commit 7bd911d, rollback names in SYSTEM_SNAPSHOT.md):
 Review slideshow at `/slideshow` with a viewer switch and a "Slideshow" tab;
 still to try on the Tab S10. Then (commit abfdd64) the viewer actions moved
-into a round menu button opposite the stars.
+into a round menu button opposite the stars, and (commit c0860f9) every JPG
+print export is also copied beside its photo as `<photo>_stampa-<format>.jpg`.
 
 Still to verify physically before the 2026-10-08 event (docs/TASKS.md):
 tablet and ESP32 reconnection after a channel switch during a transfer, a
