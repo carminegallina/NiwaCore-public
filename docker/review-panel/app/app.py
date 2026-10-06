@@ -2147,12 +2147,19 @@ body{padding:14px}h1{font-size:26px;margin-bottom:3px}.subtitle{font-size:13px;m
 .tabs,.filters{margin:9px 0;gap:7px}.status{font-size:13px;margin:7px 0 9px}.toolbar{display:flex;align-items:flex-start;gap:8px;margin:8px 0 12px;flex-wrap:wrap}.toolbar-actions{order:0}.diagnostics{order:1;flex:1;min-width:240px}.diagnostics summary{cursor:pointer;color:var(--muted);font-size:13px;padding:11px 12px;border:1px solid var(--line);border-radius:10px;background:rgba(42,31,29,.82)}.diagnostics[open] summary{margin-bottom:8px}
 .grid{grid-template-columns:repeat(auto-fill,minmax(155px,1fr));gap:8px}.card{aspect-ratio:3/2;border-radius:11px;box-shadow:0 10px 24px rgba(0,0,0,.2)}.thumb{height:100%;aspect-ratio:auto}.info{position:absolute;inset:auto 0 0;padding:28px 9px 8px;background:linear-gradient(transparent,rgba(10,8,8,.94))}.name{font-size:13px;text-shadow:0 1px 3px #000}.meta{color:#eadbd4;font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.badges{position:absolute;top:8px;left:8px;max-width:calc(100% - 16px);display:flex;gap:4px;flex-wrap:wrap;pointer-events:none}.badge{margin:0;background:rgba(28,20,19,.78);backdrop-filter:blur(6px)}.badge.same-name{background:rgba(120,72,24,.9);border-color:rgba(250,204,21,.45);color:#fde68a}.card-stars{color:#facc15;font-size:12px;letter-spacing:1px;line-height:1;margin-bottom:3px;text-shadow:0 1px 3px #000}
 .trash-card{aspect-ratio:auto}.trash-card .thumb{height:auto;aspect-ratio:3/2}.trash-card .info{position:relative;padding:9px;background:none}
-.modal{background:rgba(5,4,4,.96)}.viewer-meta{position:absolute;left:14px;top:14px;max-width:70%;background:rgba(28,20,19,.76);border-radius:12px;padding:8px 11px;backdrop-filter:blur(8px)}.viewer-name{font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.viewer-meta .photo-counter{position:static;padding:0;background:none;border-radius:0;color:var(--muted);font-size:12px;margin-top:2px}.close-button{right:14px;top:14px;width:42px;height:42px;padding:0;font-size:24px}.viewer-actions{position:absolute;right:14px;bottom:14px;display:flex;gap:7px;align-items:center;flex-wrap:wrap;justify-content:flex-end;max-width:72%}.viewer-actions .overlay-button{position:static;font-size:14px}.card.selected .badges{left:40px}.selection-actions .danger{margin-left:14px}
+.modal{background:rgba(5,4,4,.96)}.viewer-meta{position:absolute;left:14px;top:14px;max-width:70%;background:rgba(28,20,19,.76);border-radius:12px;padding:8px 11px;backdrop-filter:blur(8px)}.viewer-name{font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.viewer-meta .photo-counter{position:static;padding:0;background:none;border-radius:0;color:var(--muted);font-size:12px;margin-top:2px}.close-button{right:14px;top:14px;width:42px;height:42px;padding:0;font-size:24px}.viewer-actions{position:absolute;right:14px;bottom:14px;display:flex;flex-direction:column;gap:8px;align-items:flex-end}.viewer-actions .overlay-button{position:static;font-size:14px}.card.selected .badges{left:40px}.selection-actions .danger{margin-left:14px}
 .incoming{margin:0 0 12px}.incoming.hidden{display:none}.incoming-title{color:var(--muted);font-size:13px;margin-bottom:6px}.incoming-list{display:flex;gap:8px;overflow-x:auto;padding-bottom:4px}.incoming-card{flex:0 0 160px;position:relative;aspect-ratio:3/2;border-radius:11px;overflow:hidden;border:1px dashed var(--accent);background:#151112;padding:0;color:inherit;font:inherit;text-align:left;cursor:pointer}.incoming-card:disabled{cursor:default}.incoming-card img{width:100%;height:100%;object-fit:cover;display:block}.incoming-wait{display:flex;align-items:center;justify-content:center;height:100%;padding:8px 8px 40px;color:var(--muted);font-size:12px;text-align:center}.incoming-bar{position:absolute;left:0;right:0;bottom:0;height:4px;background:rgba(0,0,0,.45)}.incoming-bar span{display:block;height:100%;background:var(--accent-strong)}
 .modal.incoming-view .viewer-actions,.modal.incoming-view .nav-button,.modal.incoming-view .rating{display:none}
 .topbar-links{display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end}
 .viewer-actions .slideshow-button.active{background:var(--accent-strong);color:#1a1210;font-weight:600}
-@media(max-width:800px){body{padding:10px}.brand-logo{width:40px;height:40px}h1{font-size:22px}.topbar .button{min-height:36px;padding:8px 10px}.toolbar{display:grid;grid-template-columns:1fr}.toolbar-actions{display:grid;grid-template-columns:1fr 1fr}.diagnostics{min-width:0}.modal{padding:5px}.nav-button{width:36px;height:36px;font-size:22px;opacity:.72}.viewer-meta{top:8px;left:8px;max-width:68%}.close-button{top:8px;right:8px}.viewer-actions{left:8px;right:8px;bottom:8px;max-width:none;justify-content:center}.viewer-actions .overlay-button{padding:8px 10px;font-size:12px}.rating{left:8px;bottom:58px}.grid{grid-template-columns:repeat(auto-fill,minmax(145px,1fr));gap:7px}}
+/* Viewer actions sit in a menu opposite the stars, so they never crowd them. */
+.viewer-menu{display:none;flex-direction:column;gap:6px;min-width:200px;padding:8px;border-radius:16px;background:rgba(28,20,19,.94);border:1px solid var(--line);box-shadow:0 12px 30px rgba(0,0,0,.45)}
+.viewer-actions.menu-open .viewer-menu{display:flex}
+.viewer-menu .overlay-button{border-radius:10px;padding:12px 14px;text-align:left;font-size:15px}
+.viewer-menu .danger{margin-top:6px}
+.viewer-actions .overlay-button.menu-button{width:48px;height:48px;padding:0;border-radius:50%;font-size:22px;line-height:1;display:flex;align-items:center;justify-content:center}
+.viewer-actions.menu-open .menu-button{background:var(--accent-strong);color:#1a1210}
+@media(max-width:800px){body{padding:10px}.brand-logo{width:40px;height:40px}h1{font-size:22px}.topbar .button{min-height:36px;padding:8px 10px}.toolbar{display:grid;grid-template-columns:1fr}.toolbar-actions{display:grid;grid-template-columns:1fr 1fr}.diagnostics{min-width:0}.modal{padding:5px}.nav-button{width:36px;height:36px;font-size:22px;opacity:.72}.viewer-meta{top:8px;left:8px;max-width:68%}.close-button{top:8px;right:8px}.viewer-actions{right:8px;bottom:8px}.rating{left:8px;bottom:8px}.grid{grid-template-columns:repeat(auto-fill,minmax(145px,1fr));gap:7px}}
 </style>
 </head>
 <body>
@@ -2227,12 +2234,15 @@ body{padding:14px}h1{font-size:26px;margin-bottom:3px}.subtitle{font-size:13px;m
 <img id="modalImage" alt="" onclick="event.stopPropagation()">
 <video id="modalVideo" controls playsinline onclick="event.stopPropagation()"></video>
 <button class="overlay-button nav-button nav-next" onclick="showNextPhoto(event)">&rsaquo;</button>
-<div class="viewer-actions" onclick="event.stopPropagation()">
+<div class="viewer-actions" id="viewerActions" onclick="event.stopPropagation()">
+<div class="viewer-menu" id="viewerMenu">
 <button class="overlay-button editor-open-button" id="editorOpenButton" onclick="openPrintEditor(event)" style="display:none">Prepara stampa</button>
-<a class="overlay-button download-button" id="downloadLink" href="#">Scarica originale</a>
-<a class="overlay-button jpg-download-button" id="downloadJpgLink" href="#" style="display:none">Scarica JPG HQ</a>
+<a class="overlay-button download-button" id="downloadLink" href="#" onclick="closeViewerMenu()">Scarica originale</a>
+<a class="overlay-button jpg-download-button" id="downloadJpgLink" href="#" onclick="closeViewerMenu()" style="display:none">Scarica JPG HQ</a>
 <button class="overlay-button slideshow-button" id="slideshowToggle" onclick="toggleSlideshow(event)" aria-pressed="false" style="display:none">Slideshow</button>
 <button class="overlay-button danger delete-button" onclick="trashCurrentPhoto(event)">Elimina</button>
+</div>
+<button class="overlay-button menu-button" id="viewerMenuButton" onclick="toggleViewerMenu()" aria-label="Azioni sulla foto" aria-expanded="false" aria-controls="viewerMenu">&#9776;</button>
 </div>
 <div class="rating" id="ratingStars" onclick="event.stopPropagation()"></div>
 </div>
@@ -2648,11 +2658,21 @@ function openPhoto(id){
     document.getElementById('modal').classList.add('open');
 }
 
+function toggleViewerMenu(open){
+    const isOpen = document.getElementById('viewerActions').classList.toggle('menu-open', open);
+    document.getElementById('viewerMenuButton').setAttribute('aria-expanded', isOpen ? 'true' : 'false');
+}
+
+function closeViewerMenu(){
+    toggleViewerMenu(false);
+}
+
 function renderCurrentPhoto(){
     const item = PHOTOS[CURRENT_INDEX];
     if(!item){
         return;
     }
+    closeViewerMenu();
     document.getElementById('modal').classList.remove('incoming-view');
 
     const image = document.getElementById('modalImage');
@@ -2710,6 +2730,7 @@ function prefetchNeighbours(){
 
 function openPrintEditor(event){
     event.stopPropagation();
+    closeViewerMenu();
     const item = PHOTOS[CURRENT_INDEX];
     if(!item || CURRENT_SECTION !== 'photo' || item.kind === 'video') return;
     document.getElementById('modal').classList.remove('open');
@@ -2811,6 +2832,12 @@ function showNextPhoto(event){
 }
 
 function closeModal(event){
+    // A tap beside the photo first folds the action menu.
+    if(event && document.getElementById('viewerActions').classList.contains('menu-open')){
+        closeViewerMenu();
+        return;
+    }
+    closeViewerMenu();
     if(event && event.target.id !== 'modal' && !event.target.classList.contains('modal-inner')){
         return;
     }

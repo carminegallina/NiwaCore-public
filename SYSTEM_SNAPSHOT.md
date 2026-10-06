@@ -392,7 +392,10 @@ and `app/test_slideshow.py`):
 
 Review compact lighttable deployed on 2026-10-05 (UI only, same endpoints):
 - captions over thumbnails, index/preview status behind a collapsible summary
-- viewer: name and counter top-left, close button, actions grouped bottom-right
+- viewer: name and counter top-left, close button, stars bottom-left; since
+  2026-10-06 the actions (Prepara stampa, Scarica, Scarica JPG HQ, Slideshow,
+  Elimina) open from a round menu button bottom-right, so they never cover
+  the stars; a tap beside the photo folds the menu first
 - rollback: `app/app.py.bak-claude-lighttable-20261005` and Docker image
   `niwa-review-before-lighttable-20261005`
 

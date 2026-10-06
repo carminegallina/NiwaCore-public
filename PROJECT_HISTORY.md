@@ -571,6 +571,8 @@ are unchanged. A tap moves to the next photo and a swipe goes either way, and
 a "Slideshow" tab in Review gathers the marked photos to take them out in one
 go. The tablet must stay awake on its own: a plain HTTP page cannot hold the
 screen on.
+Five actions in a row then crowded the viewer stars on the tablet, so the
+viewer actions moved into a round menu button opposite the stars.
 
 ## Current philosophy
 
