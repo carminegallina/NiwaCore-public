@@ -307,6 +307,11 @@ Print editor deployed in Review on the Raspberry on 2026-10-04:
 - Editor previews: `/mnt/niwa-storage/.niwa_cache/review_editor`
 - Uploaded PNG frames and thumbnails: `/mnt/niwa-storage/.niwa_frames`
 - Final JPG/PNG exports: `/mnt/niwa-storage/exports/print/<collection>`
+  (every version). Since 2026-10-06 a JPG export is also copied beside its
+  photo as `<photo name>_stampa-<format>.jpg`, with the photo's time so the
+  gallery lists it right beside it; a new export of the same photo and
+  format replaces that copy. PNG exports stay only in `exports/print`.
+  NIWA Import ignores these copies (it compares camera file names only).
 - The live Review API and one real Nikon NEF preview/export/download passed.
   The generated P/JPG was verified at 1748 x 1181 px, 300 dpi with ICC/Exif.
 - See `docs/REVIEW_PRINT_EDITOR_ROADMAP.md` for the remaining frame, Tab S10,

@@ -573,6 +573,12 @@ go. The tablet must stay awake on its own: a plain HTTP page cannot hold the
 screen on.
 Five actions in a row then crowded the viewer stars on the tablet, so the
 viewer actions moved into a round menu button opposite the stars.
+A JPG export from the print editor is now also copied beside its photo,
+named `_stampa-<format>` and dated like the photo, so Review lists the
+framed version right next to the original; `exports/print` keeps every
+version. The export wakes the index worker instead of rebuilding the index
+itself, because the print tests do not redirect the index and would
+otherwise overwrite the live one when run inside the container.
 
 ## Current philosophy
 

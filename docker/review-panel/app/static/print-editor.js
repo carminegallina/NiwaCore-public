@@ -704,7 +704,9 @@
             $('printExportResult').hidden = false;
             status(changedDuringExport
                 ? 'Download avviato con le impostazioni precedenti. Esporta di nuovo le ultime modifiche.'
-                : `Salvata: ${result.name} · ${result.width} × ${result.height} px. Download avviato.`);
+                : `Salvata: ${result.name} · ${result.width} × ${result.height} px`
+                  + (result.beside_original ? `, copia accanto all'originale: ${result.beside_original}` : '')
+                  + '. Download avviato.');
         } catch (error) {
             if (state.openToken === token) status(error.message, true);
         } finally {

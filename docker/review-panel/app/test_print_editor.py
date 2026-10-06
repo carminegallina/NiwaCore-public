@@ -103,6 +103,29 @@ class PrintEditorTests(unittest.TestCase):
             download.close()
         self.assertEqual(self.source.read_bytes(), self.original_bytes)
 
+    def test_jpg_export_is_kept_beside_the_photo(self):
+        payload = {"id": media_id("TEST.JPG"), "preset": "P",
+                   "orientation": "landscape", "file_type": "jpg"}
+        beside = self.photo_root / "TEST_stampa-P.jpg"
+        first = self.client.post("/api/print/export", json=payload).get_json()
+        self.assertEqual(first["beside_original"], beside.name)
+        download = self.client.get(first["download_url"])
+        self.assertEqual(beside.read_bytes(), download.data)
+        download.close()
+        self.assertEqual(beside.stat().st_mtime_ns, self.source.stat().st_mtime_ns,
+                         "the gallery lists it beside the photo")
+
+        second = self.client.post("/api/print/export", json={**payload, "exposure": 1}).get_json()
+        self.assertEqual(second["beside_original"], beside.name)
+        download = self.client.get(second["download_url"])
+        self.assertEqual(beside.read_bytes(), download.data, "the latest export wins")
+        download.close()
+        png = self.client.post("/api/print/export", json={**payload, "file_type": "png"}).get_json()
+        self.assertIsNone(png["beside_original"])
+        self.assertEqual(sorted(path.name for path in self.photo_root.iterdir()),
+                         ["TEST.JPG", "TEST_stampa-P.jpg"])
+        self.assertEqual(self.source.read_bytes(), self.original_bytes)
+
     def test_export_rejects_mismatch_and_uncovered_photo(self):
         frame = self.upload().get_json()
         base = {"id": media_id("TEST.JPG"), "preset": "P", "orientation": "landscape"}

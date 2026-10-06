@@ -138,6 +138,8 @@ WORKER_STATE = {
 }
 
 INDEX_LOCK = threading.Lock()
+# Set to make the index worker rebuild now instead of at its next interval.
+INDEX_WAKE = threading.Event()
 INDEX_STATE = {
     "running": False,
     "last_scan": None,
@@ -660,7 +662,8 @@ def index_worker_loop():
         except Exception:
             pass
 
-        time.sleep(INDEX_SCAN_INTERVAL_SECONDS)
+        INDEX_WAKE.wait(INDEX_SCAN_INTERVAL_SECONDS)
+        INDEX_WAKE.clear()
 
 
 def scan_media(section, kind_filter="all", use_index=True):
@@ -1463,7 +1466,36 @@ def render_print_export(path, relative, payload):
         "width": photo.width,
         "height": photo.height,
         "download_url": f"/api/print/exports/{export_id}",
+        # Review lists JPG, not PNG: only a JPG gets a copy beside its photo.
+        "beside_original": keep_beside_original(output, path, preset) if file_type == "jpg" else None,
     }
+
+
+def keep_beside_original(export, original, preset):
+    """Copy a JPG export next to its photo, so Review shows it beside it.
+
+    One copy per photo and format: a new export replaces the previous one,
+    while exports/print keeps every version. A failure here never fails the
+    export the tablet is downloading. NIWA Import ignores these files: it
+    only compares camera file names, and no camera writes "_stampa-".
+    """
+    target = original.with_name(f"{original.stem}_stampa-{preset.replace(':', '-')}.jpg")
+    temporary = original.with_name(f".{uuid.uuid4().hex}.tmp")
+    try:
+        shutil.copyfile(export, temporary)
+        # The photo's own time puts the copy right beside it in the gallery.
+        # ponytail: a re-export with exactly the same byte size would keep the
+        # old cached thumbnail, since the cache key is path, time and size.
+        stat = original.stat()
+        os.utime(temporary, ns=(stat.st_atime_ns, stat.st_mtime_ns))
+        os.replace(temporary, target)
+    except OSError:
+        app.logger.exception("Cannot keep the print export beside %s", original)
+        return None
+    finally:
+        temporary.unlink(missing_ok=True)
+    INDEX_WAKE.set()
+    return target.name
 
 
 def video_thumb_path_for(section, path, relative):
@@ -3275,7 +3307,7 @@ document.addEventListener('visibilitychange', ()=>{
     if(document.visibilityState === 'visible') refreshLivePhotos();
 });
 </script>
-<script src="/static/print-editor.js?v=10"></script>
+<script src="/static/print-editor.js?v=11"></script>
 </body>
 </html>
 """
