@@ -13,7 +13,7 @@
         offsetX: 0, offsetY: 0, rotation: 0,
         pointers: new Map(), gesture: null, updateQueued: false, loadingFrame: false,
         frameError: false, frameThumbs: [],
-        exporting: false, openToken: 0, revision: 0,
+        exporting: false, printing: false, openToken: 0, revision: 0,
     };
 
     const savedFrameKey = 'niwaPrintFrameId';
@@ -49,6 +49,9 @@
         $('printExport').textContent = `Esporta ${file}`;
         $('printExport').disabled = !state.basePixels || state.loadingFrame || state.frameError
             || state.exporting || !state.item;
+        // Direct printing is measured for P only; one print at a time.
+        $('printDirect').disabled = $('printExport').disabled || state.printing || state.preset !== 'P';
+        $('printDirect').title = state.preset === 'P' ? '' : 'Stampa diretta per ora solo nel formato P';
     }
 
     function status(message, error = false) {
@@ -567,6 +570,7 @@
         state.loadingFrame = false;
         state.frameError = false;
         state.exporting = false;
+        state.printing = false;
         state.adjusted.width = 0;
         state.exposure = state.shadows = state.highlights = 0;
         state.contrast = state.temperature = state.tint = 0;
@@ -637,6 +641,7 @@
         state.item = null;
         state.loadingFrame = false;
         state.exporting = false;
+        state.printing = false;
         state.pointers.clear();
         state.gesture = null;
         $('modal').classList.add('open');
@@ -663,6 +668,71 @@
         }
     }
 
+    function exportPayload(fileType) {
+        return {
+            id: state.item.id, preset: state.preset,
+            orientation: state.orientation,
+            file_type: fileType,
+            frame_id: state.frame?.id || null,
+            exposure: state.exposure, shadows: state.shadows,
+            highlights: state.highlights, contrast: state.contrast,
+            temperature: state.temperature, tint: state.tint,
+            vibrance: state.vibrance, saturation: state.saturation,
+            luminance_noise: state.luminanceNoise, zoom: state.zoom,
+            offset_x: state.offsetX, offset_y: state.offsetY,
+            rotation: state.rotation,
+        };
+    }
+
+    // Stampa: the same picture as Esporta, saved in Review, sent to the SELPHY
+    // instead of downloaded; then the job is followed until it ends.
+    async function printPhoto() {
+        if (!state.item || !state.basePixels || state.loadingFrame || state.exporting || state.printing) return;
+        const token = state.openToken;
+        state.exporting = true;
+        state.printing = true;
+        updateExportUi();
+        status('Preparazione della stampa sul Raspberry...');
+        try {
+            const result = await jsonResponse(await fetch('/api/print/print', {
+                method: 'POST', headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify(exportPayload('jpg')),
+            }));
+            if (state.openToken !== token) return;
+            state.exporting = false;
+            updateExportUi();
+            const saved = result.beside_original
+                ? ` Salvata accanto all'originale: ${result.beside_original}.` : '';
+            status(`Inviata alla stampante.${saved}`);
+            await followPrint(result.job_id, token, saved);
+        } catch (error) {
+            if (state.openToken === token) status(error.message, true);
+        } finally {
+            if (state.openToken === token) {
+                state.exporting = false;
+                state.printing = false;
+                updateExportUi();
+            }
+        }
+    }
+
+    async function followPrint(jobId, token, saved) {
+        if (jobId == null) return;
+        const until = Date.now() + 5 * 60 * 1000;
+        while (Date.now() < until && state.openToken === token) {
+            await new Promise((resolve) => setTimeout(resolve, 3000));
+            let report;
+            try {
+                report = await jsonResponse(await fetch(`/api/print/jobs/${jobId}`, {cache: 'no-store'}));
+            } catch (_) {
+                continue; // a missed status poll is retried, not reported
+            }
+            if (state.openToken !== token) return;
+            status(report.message + (report.done ? saved : ''), report.done && report.ok === false);
+            if (report.done) return;
+        }
+    }
+
     async function exportPhoto() {
         if (!state.item || !state.basePixels || state.loadingFrame || state.exporting) return;
         const token = state.openToken;
@@ -676,19 +746,7 @@
         try {
             const result = await jsonResponse(await fetch('/api/print/export', {
                 method: 'POST', headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({
-                    id: state.item.id, preset: state.preset,
-                    orientation: state.orientation,
-                    file_type: $('printFileType').value,
-                    frame_id: state.frame?.id || null,
-                    exposure: state.exposure, shadows: state.shadows,
-                    highlights: state.highlights, contrast: state.contrast,
-                    temperature: state.temperature, tint: state.tint,
-                    vibrance: state.vibrance, saturation: state.saturation,
-                    luminance_noise: state.luminanceNoise, zoom: state.zoom,
-                    offset_x: state.offsetX, offset_y: state.offsetY,
-                    rotation: state.rotation,
-                }),
+                body: JSON.stringify(exportPayload($('printFileType').value)),
             }));
             if (state.openToken !== token || state.item !== item) return;
             const link = document.createElement('a');
@@ -779,6 +837,7 @@
     $('printEditorClose').addEventListener('click', close);
     $('printResetPosition').addEventListener('click', resetPosition);
     $('printExport').addEventListener('click', exportPhoto);
+    $('printDirect').addEventListener('click', printPhoto);
     $('printFrameUpload').addEventListener('submit', uploadFrame);
     $('printCollectionFilter').addEventListener('change', renderGallery);
     // A vertical mouse wheel scrolls the carousel sideways, then hands back to the page.

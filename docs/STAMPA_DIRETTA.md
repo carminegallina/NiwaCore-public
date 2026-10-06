@@ -51,16 +51,45 @@ Lo stesso limite varra' per NIWA Lights quando comandera' ESP32 reali.
   porta 5052 e avviso di NIWA Import invariati). Scartato un servizio di
   inoltro sul Raspberry, che avrebbe richiesto `sudo` e un pezzo in piu'.
 
+## Calibrazione (2026-10-06)
+
+I due fogli di prova P, inviati via IPP senza bordo con `print-scaling`
+fill e senza orientamento forzato, sono usciti dritti e con gli stessi
+colori dell'app. La cartolina cade un po' piu' all'interno che con l'app:
+
+| mm dai bordi | Sinistra | Destra | Alto | Basso |
+|---|---|---|---|---|
+| Orizzontale, app | 3,5 | 5,0 | 2,5 | 2,2 |
+| Orizzontale, diretta | 4,5 | 6,0 | 3,0 | 2,2 |
+| Verticale, app | 1,5 | 2,3 | 3,5 | 5,0 |
+| Verticale, diretta | 2,0 | 3,0 | 4,5 | 6,1 |
+
+Ogni foglio ha impiegato circa 55 s. La SELPHY ricorda solo l'ultimo lavoro
+(il precedente risponde "not found") e durante la stampa ha chiuso una volta
+una richiesta di stato: le richieste di stato vanno ripetute, non segnalate.
+
+## Implementazione (2026-10-06, non ancora installata)
+
+- `SELPHY_PAGES["P"]["direct"]` con le misure sopra; `selphy_page(...,
+  direct=True)` le usa solo per "Stampa".
+- `POST /api/print/print`: stesso payload di Esporta, solo P; cerca la
+  stampante (`data/selphy_printer.json`, altrimenti scansione di NIWA-AP),
+  esporta il JPG come Esporta (anche la copia accanto all'originale) e lo
+  invia con Print-Job. Se la stampante non risponde fallisce subito, senza
+  salvare nulla.
+- `GET /api/print/jobs/<id>`: stato del lavoro e problemi della stampante in
+  italiano (carta finita, inchiostro finito, carta inceppata...).
+- Editor: pulsante "Stampa" accanto a "Esporta", attivo solo per P; segue il
+  lavoro ogni 3 s fino a "Stampata" o all'errore.
+- Test: `test_direct_print.py` con una finta SELPHY IPP.
+
 ## Prossimi passi
 
-1. Tablet: verificare che l'app Canon trovi la SELPHY attraverso `NIWA-AP`.
-2. Calibrazione: stampare via IPP il foglio di prova P
-   (`/mnt/niwa-storage/exports/NIWA-prova-SELPHY-P.jpg`) senza bordo e
-   confrontarlo con le misure ottenute con l'app (3,5 / 5 / 2,5 / 2,2 mm,
-   vedi `docs/CORNICI_SELPHY.md`); provare `print-scaling` fill e none.
-3. Implementazione con test contro un finto server IPP, poi prova reale.
-4. Errori da provare davvero: stampante spenta, carta finita, inchiostro
-   finito, stampa annullata.
+1. Installare sul Raspberry e stampare una foto vera con cornice dal tablet.
+2. Tablet: verificare che l'app Canon trovi la SELPHY attraverso `NIWA-AP`.
+3. Errori da provare davvero: stampante spenta, carta finita, inchiostro
+   finito, stampa annullata (i nomi esatti degli stati della CP1500 vanno
+   osservati: `PRINTER_REASONS` in `app.py` traduce quelli standard).
 
 ## Tornare indietro
 

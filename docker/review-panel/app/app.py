@@ -1,8 +1,10 @@
+from concurrent.futures import ThreadPoolExecutor
 from flask import Flask, Response, abort, jsonify, request, send_file
 from pathlib import Path
 import base64
 import hashlib
 import html
+import http.client
 import io
 import json
 import math
@@ -10,9 +12,12 @@ import mimetypes
 import os
 import re
 import shutil
+import socket
+import struct
 import subprocess
 import threading
 import time
+import urllib.request
 import uuid
 import xml.etree.ElementTree as ET
 import zipfile
@@ -1353,11 +1358,18 @@ SELPHY_PAGES = {
         "landscape": {"left": 3.5, "right": 5.0, "top": 2.5, "bottom": 2.2},
         # Own test sheet: the app turns portraits so their top lands on the left.
         "portrait": {"left": 1.5, "right": 2.3, "top": 3.5, "bottom": 5.0},
+        # Straight to the printer over IPP ("Stampa", borderless, fill) it
+        # enlarges a little less than through the app: the same test sheets,
+        # measured 2026-10-06 (docs/STAMPA_DIRETTA.md).
+        "direct": {
+            "landscape": {"left": 4.5, "right": 6.0, "top": 3.0, "bottom": 2.2},
+            "portrait": {"left": 2.0, "right": 3.0, "top": 4.5, "bottom": 6.1},
+        },
     },
 }
 
 
-def selphy_page(card, preset, orientation):
+def selphy_page(card, preset, orientation, direct=False):
     """The card on the printer's whole page, where the SELPHY really prints it.
     Around it, torn off or off the paper, the card's edges simply continue."""
     import numpy as np
@@ -1367,7 +1379,8 @@ def selphy_page(card, preset, orientation):
     if not layout:
         return card
     page_w, page_h = layout["page"] if orientation == "landscape" else layout["page"][::-1]
-    margin = {side: mm * 300 / 25.4 for side, mm in layout[orientation].items()}
+    measured = (layout["direct"] if direct else layout)[orientation]
+    margin = {side: mm * 300 / 25.4 for side, mm in measured.items()}
     area_w = page_w - margin["left"] - margin["right"]
     area_h = page_h - margin["top"] - margin["bottom"]
     scale = max(area_w / card.width, area_h / card.height)
@@ -1381,7 +1394,8 @@ def selphy_page(card, preset, orientation):
     return Image.fromarray(np.pad(pixels, pad, mode="edge"))
 
 
-def render_print_export(path, relative, payload):
+def render_print_export(path, relative, payload, direct=False):
+    """Returns the exported file and what the editor is told about it."""
     from PIL import Image, ImageChops, ImageCms
 
     preset = str(payload.get("preset", "P"))
@@ -1434,7 +1448,7 @@ def render_print_export(path, relative, payload):
     photo = reduce_luminance_noise(photo, luminance_noise)
     if frame:
         photo.paste(frame, (0, 0), frame)
-    photo = selphy_page(photo, preset, orientation)
+    photo = selphy_page(photo, preset, orientation, direct)
 
     collection = (frame_info or {}).get("collection", "Generiche")
     folder_name = re.sub(r"[^a-zA-Z0-9_-]+", "-", collection).strip("-")[:48] or "Generiche"
@@ -1460,7 +1474,7 @@ def render_print_export(path, relative, payload):
     finally:
         temporary.unlink(missing_ok=True)
     export_id = base64.urlsafe_b64encode(str(output.relative_to(PRINT_EXPORT_ROOT)).replace("\\", "/").encode()).decode().rstrip("=")
-    return {
+    return output, {
         "name": filename,
         "size": output.stat().st_size,
         "width": photo.width,
@@ -1496,6 +1510,195 @@ def keep_beside_original(export, original, preset):
         temporary.unlink(missing_ok=True)
     INDEX_WAKE.set()
     return target.name
+
+
+# Direct printing ("Stampa"): the SELPHY CP1500 joins NIWA-AP as a client and
+# takes a JPEG over IPP, so no CUPS. See docs/STAMPA_DIRETTA.md.
+PRINTER_FILE = DATA_ROOT / "selphy_printer.json"
+PRINTER_PORT = 631
+PRINTER_SUBNET = "10.42.0"  # NIWA-AP, where the printer gets its address
+PRINTER_LOCK = threading.Lock()
+IPP_MEDIA_SIZES = {"P": (10000, 14800)}  # 1/100 mm
+# urllib reports network trouble as OSError; a truncated reply surfaces as
+# http.client or struct errors.
+IPP_ERRORS = (OSError, ValueError, IndexError, struct.error, http.client.HTTPException)
+IPP_STATUS_MESSAGES = {
+    0x0506: "La stampante non accetta stampe in questo momento.",
+    0x0507: "Stampante occupata: aspetta che finisca e riprova.",
+}
+IPP_JOB_STATES = {
+    3: "In coda sulla stampante", 4: "Trattenuta dalla stampante", 5: "In stampa",
+    6: "Stampa ferma", 7: "Stampa annullata", 8: "Stampa interrotta", 9: "Stampata",
+}
+PRINTER_REASONS = {
+    "media-empty": "carta finita", "media-needed": "manca la carta",
+    "media-jam": "carta inceppata", "marker-supply-empty": "inchiostro finito",
+    "marker-supply-low": "inchiostro quasi finito", "door-open": "sportello aperto",
+    "cover-open": "sportello aperto", "input-tray-missing": "manca il cassetto carta",
+    "paused": "stampante in pausa", "offline": "stampante non in linea",
+}
+
+
+def ipp_attribute(tag, name, value):
+    name = name.encode()
+    value = value if isinstance(value, bytes) else value.encode()
+    return struct.pack(">BH", tag, len(name)) + name + struct.pack(">H", len(value)) + value
+
+
+def ipp_integer(name, value):
+    return ipp_attribute(0x21, name, struct.pack(">i", value))
+
+
+def ipp_media_col(size):
+    """Borderless media: zero margins, the printer bleeds past the card."""
+    def member(name, value):
+        return ipp_attribute(0x4A, "", name) + value
+
+    body = ipp_attribute(0x34, "media-col", b"")
+    body += member("media-size", ipp_attribute(0x34, "", b""))
+    body += member("x-dimension", ipp_integer("", size[0]))
+    body += member("y-dimension", ipp_integer("", size[1]))
+    body += ipp_attribute(0x37, "", b"")
+    for side in ("bottom", "left", "right", "top"):
+        body += member(f"media-{side}-margin", ipp_integer("", 0))
+    body += member("media-source", ipp_attribute(0x44, "", "photo"))
+    body += member("media-type", ipp_attribute(0x44, "", "photographic"))
+    return body + ipp_attribute(0x37, "", b"")
+
+
+def ipp_value(tag, raw):
+    if tag in (0x21, 0x23) and len(raw) == 4:
+        return struct.unpack(">i", raw)[0]
+    if tag == 0x22 and len(raw) == 1:
+        return bool(raw[0])
+    if tag in (0x35, 0x36, 0x41, 0x42, 0x44, 0x45, 0x46, 0x47, 0x48, 0x49):
+        return raw.decode("utf-8", "replace")
+    return raw.hex()
+
+
+def ipp_parse(data):
+    """(status code, {name: [values]}) of an IPP message; collections become dicts."""
+    status = struct.unpack(">H", data[2:4])[0]
+    attributes = {}
+    stack = []          # open collections: [dict, current member name]
+    last_name = None    # an empty name adds a value to the previous attribute
+    position = 8
+    while position < len(data):
+        tag = data[position]
+        position += 1
+        if tag == 0x03:
+            break
+        if tag < 0x10:  # group delimiter
+            continue
+        (length,) = struct.unpack(">H", data[position:position + 2])
+        name = data[position + 2:position + 2 + length].decode()
+        position += 2 + length
+        (length,) = struct.unpack(">H", data[position:position + 2])
+        raw = data[position + 2:position + 2 + length]
+        position += 2 + length
+        if tag == 0x4A:  # member name inside the open collection
+            stack[-1][1] = raw.decode()
+            continue
+        if tag == 0x37:  # the innermost collection closes
+            stack.pop()
+            continue
+        value = {} if tag == 0x34 else ipp_value(tag, raw)
+        if stack:
+            collection, member = stack[-1]
+            collection.setdefault(member, []).append(value)
+        else:
+            last_name = name or last_name
+            attributes.setdefault(last_name, []).append(value)
+        if tag == 0x34:
+            stack.append([value, None])
+    return status, attributes
+
+
+def ipp_request(host, operation, operation_attributes=b"", job_attributes=b"",
+                document=b"", timeout=10):
+    url = f"http://{host}:{PRINTER_PORT}/ipp/print"
+    body = struct.pack(">BBHI", 2, 0, operation, 1) + b"\x01"
+    body += ipp_attribute(0x47, "attributes-charset", "utf-8")
+    body += ipp_attribute(0x48, "attributes-natural-language", "en")
+    body += ipp_attribute(0x45, "printer-uri", f"ipp://{host}:{PRINTER_PORT}/ipp/print")
+    body += ipp_attribute(0x42, "requesting-user-name", "niwa")
+    body += operation_attributes
+    if job_attributes:
+        body += b"\x02" + job_attributes
+    body += b"\x03" + document
+    request_ = urllib.request.Request(url, data=body, headers={"Content-Type": "application/ipp"})
+    with urllib.request.urlopen(request_, timeout=timeout) as response:
+        return ipp_parse(response.read())
+
+
+def printer_attributes(host, *names, timeout=3):
+    wanted = ipp_attribute(0x44, "requested-attributes", names[0])
+    wanted += b"".join(ipp_attribute(0x44, "", name) for name in names[1:])
+    return ipp_request(host, 0x000B, wanted, timeout=timeout)[1]
+
+
+def is_selphy(host):
+    try:
+        models = printer_attributes(host, "printer-make-and-model").get("printer-make-and-model", [])
+    except IPP_ERRORS:
+        return False
+    return any("SELPHY" in str(model).upper() for model in models)
+
+
+def scan_printer_ports():
+    """Hosts on NIWA-AP with the IPP port open, found in about two seconds."""
+    def open_port(host):
+        try:
+            socket.create_connection((host, PRINTER_PORT), timeout=0.5).close()
+            return host
+        except OSError:
+            return None
+
+    hosts = [f"{PRINTER_SUBNET}.{number}" for number in range(2, 255)]
+    with ThreadPoolExecutor(max_workers=64) as pool:
+        return [host for host in pool.map(open_port, hosts) if host]
+
+
+def known_printer():
+    try:
+        host = json.loads(PRINTER_FILE.read_text(encoding="utf-8")).get("host")
+    except (OSError, ValueError, AttributeError):
+        return None
+    return host if isinstance(host, str) else None
+
+
+def find_selphy():
+    """The SELPHY's address: the last one that answered, else a scan of NIWA-AP."""
+    with PRINTER_LOCK:
+        known = known_printer()
+        if known and is_selphy(known):
+            return known
+        for host in scan_printer_ports():
+            if host != known and is_selphy(host):
+                atomic_write_json(PRINTER_FILE, {"host": host})
+                return host
+    return None
+
+
+def printer_problems(printer):
+    problems = []
+    for reason in printer.get("printer-state-reasons", []):
+        if reason == "none" or str(reason).endswith("-report"):
+            continue
+        key = re.sub(r"-(error|warning)$", "", str(reason))
+        problems.append(PRINTER_REASONS.get(key, key))
+    return problems
+
+
+def print_job_report(status, job, printer):
+    if status == 0x0406:  # the SELPHY only remembers its latest job
+        return {"done": True, "ok": None, "message": "La stampante non ha piu' notizie di questa stampa."}
+    state = (job.get("job-state") or [0])[0]
+    message = IPP_JOB_STATES.get(state, "Stato della stampa sconosciuto")
+    problems = printer_problems(printer)
+    if problems and state != 9:
+        message += ": " + ", ".join(problems)
+    return {"done": state >= 7, "ok": state == 9, "state": state, "message": message + "."}
 
 
 def video_thumb_path_for(section, path, relative):
@@ -2112,7 +2315,7 @@ def index():
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>NIWA Review</title>
-<link rel="stylesheet" href="/static/print-editor.css?v=6">
+<link rel="stylesheet" href="/static/print-editor.css?v=7">
 <style>
 :root{color-scheme:dark;--bg:#0b1220;--panel:#172033;--panel2:#101827;--line:#334155;--text:#f8fafc;--muted:#94a3b8;--soft:#cbd5e1;--blue:#38bdf8}
 *{box-sizing:border-box}
@@ -2328,7 +2531,7 @@ body{padding:14px}h1{font-size:26px;margin-bottom:3px}.subtitle{font-size:13px;m
 <p class="print-muted">Con una cornice, il formato segue la cornice. Per la SELPHY scegli JPG e la carta corrispondente (P/L/C). La cartolina P esce gia' con il margine che la SELPHY stampa oltre le linee tratteggiate: stampala senza bordi, senza ritagli.</p>
 </details>
 <div id="printExportResult" class="print-export-result" hidden><span id="printExportResultText"></span><a id="printRedownload" class="small-button" href="#">Scarica di nuovo</a></div>
-<div class="print-export-bar"><span id="printExportSummary" class="print-muted">Preparazione...</span><button type="button" class="small-button print-primary" id="printExport" disabled>Esporta JPG</button></div>
+<div class="print-export-bar"><span id="printExportSummary" class="print-muted">Preparazione...</span><span class="print-export-actions"><button type="button" class="small-button" id="printDirect" disabled>Stampa</button><button type="button" class="small-button print-primary" id="printExport" disabled>Esporta JPG</button></span></div>
 </div>
 <div id="printStepManage" hidden>
 <h3>Gestisci cornici</h3>
@@ -3307,7 +3510,7 @@ document.addEventListener('visibilitychange', ()=>{
     if(document.visibilityState === 'visible') refreshLivePhotos();
 });
 </script>
-<script src="/static/print-editor.js?v=11"></script>
+<script src="/static/print-editor.js?v=12"></script>
 </body>
 </html>
 """
@@ -3625,7 +3828,7 @@ def api_print_export():
     if path.suffix.lower() not in PHOTO_EXTENSIONS:
         abort(404)
     try:
-        result = render_print_export(path, relative, payload)
+        _output, result = render_print_export(path, relative, payload)
     except NotFound:
         raise
     except ValueError as error:
@@ -3634,6 +3837,62 @@ def api_print_export():
         app.logger.exception("Cannot export print image for %s", path)
         return jsonify({"error": "Esportazione non riuscita; controlla lo spazio SSD e riprova."}), 503
     return jsonify(result)
+
+
+@app.route("/api/print/print", methods=["POST"])
+def api_print_print():
+    """Same picture as Esporta, saved the same way, then sent to the SELPHY
+    instead of downloaded. Only P is measured for direct printing."""
+    payload = request.get_json(silent=True) or {}
+    if not isinstance(payload, dict) or not isinstance(payload.get("id"), str):
+        return jsonify({"error": "Foto non valida."}), 400
+    if payload.get("preset") != "P":
+        return jsonify({"error": "La stampa diretta per ora e' solo per il formato P · Cartolina."}), 400
+    path, relative = resolve_photo(payload["id"])
+    if path.suffix.lower() not in PHOTO_EXTENSIONS:
+        abort(404)
+    host = find_selphy()
+    if not host:
+        return jsonify({"error": "Stampante non trovata su NIWA-AP: accendila e controlla che sia collegata al Wi-Fi NIWA-AP."}), 503
+    try:
+        output, result = render_print_export(path, relative, {**payload, "file_type": "jpg"}, direct=True)
+    except NotFound:
+        raise
+    except ValueError as error:
+        return jsonify({"error": str(error)}), 400
+    except Exception:
+        app.logger.exception("Cannot export print image for %s", path)
+        return jsonify({"error": "Esportazione non riuscita; controlla lo spazio SSD e riprova."}), 503
+    try:
+        status, job = ipp_request(
+            host, 0x0002,
+            ipp_attribute(0x42, "job-name", output.stem)
+            + ipp_attribute(0x49, "document-format", "image/jpeg"),
+            ipp_integer("copies", 1)
+            + ipp_attribute(0x44, "print-scaling", "fill")
+            + ipp_media_col(IPP_MEDIA_SIZES["P"]),
+            output.read_bytes(), timeout=60)
+    except IPP_ERRORS:
+        app.logger.exception("Cannot send %s to the printer at %s", output.name, host)
+        return jsonify({**result, "error": "La stampante non ha ricevuto la foto: riprova. La foto e' salvata in Review."}), 503
+    if status >= 0x0100:
+        message = IPP_STATUS_MESSAGES.get(status, f"La stampante ha rifiutato la stampa (codice 0x{status:04x}).")
+        return jsonify({**result, "error": message}), 503
+    return jsonify({**result, "job_id": (job.get("job-id") or [None])[0]})
+
+
+@app.route("/api/print/jobs/<int:job_id>")
+def api_print_job(job_id):
+    host = known_printer()
+    if not host:
+        return jsonify({"done": True, "ok": False, "message": "Stampante non trovata."})
+    try:
+        status, job = ipp_request(host, 0x0009, ipp_integer("job-id", job_id), timeout=5)
+        printer = printer_attributes(host, "printer-state-reasons", timeout=5)
+    except IPP_ERRORS:
+        # The SELPHY now and then drops a status request while it prints.
+        return jsonify({"done": False, "message": "Stato della stampa non disponibile, riprovo..."})
+    return jsonify(print_job_report(status, job, printer))
 
 
 @app.route("/api/print/exports/<file_id>")

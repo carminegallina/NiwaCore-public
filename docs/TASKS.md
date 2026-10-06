@@ -58,9 +58,10 @@
 - [ ] Verificare che l'app Canon sul tablet trovi la stampante su `NIWA-AP`.
 - [x] Review raggiunge la stampante: container in `network_mode: host`
       (2026-10-06), verificato da tutti gli indirizzi e con NIWA Import.
-- [ ] Stampare via IPP il foglio di prova P e confrontarlo con le misure
-      fatte con l'app.
-- [ ] Pulsante "Stampa" con stato del lavoro, test con finto server IPP.
+- [x] Stampati via IPP i fogli di prova P orizzontale e verticale: misure
+      dedicate alla stampa diretta (2026-10-06).
+- [x] Pulsante "Stampa" con stato del lavoro, test con finta SELPHY IPP.
+- [ ] Installarlo e stampare una foto vera con cornice dal tablet.
 - [ ] Provare davvero stampante spenta, carta finita, inchiostro finito.
 
 Piano completo: `docs/STAMPA_DIRETTA.md`.

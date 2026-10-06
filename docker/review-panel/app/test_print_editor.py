@@ -191,6 +191,11 @@ class PrintEditorTests(unittest.TestCase):
         red = lambda x, y: portrait.getpixel((x, y))[0] > 150
         self.assertTrue(red(624, top + 10) and not red(624, top + 50), "perforation 3.5 mm from the top")
         self.assertTrue(red(624, bottom - 10) and not red(624, bottom - 50), "perforation 5 mm from the bottom")
+        direct = review.selphy_page(card, "P", "landscape", direct=True)
+        left, right = round(4.5 * mm), 1872 - round(6.0 * mm)
+        red = lambda x, y: direct.getpixel((x, y))[0] > 150
+        self.assertTrue(red(left + 10, 624) and not red(left + 50, 624), "direct print: 4.5 mm")
+        self.assertTrue(red(right - 10, 624) and not red(right - 50, 624), "direct print: 6 mm")
 
     def test_rotation_keeps_the_photo_covering_the_print(self):
         base = {"id": media_id("TEST.JPG"), "preset": "P", "orientation": "portrait"}

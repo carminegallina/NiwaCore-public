@@ -61,6 +61,13 @@ Sul Raspberry le cornici caricate stanno in `/mnt/niwa-storage/.niwa_frames` (`<
 
 L'app Canon ruota le verticali portando il loro lato alto dove nella pagina orizzontale c'è la sinistra. Per questo i valori 3,5 e 5 si ritrovano ruotati. La cartolina non è centrata: la stampante la sposta di circa 1,5 mm verso un'estremità.
 
+**Stampa diretta dal Raspberry** (pulsante "Stampa", IPP senza bordo con `print-scaling` fill, misurata il 2026-10-06 con gli stessi fogli di prova): la stampante ingrandisce un po' meno che con l'app, quindi la cartolina cade circa 1 mm più all'interno sui lati con le linee tratteggiate. Questi valori sono in `SELPHY_PAGES["P"]["direct"]` e valgono solo per il pulsante "Stampa"; "Esporta" usa ancora quelli dell'app.
+
+| Orientamento | Sinistra | Destra | Alto | Basso | Linee tratteggiate |
+|---|---|---|---|---|---|
+| Orizzontale | 4,5 | 6,0 | 3,0 | 2,2 | sinistra e destra |
+| Verticale | 2,0 | 3,0 | 4,5 | 6,1 | alto e basso |
+
 **Validazione:** stampa reale con le due cornici dell'evento. Risultato centrato, con solo il colore di margine oltre le linee tratteggiate, come previsto.
 
 ### Rifare la misura (altra stampante, altra app, carta L o C)
