@@ -2,8 +2,10 @@ services:
   review-panel:
     build: .
     container_name: review-panel
-    ports:
-      - "5052:5052"
+    # Host network, like system-panel and companion-panel: the hotspot's
+    # firewall refuses new connections from the Docker network into NIWA-AP,
+    # where the SELPHY printer lives. Flask still listens on port 5052.
+    network_mode: host
     volumes:
       - /mnt/niwa-storage:/storage
       - /home/niwa/niwa/data:/data

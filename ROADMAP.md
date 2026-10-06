@@ -136,6 +136,15 @@ Current status:
 
 ## Immediate next steps
 
+### Stampa diretta sulla SELPHY
+
+In corso dal 2026-10-06. Pulsante "Stampa" nell'editor di Review accanto a
+"Esporta": il Raspberry invia il JPG alla CP1500 via IPP, senza CUPS e senza
+download sul tablet. La stampante, collegata a `NIWA-AP`, accetta JPEG e
+carta P senza bordo; Review usa ora la rete del Raspberry
+(`network_mode: host`) perche' il firewall dell'hotspot rifiuta i container
+sulla rete Docker. Risultati, decisioni e passi in `docs/STAMPA_DIRETTA.md`.
+
 ### Download pubblico tramite QR
 
 Idea approvata, non ancora implementata. Gli ospiti non devono collegarsi a

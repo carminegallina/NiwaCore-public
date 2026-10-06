@@ -51,6 +51,20 @@
 - [x] Foglio di prova verticale stampato e misurato (1,5 / 2,3 / 3,5 / 5 mm).
 - [x] Stampa reale con le cornici dell'evento verticale e orizzontale: centrate (2026-10-05).
 
+## Stampa diretta SELPHY
+
+- [x] SELPHY collegata a `NIWA-AP` (Via Wireless Router) e interrogata via
+      IPP dal Raspberry: JPEG e P senza bordo supportati (2026-10-06).
+- [ ] Verificare che l'app Canon sul tablet trovi la stampante su `NIWA-AP`.
+- [x] Review raggiunge la stampante: container in `network_mode: host`
+      (2026-10-06), verificato da tutti gli indirizzi e con NIWA Import.
+- [ ] Stampare via IPP il foglio di prova P e confrontarlo con le misure
+      fatte con l'app.
+- [ ] Pulsante "Stampa" con stato del lavoro, test con finto server IPP.
+- [ ] Provare davvero stampante spenta, carta finita, inchiostro finito.
+
+Piano completo: `docs/STAMPA_DIRETTA.md`.
+
 ## Download pubblico tramite QR
 
 - [ ] Provare il tethering USB con il cellulare reale senza modificare

@@ -267,6 +267,13 @@ Port:
 
 5052
 
+Network: `network_mode: host` since 2026-10-06, like system-panel and
+companion-panel, so Review can reach the SELPHY on NIWA-AP (the hotspot's
+firewall refuses connections from the Docker network into it). Verified the
+same day: port 5052 answers on localhost, 10.42.0.1, the LAN and Tailscale;
+NIWA Import's rebuild call on 127.0.0.1:5052 works; System 18/18. Rollback:
+`docker-compose.yml.bak-claude-hostnet-20261006`, then `docker compose up -d`.
+
 Expected Docker volume:
 
 /mnt/niwa-storage:/storage
