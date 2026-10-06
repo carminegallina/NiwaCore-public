@@ -395,7 +395,9 @@ Review compact lighttable deployed on 2026-10-05 (UI only, same endpoints):
 - viewer: name and counter top-left, close button, stars bottom-left; since
   2026-10-06 the actions (Prepara stampa, Scarica, Scarica JPG HQ, Slideshow,
   Elimina) open from a round menu button bottom-right, so they never cover
-  the stars; a tap beside the photo folds the menu first
+  the stars; a tap beside the photo folds the menu first (deployed 2026-10-06,
+  commit abfdd64; rollback `app/app.py.bak-claude-menu-20261006`, image
+  `niwa-review-before-menu-20261006`)
 - rollback: `app/app.py.bak-claude-lighttable-20261005` and Docker image
   `niwa-review-before-lighttable-20261005`
 

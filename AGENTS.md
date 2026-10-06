@@ -570,7 +570,8 @@ backup, listed in SYSTEM_SNAPSHOT.md):
 
 Deployed on 2026-10-06 (commit 7bd911d, rollback names in SYSTEM_SNAPSHOT.md):
 Review slideshow at `/slideshow` with a viewer switch and a "Slideshow" tab;
-still to try on the Tab S10.
+still to try on the Tab S10. Then (commit abfdd64) the viewer actions moved
+into a round menu button opposite the stars.
 
 Still to verify physically before the 2026-10-08 event (docs/TASKS.md):
 tablet and ESP32 reconnection after a channel switch during a transfer, a
