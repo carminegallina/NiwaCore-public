@@ -1691,7 +1691,9 @@ def printer_problems(printer):
 
 
 def print_job_report(status, job, printer):
-    if status == 0x0406:  # the SELPHY only remembers its latest job
+    # The SELPHY only remembers its latest job; for an older one it answers a
+    # client error (0x0404 "not possible" on the CP1500, 0x0406 elsewhere).
+    if status >= 0x0400:
         return {"done": True, "ok": None, "message": "La stampante non ha piu' notizie di questa stampa."}
     state = (job.get("job-state") or [0])[0]
     message = IPP_JOB_STATES.get(state, "Stato della stampa sconosciuto")

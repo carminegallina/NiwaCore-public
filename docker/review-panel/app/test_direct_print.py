@@ -120,9 +120,9 @@ class DirectPrintTests(unittest.TestCase):
         report = self.client.get("/api/print/jobs/7").get_json()
         self.assertEqual((report["done"], report["ok"]), (True, False))
         self.assertEqual(report["message"], "Stampa interrotta: carta finita, inchiostro quasi finito.")
-        self.job_status = 0x0406
-        self.assertIsNone(self.client.get("/api/print/jobs/7").get_json()["ok"],
-                          "the SELPHY forgets older jobs")
+        self.job_status = 0x0404  # what the real CP1500 answers for a forgotten job
+        report = self.client.get("/api/print/jobs/7").get_json()
+        self.assertEqual((report["done"], report["ok"]), (True, None), "the SELPHY forgets older jobs")
         self.assertEqual(self.print_photo(preset="L").status_code, 400, "only P is measured")
 
     def test_unreachable_printer_fails_before_saving_anything(self):
