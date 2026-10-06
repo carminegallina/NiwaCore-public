@@ -568,6 +568,10 @@ backup, listed in SYSTEM_SNAPSHOT.md):
   `usb-storage` instead of UAS. Import 0.3.1 normalizes FAT/exFAT camera times,
   Review inherits the host timezone, and CF/ESP photos now share capture order.
 
+Deployed on 2026-10-06 (commit 7bd911d, rollback names in SYSTEM_SNAPSHOT.md):
+Review slideshow at `/slideshow` with a viewer switch and a "Slideshow" tab;
+still to try on the Tab S10.
+
 Still to verify physically before the 2026-10-08 event (docs/TASKS.md):
 tablet and ESP32 reconnection after a channel switch during a transfer, a
 shot taken while the camera is attached, the full Nikon -> ESP -> Review ->

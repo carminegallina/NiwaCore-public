@@ -370,7 +370,10 @@ Review reliability pass deployed on 2026-10-05:
   `niwa-review-before-selphy-20261005`
 - the no-frame print option exports with the original photo ratio
 
-Review slideshow (written 2026-10-06, not yet deployed):
+Review slideshow (deployed 2026-10-06, commit 7bd911d; 32 tests passed in the
+container; rollback `app/app.py.bak-claude-slideshow-20261006`, image
+`niwa-review-before-slideshow-20261006`, then remove `app/static/slideshow.html`
+and `app/test_slideshow.py`):
 - `/slideshow` (button "Avvia slideshow" in the Review top bar) shows only the
   photos marked with "Slideshow" in the viewer, full screen: vertical and
   horizontal photos fit the screen with black bars, 7 s each with a 1.5 s
