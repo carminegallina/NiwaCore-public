@@ -72,7 +72,7 @@ PRINT_PRESETS = {
     "9:16": {"label": "9:16", "ratio": [9, 16]},
 }
 
-INDEX_VERSION = 2
+INDEX_VERSION = 3
 INDEX_SCAN_INTERVAL_SECONDS = 120
 PREVIEW_SCAN_INTERVAL_SECONDS = 20
 # Part of every RAW preview cache key: bump it to regenerate them all.
@@ -330,6 +330,18 @@ def media_item_from_path(section, path, relative):
         f"/api/media-image/viewer/{section}/{file_id}?v={cache_version}"
     )
 
+    framed = False
+    if section == "photo" and re.search(r"_stampa-[^.]+[.]jpe?g$", path.name, re.I):
+        try:
+            from PIL import Image
+            with Image.open(path) as image:
+                framed = bool(re.fullmatch(
+                    r"NIWA Print Export; frame=[0-9a-f]{32}",
+                    str(image.getexif().get(270, "")),
+                ))
+        except (OSError, ValueError):
+            pass
+
     return {
         "id": file_id,
         "section": section,
@@ -354,6 +366,7 @@ def media_item_from_path(section, path, relative):
             if section == "photo" and suffix in RAW_EXTENSIONS else None
         ),
         "rating": read_rating(path),
+        "framed": framed,
     }
 
 
@@ -1074,6 +1087,30 @@ def zip_stream(entries):
         yield data
 
 
+def flat_download_entries(files, by_day=False):
+    """Keep selected media and XMP together, without source directory trees."""
+    entries = []
+    used = set()
+    for path, sidecar in files:
+        folder = time.strftime("%Y-%m-%d", time.localtime(path.stat().st_mtime)) if by_day else ""
+        stem = path.stem
+        number = 1
+        while True:
+            suffix = "" if number == 1 else f"-{number}"
+            name = f"{stem}{suffix}{path.suffix}"
+            side_name = f"{stem}{suffix}{sidecar.suffix}" if sidecar else None
+            names = [name] + ([side_name] if side_name else [])
+            if all(f"{folder}/{candidate}".casefold() not in used for candidate in names):
+                break
+            number += 1
+        for source, candidate in ((path, name), (sidecar, side_name)):
+            if source:
+                arcname = f"{folder}/{candidate}" if folder else candidate
+                entries.append((source, arcname))
+                used.add(f"{folder}/{candidate}".casefold())
+    return entries
+
+
 def cache_path_for(path, relative):
     stat = path.stat()
     key = (
@@ -1450,9 +1487,7 @@ def render_print_export(path, relative, payload, direct=False):
         photo.paste(frame, (0, 0), frame)
     photo = selphy_page(photo, preset, orientation, direct)
 
-    collection = (frame_info or {}).get("collection", "Generiche")
-    folder_name = re.sub(r"[^a-zA-Z0-9_-]+", "-", collection).strip("-")[:48] or "Generiche"
-    destination = PRINT_EXPORT_ROOT / folder_name
+    destination = PRINT_EXPORT_ROOT
     destination.mkdir(parents=True, exist_ok=True)
     source_name = re.sub(r"[^a-zA-Z0-9_-]+", "-", path.stem).strip("-")[:48] or "Foto"
     filename = f"{source_name}_{preset.replace(':', '-')}_{uuid.uuid4().hex[:10]}.{file_type}"
@@ -1464,7 +1499,8 @@ def render_print_export(path, relative, payload, direct=False):
         if file_type == "jpg":
             exif = Image.Exif()
             exif[274] = 1
-            exif[270] = "NIWA Print Export"
+            exif[270] = (f"NIWA Print Export; frame={frame_id}"
+                         if frame_id else "NIWA Print Export")
             photo.save(temporary, format="JPEG", quality=100, subsampling=0,
                        icc_profile=profile, exif=exif.tobytes(), **print_dpi)
         else:
@@ -2428,6 +2464,10 @@ body{padding:14px}h1{font-size:26px;margin-bottom:3px}.subtitle{font-size:13px;m
 <button class="filter-button" data-filter="photo" onclick="setGoProFilter('photo')">Foto</button>
 <button class="filter-button" data-filter="video" onclick="setGoProFilter('video')">Video</button>
 </div>
+<div class="filters filter-row visible" id="photoFilters">
+<button class="filter-button active" data-photo-filter="all" onclick="setPhotoFilter('all')">Tutte</button>
+<button class="filter-button" data-photo-filter="framed" onclick="setPhotoFilter('framed')">Con cornice</button>
+</div>
 
 <div class="status" id="status">Caricamento...</div>
 <div class="toolbar">
@@ -2455,6 +2495,7 @@ body{padding:14px}h1{font-size:26px;margin-bottom:3px}.subtitle{font-size:13px;m
 <button class="small-button" onclick="selectAll()">Seleziona tutto</button>
 <button class="small-button" data-needs-selection onclick="clearSelection()">Deseleziona</button>
 <button class="small-button" data-mode="media" data-needs-selection onclick="downloadSelection()">Scarica</button>
+<label data-mode="media"><input type="checkbox" id="downloadByDay"> Dividi per giorno</label>
 <button class="small-button" data-mode="trash" data-needs-selection onclick="restoreSelection()">Ripristina selezionati</button>
 <button class="small-button danger" data-mode="media" data-needs-selection onclick="trashSelection()">Elimina</button>
 <button class="small-button" data-mode="slideshow" data-needs-selection onclick="removeSelectionFromSlideshow()">Togli dallo slideshow</button>
@@ -2530,7 +2571,7 @@ body{padding:14px}h1{font-size:26px;margin-bottom:3px}.subtitle{font-size:13px;m
 <label>Orientamento<select id="printOrientation"><option value="landscape">Orizzontale</option><option value="portrait">Verticale</option></select></label>
 <label>File<select id="printFileType"><option value="jpg">JPG · stampa</option><option value="png">PNG · digitale</option></select></label>
 </div>
-<p class="print-muted">Con una cornice, il formato segue la cornice. Per la SELPHY scegli JPG e la carta corrispondente (P/L/C). La cartolina P esce gia' con il margine che la SELPHY stampa oltre le linee tratteggiate: stampala senza bordi, senza ritagli.</p>
+<p class="print-muted">Senza cornice si usa il formato P per la stampa diretta; scegli Originale qui se vuoi esportare la foto senza ritaglio. Con una cornice, il formato segue la cornice. Per la SELPHY scegli JPG e la carta corrispondente (P/L/C). La cartolina P esce gia' con il margine che la SELPHY stampa oltre le linee tratteggiate: stampala senza bordi, senza ritagli.</p>
 </details>
 <div id="printExportResult" class="print-export-result" hidden><span id="printExportResultText"></span><a id="printRedownload" class="small-button" href="#">Scarica di nuovo</a></div>
 <div class="print-export-bar"><span id="printExportSummary" class="print-muted">Preparazione...</span><span class="print-export-actions"><button type="button" class="small-button" id="printDirect" disabled>Stampa</button><button type="button" class="small-button print-primary" id="printExport" disabled>Esporta JPG</button></span></div>
@@ -2564,6 +2605,7 @@ let PHOTOS = [];
 let CURRENT_INDEX = -1;
 let CURRENT_SECTION = 'photo';
 let GOPRO_FILTER = 'all';
+let PHOTO_FILTER = 'all';
 let LOAD_SEQUENCE = 0;
 let SWIPE_START_X = 0;
 let SWIPE_START_Y = 0;
@@ -2597,6 +2639,7 @@ function setSection(section){
         button.classList.toggle('active', button.dataset.section === section);
     });
     document.getElementById('goproFilters').classList.toggle('visible', section === 'gopro');
+    document.getElementById('photoFilters').classList.toggle('visible', section === 'photo');
     document.getElementById('workerStatus').style.display = section === 'photo' ? 'block' : 'none';
     document.getElementById('incoming').classList.toggle('hidden', section !== 'photo' || !INCOMING.length);
     SELECTING = false;
@@ -2614,6 +2657,16 @@ function setGoProFilter(filter){
     document.querySelectorAll('.filter-button').forEach((button)=>{
         button.classList.toggle('active', button.dataset.filter === filter);
     });
+    loadMedia(true);
+}
+
+function setPhotoFilter(filter){
+    PHOTO_FILTER = filter;
+    document.querySelectorAll('[data-photo-filter]').forEach((button)=>{
+        button.classList.toggle('active', button.dataset.photoFilter === filter);
+    });
+    SELECTED.clear();
+    renderSelection();
     loadMedia(true);
 }
 
@@ -2659,6 +2712,7 @@ function fillMediaCard(card, item, trashed=false){
         appendText(badges, 'badge same-name', 'stesso nome').title =
             'Un altro file ha lo stesso nome ma contenuto diverso: sono conservati entrambi.';
     }
+    if(item.framed) appendText(badges, 'badge', 'cornice');
     card.appendChild(info);
     card.appendChild(badges);
     renderCardStars(card, item.rating || 0);
@@ -2709,6 +2763,7 @@ async function loadMedia(reset=true){
     const gallery = document.getElementById('gallery');
     const requestSection = CURRENT_SECTION;
     const requestFilter = GOPRO_FILTER;
+    const requestPhotoFilter = PHOTO_FILTER;
     const requestId = ++LOAD_SEQUENCE;
     const label = SECTION_LABELS[requestSection] || 'media';
 
@@ -2730,6 +2785,7 @@ async function loadMedia(reset=true){
         if(requestSection === 'gopro'){
             url += `&kind=${encodeURIComponent(requestFilter)}`;
         }
+        if(requestSection === 'photo' && requestPhotoFilter === 'framed') url += '&frame=1';
 
         const res = await fetch(url);
         const data = await res.json();
@@ -2750,7 +2806,9 @@ async function loadMedia(reset=true){
 
         if(!PHOTOS.length){
             gallery.replaceChildren();
-            appendText(gallery, 'empty', data.empty_message || 'Nessun file trovato.');
+            appendText(gallery, 'empty', requestSection === 'photo' && requestPhotoFilter === 'framed'
+                ? 'Nessuna foto con cornice trovata. Le vecchie stampe senza metadati non sono riconoscibili: riesportale dall’editor.'
+                : (data.empty_message || 'Nessun file trovato.'));
             renderLoadMore();
             return;
         }
@@ -2804,7 +2862,8 @@ async function refreshLivePhotos(){
     LIVE_REFRESH_BUSY = true;
     const requestId = LOAD_SEQUENCE;
     try{
-        const res = await fetch(`/api/media/photo?page=1&limit=${PAGE_SIZE}`, {cache:'no-store'});
+        const frame = PHOTO_FILTER === 'framed' ? '&frame=1' : '';
+        const res = await fetch(`/api/media/photo?page=1&limit=${PAGE_SIZE}${frame}`, {cache:'no-store'});
         if(!res.ok){ throw new Error(`HTTP ${res.status}`); }
         const data = await res.json();
         if(requestId !== LOAD_SEQUENCE || CURRENT_SECTION !== 'photo' ||
@@ -3268,6 +3327,7 @@ async function selectAll(){
         if(CURRENT_SECTION === 'gopro'){
             url += `?kind=${encodeURIComponent(GOPRO_FILTER)}`;
         }
+        if(CURRENT_SECTION === 'photo' && PHOTO_FILTER === 'framed') url += '?frame=1';
         try{
             const res = await fetch(url);
             const data = await res.json();
@@ -3297,6 +3357,13 @@ function downloadSelection(){
         input.value = id;
         form.appendChild(input);
     });
+    if(document.getElementById('downloadByDay').checked){
+        const byDay = document.createElement('input');
+        byDay.type = 'hidden';
+        byDay.name = 'by_day';
+        byDay.value = '1';
+        form.appendChild(byDay);
+    }
     document.body.appendChild(form);
     form.submit();
     form.remove();
@@ -3512,7 +3579,7 @@ document.addEventListener('visibilitychange', ()=>{
     if(document.visibilityState === 'visible') refreshLivePhotos();
 });
 </script>
-<script src="/static/print-editor.js?v=12"></script>
+<script src="/static/print-editor.js?v=13"></script>
 </body>
 </html>
 """
@@ -3534,6 +3601,8 @@ def api_media(section):
         kind_filter = "all"
 
     items = scan_media(section, kind_filter)
+    if section == "photo" and request.args.get("frame") == "1":
+        items = [item for item in items if item.get("framed")]
     page_items, pagination = apply_pagination(items)
     slideshow = load_slideshow()
     for item in page_items:
@@ -3998,6 +4067,8 @@ def api_media_selection(section):
     if kind_filter not in {"all", "photo", "video"}:
         kind_filter = "all"
     items = scan_media(section, kind_filter)
+    if section == "photo" and request.args.get("frame") == "1":
+        items = [item for item in items if item.get("framed")]
     return jsonify({
         "items": [{"id": item["id"], "size": item.get("size", 0)} for item in items],
     })
@@ -4012,7 +4083,7 @@ def api_media_trash(section):
 @app.route("/api/media/<section>/download", methods=["POST"])
 def api_media_download(section):
     config = section_config(section)
-    entries = []
+    files = []
     for file_id in dict.fromkeys(request.form.getlist("ids")):
         try:
             path, relative = resolve_media(config["root"], file_id)
@@ -4020,14 +4091,13 @@ def api_media_download(section):
             continue
         if path.suffix.lower() not in config["extensions"]:
             continue
-        entries.append((path, relative.as_posix()))
         sidecar = xmp_path_for(path)
-        if sidecar.is_file():
-            entries.append((sidecar, (relative.parent / sidecar.name).as_posix()))
+        files.append((path, sidecar if sidecar.is_file() else None))
 
-    if not entries:
+    if not files:
         abort(404, "Nessun file da scaricare")
 
+    entries = flat_download_entries(files, request.form.get("by_day") == "1")
     name = f"niwa-{section}-{time.strftime('%Y%m%d-%H%M')}.zip"
     return Response(
         zip_stream(entries),

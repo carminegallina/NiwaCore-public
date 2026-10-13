@@ -163,6 +163,13 @@ Piano proposto nell'analisi Review del 2026-10-04 (ordine consigliato). Le funzi
 
 [x] Worker RAW (2026-10-05): prima generava una sola anteprima ogni 20 s; ora lavora a lotti di circa 10 s, ripartendo sempre dagli scatti piu' recenti, e prepara anche miniatura e anteprima viewer. Sul Raspberry 39 foto completate in circa 60 s (carico circa 1,2 su 4 core); anteprima viewer servita in 10-20 ms invece di circa 2 s a freddo. L'attesa di 60 s resta solo per i file appena scritti: l'import da scheda conserva la data originale e il bridge applica l'ora di scatto, quindi di solito non si applica; il tablet ottiene comunque le immagini su richiesta.
 
+## Filtri e export Review (2026-10-14)
+
+- In Foto, "Con cornice" mostra solo le copie JPG di stampa per cui il nuovo export registra l'ID della cornice nei metadati EXIF. Le vecchie copie `_stampa-...jpg` non lo registravano: non si possono distinguere con certezza dalle stampe senza cornice e vanno riesportate per comparire nel filtro.
+- "Senza cornice" sceglie P per permettere la stampa diretta sulla SELPHY; il formato "Originale" resta selezionabile nelle opzioni per esportare senza ritaglio. La stampa diretta resta validata solo su carta P.
+- I nuovi export dell'editor vanno direttamente in `exports/print/`, senza sottocartella di collezione; i precedenti non vengono spostati.
+- Lo ZIP di "Scarica" dalla selezione e' piatto per impostazione predefinita. Il flag "Dividi per giorno" crea solo cartelle `AAAA-MM-GG/`, usando la data locale del file (mtime, che l'import conserva come ora di scatto quando disponibile). I nomi ripetuti ricevono `-2`, `-3` ecc.; i sidecar XMP restano abbinati al RAW rinominato. Gli originali non vengono modificati.
+
 ## Integrazioni future, non ora
 
 - Testi e loghi aggiungibili nell'editor, distinti dalla grafica gia' incorporata nel PNG della cornice.

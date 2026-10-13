@@ -139,6 +139,9 @@ function editor({frames = [], saved = 'none', failFrame = false} = {}) {
     await noFrame.open({id: 'photo', name: 'photo.jpg'});
     assert.equal(noFrame.element('printActiveFrame').textContent, 'Nessuna',
         'explicitly choosing no frame survives the next photo');
+    assert.equal(noFrame.element('printPreset').value, 'P');
+    assert.equal(noFrame.element('printDirect').disabled, false,
+        'no frame still allows direct P printing');
 
     const framed = editor({frames: [frame], saved: frame.id});
     await framed.open({id: 'photo', name: 'photo.jpg'});

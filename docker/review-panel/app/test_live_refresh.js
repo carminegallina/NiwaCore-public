@@ -42,6 +42,7 @@ const status = {textContent: ''};
 const context = vm.createContext({
     LIVE_REFRESH_BUSY: false,
     CURRENT_SECTION: 'photo',
+    PHOTO_FILTER: 'all',
     CURRENT_PAGE: 1,
     SELECTING: false,
     LOAD_SEQUENCE: 0,

@@ -3,6 +3,7 @@ from tempfile import TemporaryDirectory
 import base64
 import io
 import unittest
+from unittest import mock
 
 from PIL import Image, ImageDraw
 
@@ -94,6 +95,8 @@ class PrintEditorTests(unittest.TestCase):
             response = self.client.post("/api/print/export", json={**payload, "file_type": file_type})
             self.assertEqual(response.status_code, 200, response.get_data(as_text=True))
             result = response.get_json()
+            self.assertEqual((self.export_root / result["name"]).is_file(), True,
+                             "print exports have no collection subfolder")
             download = self.client.get(result["download_url"])
             self.assertEqual(download.status_code, 200)
             with Image.open(io.BytesIO(download.data)) as image:
@@ -125,6 +128,23 @@ class PrintEditorTests(unittest.TestCase):
         self.assertEqual(sorted(path.name for path in self.photo_root.iterdir()),
                          ["TEST.JPG", "TEST_stampa-P.jpg"])
         self.assertEqual(self.source.read_bytes(), self.original_bytes)
+
+    def test_framed_filter_only_marks_confirmed_framed_copies(self):
+        frame = self.upload().get_json()
+        payload = {"id": media_id("TEST.JPG"), "preset": "P", "orientation": "landscape"}
+        response = self.client.post("/api/print/export", json={**payload, "frame_id": frame["id"]})
+        self.assertEqual(response.status_code, 200, response.get_data(as_text=True))
+        items = review.scan_media_filesystem("photo")
+        framed = [item for item in items if item["framed"]]
+        self.assertEqual([item["name"] for item in framed], ["TEST_stampa-P.jpg"])
+        with mock.patch.object(review, "scan_media", return_value=items), \
+             mock.patch.object(review, "get_review_index", return_value={"sections": {}}):
+            result = self.client.get("/api/media/photo?frame=1").get_json()
+            self.assertEqual([item["name"] for item in result["items"]], ["TEST_stampa-P.jpg"])
+        unframed = self.client.post("/api/print/export", json=payload)
+        self.assertEqual(unframed.status_code, 200)
+        self.assertFalse(any(item["framed"] for item in review.scan_media_filesystem("photo")),
+                         "a new unframed export replaces the old framed copy")
 
     def test_export_rejects_mismatch_and_uncovered_photo(self):
         frame = self.upload().get_json()

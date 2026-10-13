@@ -313,8 +313,9 @@ On-demand full-resolution JPG export cache:
 Print editor deployed in Review on the Raspberry on 2026-10-04:
 - Editor previews: `/mnt/niwa-storage/.niwa_cache/review_editor`
 - Uploaded PNG frames and thumbnails: `/mnt/niwa-storage/.niwa_frames`
-- Final JPG/PNG exports: `/mnt/niwa-storage/exports/print/<collection>`
-  (every version). Since 2026-10-06 a JPG export is also copied beside its
+- Final JPG/PNG exports: formerly `/mnt/niwa-storage/exports/print/<collection>`;
+  since 2026-10-14 new files go directly to `/mnt/niwa-storage/exports/print/`
+  (old files are untouched). Since 2026-10-06 a JPG export is also copied beside its
   photo as `<photo name>_stampa-<format>.jpg`, with the photo's time so the
   gallery lists it right beside it; a new export of the same photo and
   format replaces that copy. PNG exports stay only in `exports/print`.
@@ -327,6 +328,17 @@ Print editor deployed in Review on the Raspberry on 2026-10-04:
   The generated P/JPG was verified at 1748 x 1181 px, 300 dpi with ICC/Exif.
 - See `docs/REVIEW_PRINT_EDITOR_ROADMAP.md` for the remaining frame, Tab S10,
   ESP end-to-end and SELPHY CP1500 validation steps.
+
+Review filter/export update deployed 2026-10-14: photo filter "Con cornice",
+unframed direct P printing, flat selection ZIP with optional day folders and
+flat new print exports. 38 Python tests passed in the live container, Review
+status HTTP 200 and NIWA Import health OK. Legacy framed copies have no frame
+metadata and will appear in the filter only after a new export. Rollback:
+`app/app.py.bak-codex-filters-20261014`, corresponding `.bak-codex-filters-20261014`
+copies of `app/static/print-editor.js`, `app/test_print_editor.py`,
+`app/test_review_trash.py` and `app/test_live_refresh.js`; Docker image
+`niwa-review-before-filters-20261014`. The Raspberry's divergent
+`test_print_editor_gestures.js` was not overwritten.
 
 Video thumbnail cache:
 
@@ -821,6 +833,19 @@ Current state:
 - duplicate reinsertion and interrupted-copy isolation have been verified
 - repeat imports use a persistent per-card inventory and quick content fingerprint
   to skip unchanged verified files before copying them again
+- 2026-10-14: duplicate checks now reuse the prior verified SHA-256 when the
+  SSD file identity, size and timestamps are unchanged; files with missing or
+  changed metadata still get a full SHA-256. New copies retain full SHA-256
+  verification. Progress JSON is saved every 20 skipped duplicates rather than
+  per file (the live API still reports every file). This removes the repeated
+  multi-GB SSD read seen in 50-59 s CFexpress jobs with 320-333 photos.
+  The first reinsertion after this update still verifies legacy entries once
+  to record the SSD signatures; later insertions take the fast path. No card
+  was attached at deployment, so physical speed remains to be measured.
+  All 33 import/bridge tests passed on the Raspberry; service and Review health
+  returned OK. Backup files: `host/import-service/niwa_import.py.bak-codex-fast-card-20261014`,
+  `niwa_import.py.installed.bak-codex-fast-card-20261014` and
+  `test_niwa_import.py.bak-codex-fast-card-20261014` in that same folder.
 - optimized GoPro reinsertion test recognized six unchanged files in about one
   second with zero bytes copied
 - completed staging is removed immediately; interrupted staging is retained for

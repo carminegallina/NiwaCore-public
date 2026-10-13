@@ -490,7 +490,9 @@
         state.loadingFrame = !!frame;
         state.frameError = false;
         if (!frame) {
-            state.preset = 'original';
+            // Direct SELPHY printing needs P even when no frame is applied.
+            // "Originale" remains available in the format selector for exports.
+            state.preset = 'P';
             state.orientation = state.adjusted.width >= state.adjusted.height
                 ? 'landscape' : 'portrait';
             $('printPreset').value = state.preset;

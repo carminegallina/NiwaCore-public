@@ -187,7 +187,7 @@ class ReviewTrashTests(unittest.TestCase):
         # Purged for good: still recorded, so the camera cannot bring it back.
         self.assertEqual(self.deleted_paths(), ["photo/imports/day1/DSC_2.NEF"])
 
-    def test_download_streams_a_zip_with_folders_and_sidecars(self):
+    def test_download_streams_a_flat_zip_with_sidecars(self):
         response = self.client.post(
             "/api/media/photo/download",
             data={"ids": [file_id("imports/day1/DSC_1.NEF"), file_id("imports/day2/DSC_3.JPG")]},
@@ -197,9 +197,28 @@ class ReviewTrashTests(unittest.TestCase):
         with zipfile.ZipFile(io.BytesIO(response.get_data())) as archive:
             self.assertEqual(
                 sorted(archive.namelist()),
-                ["imports/day1/DSC_1.NEF", "imports/day1/DSC_1.xmp", "imports/day2/DSC_3.JPG"],
+                ["DSC_1.NEF", "DSC_1.xmp", "DSC_3.JPG"],
             )
-            self.assertEqual(archive.read("imports/day2/DSC_3.JPG"), b"jpeg-three")
+            self.assertEqual(archive.read("DSC_3.JPG"), b"jpeg-three")
+
+    def test_download_by_day_keeps_only_one_folder_level_and_renames_collisions(self):
+        other = self.photo / "imports/day2/DSC_1.NEF"
+        other.write_bytes(b"raw-other")
+        for relative in ("imports/day1/DSC_1.NEF", "imports/day2/DSC_1.NEF"):
+            path = self.photo / relative
+            os.utime(path, (1725832800, 1725832800))
+        response = self.client.post("/api/media/photo/download", data={
+            "ids": [file_id("imports/day1/DSC_1.NEF"), file_id("imports/day2/DSC_1.NEF")],
+            "by_day": "1",
+        })
+        self.assertEqual(response.status_code, 200)
+        with zipfile.ZipFile(io.BytesIO(response.get_data())) as archive:
+            names = archive.namelist()
+            self.assertEqual(len(names), 3)
+            self.assertTrue(all(name.count("/") == 1 for name in names))
+            self.assertEqual(len(set(name.casefold() for name in names)), 3)
+            self.assertIn(b"raw-one", [archive.read(name) for name in names])
+            self.assertIn(b"raw-other", [archive.read(name) for name in names])
 
     def test_rejects_paths_outside_the_library(self):
         response = self.client.post("/api/media/photo/trash", json={"ids": [file_id("../secret.NEF")]})
