@@ -136,7 +136,9 @@ class NiwaImportTests(unittest.TestCase):
             return original_copy(source, staged_path)
 
         niwa_import.copy_and_verify = track_copy
-        niwa_import.run_import(self.device(), "camera", "test")
+        with mock.patch.object(niwa_import, "sha256_file",
+                               side_effect=AssertionError("unchanged copy was rehashed")):
+            niwa_import.run_import(self.device(), "camera", "test")
 
         jobs = niwa_import.load_jobs()["jobs"]
         self.assertEqual(jobs[0]["status"], "completed")
@@ -146,6 +148,28 @@ class NiwaImportTests(unittest.TestCase):
         self.assertEqual(jobs[0]["bytes_copied"], 0)
         self.assertEqual(calls, [])
         self.assertEqual(len(list((self.storage / "photo").rglob("*.NEF"))), 1)
+
+    def test_unchanged_destination_metadata_is_cached_after_first_verification(self):
+        relative = "DCIM/100NZ6_2/DSC_0010.JPG"
+        self.write_source(relative, b"jpg-ten")
+        niwa_import.run_import(self.device(), "camera", "test")
+        inventory = next(iter(niwa_import.load_hashes()["sources"].values()))
+        cached = next(iter(inventory.values()))
+        self.assertEqual(cached["destination_stat"],
+                         niwa_import.destination_signature(Path(cached["destination"])))
+        with mock.patch.object(niwa_import, "sha256_file",
+                               side_effect=AssertionError("unchanged copy was rehashed")):
+            niwa_import.run_import(self.device(), "camera", "test")
+        self.assertEqual(niwa_import.load_jobs()["jobs"][0]["fast_skipped_files"], 1)
+
+    def test_duplicate_progress_is_persisted_in_batches(self):
+        for index in range(25):
+            self.write_source(f"DCIM/DSC_{index:04d}.JPG", b"photo" + bytes([index]))
+        niwa_import.run_import(self.device(), "camera", "test")
+        with mock.patch.object(niwa_import, "save_job", wraps=niwa_import.save_job) as saved:
+            niwa_import.run_import(self.device(), "camera", "test")
+        self.assertEqual(niwa_import.load_jobs()["jobs"][0]["fast_skipped_files"], 25)
+        self.assertLess(saved.call_count, 10, "duplicates do not fsync the job JSON for each file")
 
     def test_card_import_never_brings_back_files_deleted_in_review(self):
         self.write_source("DCIM/100NZ6_2/DSC_0007.NEF", b"raw-seven")

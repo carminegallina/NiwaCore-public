@@ -534,6 +534,11 @@ def known_destinations_by_relative(hashes):
     return destinations
 
 
+def destination_signature(path):
+    stat = path.stat()
+    return [stat.st_dev, stat.st_ino, stat.st_size, stat.st_mtime_ns, stat.st_ctime_ns]
+
+
 def cached_duplicate(source_path, key, source_inventory, destinations):
     signature = quick_fingerprint(source_path)
     cached = source_inventory.get(key)
@@ -544,11 +549,15 @@ def cached_duplicate(source_path, key, source_inventory, destinations):
     ):
         destination = Path(cached.get("destination", ""))
         digest = cached.get("digest")
+        # shortcut: unchanged inode/size/times reuse the prior SHA; audit separately for silent bit rot.
         if (
-            destination.exists()
+            destination.is_file()
             and cached.get("quick_hash") == signature["quick_hash"]
             and isinstance(digest, str)
-            and sha256_file(destination) == digest
+            and (
+                cached.get("destination_stat") == destination_signature(destination)
+                or sha256_file(destination) == digest
+            )
         ):
             return signature, destination, digest
 
@@ -572,6 +581,7 @@ def remember_source_file(source_inventory, key, signature, digest, destination):
         **signature,
         "digest": digest,
         "destination": str(destination),
+        "destination_stat": destination_signature(destination) if destination.is_file() else None,
     }
 
 
@@ -773,7 +783,8 @@ def run_import_locked(device, profile, trigger):
                 job["duplicate_files"] += 1
                 job["fast_skipped_files"] += 1
                 job["message"] = f"Gia verificato, salto rapido: {relative}"
-                save_job(job)
+                if job["processed_files"] % 20 == 0:
+                    save_job(job)
                 continue
 
             if inventory_deleted(source_inventory.get(key), signature, deleted):
