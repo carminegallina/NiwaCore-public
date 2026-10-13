@@ -208,11 +208,13 @@ the JPEG's actual end has arrived. A capture appearing during any upload still
 interrupts after a confirmed chunk and joins the next scan. Staged offsets are
 kept in the existing NIWA Import session; no file is published without full
 SHA-256 verification. A single new shot still completes in one pass.
-This source compiled on 2026-10-14 and the interleaved-session Import test
-passed; the physical board remains on 1.2.1 because only COM1 was present on
-the Windows PC. Before flashing, attach the bridge on its right COM port,
-close any serial monitor and run `niwa-arduino.cmd -Action ports` to identify
-its port. If it appears as COM4, upload with:
+This source compiled on 2026-10-14, the 34 Import tests passed, and the board
+was flashed on COM4 with the flash hash verified. `STATUS` reported 1.3.0 and
+the retained Wi-Fi and bridge token configuration; `WIFI_CONNECT` joined
+NIWA-AP at 10.42.0.100. Nikon PTP and burst behavior still need the camera
+test. For a future flash, attach the bridge on its right COM port, close any
+serial monitor and run `niwa-arduino.cmd -Action ports` to identify its port.
+If it appears as COM4, upload with:
 
 ```powershell
 .\firmware\tools\niwa-arduino.cmd -Action upload `

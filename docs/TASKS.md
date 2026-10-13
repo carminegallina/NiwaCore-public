@@ -16,10 +16,12 @@
       probabile anteprima, infine si completano gli upload. Firmware 1.3.0
       compilato; il test Import di upload intercalati passa. Nessuna pubblicazione
       avviene prima della verifica SHA-256 completa.
-- [ ] Collegare l'ESP32-S3 alla porta COM e caricare il firmware 1.3.0 (al
-      controllo del 2026-10-14 il PC mostrava solo COM1). Provare una raffica
-      NEF reale con Nikon collegata: ordine dei primi MiB, anteprime Review,
-      file finali integri, ripresa dopo scollegamento e nessun duplicato.
+- [x] Firmware 1.3.0 caricato sull'ESP32-S3 via COM4, hash flash verificato;
+      `STATUS` conferma versione e configurazione conservata, `WIFI_CONNECT`
+      collega NIWA-AP (2026-10-14).
+- [ ] Provare una raffica NEF reale con Nikon collegata: ordine dei primi MiB,
+      anteprime Review, file finali integri, ripresa dopo scollegamento e
+      nessun duplicato.
 - [ ] Poi evolvere l'indice Review per raggruppare NEF/JPG, varianti
       `_conflict_` e data di scatto con origine esplicita.
 
