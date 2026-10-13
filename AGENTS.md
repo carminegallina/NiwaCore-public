@@ -458,6 +458,13 @@ Current Nikon bridge state (2026-10-05):
 - keep rear `USB-OTG` and front `IN-OUT` bridges closed, matching reported tests
 - see `firmware/README.md` for evidence and the physical validation sequence
 
+Firmware 1.3.0 source (2026-10-14) adds burst staging: first 1 MiB of each
+new shot, then up to 4 MiB each for likely embedded JPEG previews, then full
+uploads. It compiles and the Import interleaving test passes, but it is not
+flashed or physically validated; the board still runs 1.2.1. Only COM1 was
+present on the Windows PC during this update. See `firmware/README.md` and
+`docs/TASKS.md` for the bench validation sequence.
+
 For repeated Companion prototype flashes, the firmware may also use the ignored
 local file:
 
@@ -611,6 +618,6 @@ Agent working notes:
 
 Useful next-thread prompt:
 
-Continue NIWA in C:\Dev\portfolio\NiwaCore. Read AGENTS.md, PROJECT_HISTORY.md, ROADMAP.md, SYSTEM_SNAPSHOT.md, docs/TASKS.md and docs/REVIEW_PRINT_EDITOR_ROADMAP.md. Latest code checkpoints are 71ffea3 and 71e1b67; both are deployed, with physical CFexpress speed still to measure. Preserve all current workflows. Next software candidates: firmware phase B (send the first part of every new shot in a burst before completing them; Review needs roughly 3 MB for its embedded JPEG), then the JSON index toward shot grouping (NEF+JPG, `_conflict_`) and reliable capture timestamps. Confirm the user's next priority before starting either major change.
+Continue NIWA in C:\Dev\portfolio\NiwaCore. Read AGENTS.md, PROJECT_HISTORY.md, ROADMAP.md, SYSTEM_SNAPSHOT.md, docs/TASKS.md and docs/REVIEW_PRINT_EDITOR_ROADMAP.md. Review and Import checkpoints 71e1b67 and 71ffea3 are deployed; physical CFexpress speed remains to measure. Firmware 1.3.0 phase B source is compiled but not flashed: connect the ESP32-S3 COM port, then validate a real Nikon burst, previews, full hashes and reconnect before treating it as stable. Preserve all current workflows. After hardware validation, the next software candidate is the JSON index for shot grouping (NEF+JPG, `_conflict_`) and reliable capture timestamps.
 
 ## Imported Claude Cowork project instructions

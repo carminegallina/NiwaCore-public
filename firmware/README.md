@@ -200,6 +200,32 @@ was importing the older `_DSC7157.NEF`, it paused at the confirmed offset
 then resumed and verified `_DSC7157.NEF`. The new photo appeared in the Review
 API. Automatic browser refresh was confirmed in NIWA Review.
 
+Firmware 1.3.0 adds burst staging. When at least two new captures are waiting,
+the bridge sends the first 1 MiB of each (within one checkpoint batch), then
+extends each to 4 MiB, then resumes each to completion. The second round is a
+best-effort threshold for the embedded JPEG; Review shows the image only once
+the JPEG's actual end has arrived. A capture appearing during any upload still
+interrupts after a confirmed chunk and joins the next scan. Staged offsets are
+kept in the existing NIWA Import session; no file is published without full
+SHA-256 verification. A single new shot still completes in one pass.
+This source compiled on 2026-10-14 and the interleaved-session Import test
+passed; the physical board remains on 1.2.1 because only COM1 was present on
+the Windows PC. Before flashing, attach the bridge on its right COM port,
+close any serial monitor and run `niwa-arduino.cmd -Action ports` to identify
+its port. If it appears as COM4, upload with:
+
+```powershell
+.\firmware\tools\niwa-arduino.cmd -Action upload `
+  -Sketch .\firmware\esp32s3-z6ii-bridge -Port COM4 `
+  -Fqbn 'esp32:esp32:esp32s3:USBMode=default,CDCOnBoot=default,UploadMode=default,CPUFreq=240,FlashMode=qio,FlashSize=16M,PartitionScheme=app3M_fat9M_16MB,DebugLevel=debug,PSRAM=opi,LoopCore=1,EventsCore=1,EraseFlash=none,JTAGAdapter=default,ZigbeeMode=default'
+```
+
+Use the actual detected COM port if it differs. Then
+take a short NEF burst while the camera is attached: expect `[BURST]` staging
+lines for each shot before either completes, previews in `/api/incoming` once
+their JPEG bytes arrive, and final files only after `[VERIFY]`. Disconnect and
+reconnect once to confirm resumed uploads and no duplicate publications.
+
 Live test: connect a camera containing at least two older, not-yet-imported
 photos; while the serial monitor shows an old upload, take a new photo. Expect
 `[PRIORITY] Pausing ...`, publication of the new photo first, and then a resumed

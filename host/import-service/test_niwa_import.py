@@ -472,6 +472,47 @@ class NiwaImportTests(unittest.TestCase):
         ]
         self.assertTrue(any(entry.get("quick_hash") == quick_hash for entry in source_entries))
 
+    def test_bridge_interleaves_burst_prefixes_then_resumes_both_files(self):
+        photos = [b"first-nef" * 1000, b"second-nef" * 1000]
+        session_id = niwa_import.bridge_create_session({
+            "source_id": "nikon-burst", "client_id": "esp32-s3",
+        })["session_id"]
+        uploads = []
+        for index, content in enumerate(photos):
+            response = niwa_import.bridge_preflight(session_id, {
+                "object_id": str(index + 1),
+                "source_key": f"slot-1:{index + 1}",
+                "filename": f"DSC_{index + 1:04d}.NEF",
+                "size": len(content),
+            })
+            uploads.append(response["upload_id"])
+            niwa_import.bridge_receive_chunk(
+                uploads[-1], 0, 1023, len(content), content[:1024],
+            )
+        self.assertEqual(list((self.storage / "photo").rglob("*.NEF")), [])
+
+        for index, content in enumerate(photos):
+            resumed = niwa_import.bridge_preflight(session_id, {
+                "object_id": str(index + 1),
+                "source_key": f"slot-1:{index + 1}",
+                "filename": f"DSC_{index + 1:04d}.NEF",
+                "size": len(content),
+            })
+            self.assertEqual(resumed["upload_id"], uploads[index])
+            self.assertEqual(resumed["offset"], 1024)
+            niwa_import.bridge_receive_chunk(
+                uploads[index], 1024, len(content) - 1,
+                len(content), content[1024:],
+            )
+            niwa_import.bridge_complete_upload(uploads[index], {
+                "sha256": niwa_import.hashlib.sha256(content).hexdigest(),
+            })
+        niwa_import.bridge_complete_session(session_id)
+        for index, content in enumerate(photos):
+            published = list((self.storage / "photo").rglob(f"DSC_{index + 1:04d}.NEF"))
+            self.assertEqual(len(published), 1)
+            self.assertEqual(published[0].read_bytes(), content)
+
     def test_bridge_recovers_verified_rename_before_json_save(self):
         content = b"legacy-power-loss" * 4000
         digest = niwa_import.hashlib.sha256(content).hexdigest()

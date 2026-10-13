@@ -11,11 +11,15 @@
       popolamento delle firme SSD, per confermare il guadagno di tempo.
 - [ ] Verificare gli ZIP e il filtro Review sul Tab S10 con foto reali, incluse
       due foto con lo stesso nome e un file XMP.
-- [ ] Definire la fase B del bridge Nikon: il primo MB di ciascuno scatto di una
-      raffica deve arrivare prima del resto; Review mostra l'anteprima NEF solo
-      quando sono arrivati tutti i byte del JPEG incorporato (circa 3 MB nei
-      test precedenti). Mantenere priorita' dei nuovi scatti, ripresa da offset
-      confermato e verifica SHA-256 prima della pubblicazione.
+- [x] Preparare la fase B del bridge Nikon: in una raffica il primo MiB di ogni
+      nuovo scatto arriva prima del resto, poi ciascuno arriva a 4 MiB per la
+      probabile anteprima, infine si completano gli upload. Firmware 1.3.0
+      compilato; il test Import di upload intercalati passa. Nessuna pubblicazione
+      avviene prima della verifica SHA-256 completa.
+- [ ] Collegare l'ESP32-S3 alla porta COM e caricare il firmware 1.3.0 (al
+      controllo del 2026-10-14 il PC mostrava solo COM1). Provare una raffica
+      NEF reale con Nikon collegata: ordine dei primi MiB, anteprime Review,
+      file finali integri, ripresa dopo scollegamento e nessun duplicato.
 - [ ] Poi evolvere l'indice Review per raggruppare NEF/JPG, varianti
       `_conflict_` e data di scatto con origine esplicita.
 
