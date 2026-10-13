@@ -543,9 +543,18 @@ Advanced:
 
 ## Current stable checkpoint
 
-Latest validated stable code checkpoint:
+Latest validated code checkpoints:
 
-f255457 fix: measured SELPHY margins for portrait postcards
+- `71ffea3`: NIWA Import reuses a verified destination hash when the SSD file
+  identity, size and timestamps have not changed. Deployed 2026-10-14; 33
+  import/bridge tests passed. Physical CFexpress reinsertion speed remains to
+  be measured.
+- `71e1b67`: Review adds the "Con cornice" filter, flat selection ZIPs with an
+  optional day split, flat new print exports, and direct P printing without a
+  frame. Deployed 2026-10-14; 38 Python tests passed in the live container and
+  the JavaScript checks passed locally. See SYSTEM_SNAPSHOT.md for rollback.
+
+Earlier measured SELPHY checkpoint: `f255457`.
 
 Deployed and validated on the Raspberry on 2026-10-05 (each with a named
 backup, listed in SYSTEM_SNAPSHOT.md):
@@ -580,7 +589,7 @@ framed prints from the tablet; see `docs/STAMPA_DIRETTA.md`.
 Review tests: `docker exec review-panel python -m unittest test_review_trash
 test_media_derivatives test_print_editor test_slideshow test_direct_print`.
 
-Still to verify physically before the 2026-10-08 event (docs/TASKS.md):
+Physical checks still open (docs/TASKS.md; event outcome not recorded):
 tablet and ESP32 reconnection after a channel switch during a transfer, a
 shot taken while the camera is attached, the full Nikon -> ESP -> Review ->
 editor -> print path, camera power for long transfers, and the CFexpress reader
@@ -602,6 +611,6 @@ Agent working notes:
 
 Useful next-thread prompt:
 
-Continue NIWA in C:\Dev\portfolio\NiwaCore. Read AGENTS.md, PROJECT_HISTORY.md, ROADMAP.md, SYSTEM_SNAPSHOT.md, docs/REVIEW_PRINT_EDITOR_ROADMAP.md and docs/CORNICI_SELPHY.md. Stable validated checkpoint is f255457. Preserve all current workflows. Before the 2026-10-08 event only fix what the physical tests show. After it: firmware phase B (the bridge sends the first MB of every shot of a burst first), then the JSON index toward shot grouping (NEF+JPG, `_conflict_`) and reliable capture timestamps.
+Continue NIWA in C:\Dev\portfolio\NiwaCore. Read AGENTS.md, PROJECT_HISTORY.md, ROADMAP.md, SYSTEM_SNAPSHOT.md, docs/TASKS.md and docs/REVIEW_PRINT_EDITOR_ROADMAP.md. Latest code checkpoints are 71ffea3 and 71e1b67; both are deployed, with physical CFexpress speed still to measure. Preserve all current workflows. Next software candidates: firmware phase B (send the first part of every new shot in a burst before completing them; Review needs roughly 3 MB for its embedded JPEG), then the JSON index toward shot grouping (NEF+JPG, `_conflict_`) and reliable capture timestamps. Confirm the user's next priority before starting either major change.
 
 ## Imported Claude Cowork project instructions

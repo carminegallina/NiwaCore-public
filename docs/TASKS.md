@@ -1,5 +1,24 @@
 # Tasks
 
+## Stato al 2026-10-14
+
+- [x] Distribuiti e registrati in Git il filtro Review "Con cornice", gli ZIP
+      piatti o divisi per giorno, gli export di stampa in `exports/print/` e la
+      stampa P senza cornice (`71e1b67`).
+- [x] Distribuito e registrato in Git il riuso dello SHA-256 verificato per le
+      reinserzioni CFexpress (`71ffea3`); 33 test Import superati.
+- [ ] Misurare con la vera CFexpress una seconda reinserzione dopo il primo
+      popolamento delle firme SSD, per confermare il guadagno di tempo.
+- [ ] Verificare gli ZIP e il filtro Review sul Tab S10 con foto reali, incluse
+      due foto con lo stesso nome e un file XMP.
+- [ ] Definire la fase B del bridge Nikon: il primo MB di ciascuno scatto di una
+      raffica deve arrivare prima del resto; Review mostra l'anteprima NEF solo
+      quando sono arrivati tutti i byte del JPEG incorporato (circa 3 MB nei
+      test precedenti). Mantenere priorita' dei nuovi scatti, ripresa da offset
+      confermato e verifica SHA-256 prima della pubblicazione.
+- [ ] Poi evolvere l'indice Review per raggruppare NEF/JPG, varianti
+      `_conflict_` e data di scatto con origine esplicita.
+
 ## Migrazione portfolio
 
 - [x] Migrare repository da `C:\Users\utente\Projects\niwa`.
