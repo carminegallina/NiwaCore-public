@@ -211,8 +211,16 @@ SHA-256 verification. A single new shot still completes in one pass.
 This source compiled on 2026-10-14, the 34 Import tests passed, and the board
 was flashed on COM4 with the flash hash verified. `STATUS` reported 1.3.0 and
 the retained Wi-Fi and bridge token configuration; `WIFI_CONNECT` joined
-NIWA-AP at 10.42.0.100. Nikon PTP and burst behavior still need the camera
-test. For a future flash, attach the bridge on its right COM port, close any
+NIWA-AP at 10.42.0.100. On 2026-10-14, with the cables corrected, the Z6 II
+enumerated through PTP and the bridge read slot 1. A live JPG burst staged the
+first 1 MiB of `_DSC8323.JPG` through `_DSC8325.JPG` before finishing any of
+them; each completed with Raspberry SHA-256 verification. A new capture also
+paused an older upload at its confirmed offset and that upload later resumed.
+A second burst (`_DSC8329.JPG` through `_DSC8331.JPG`) staged each file first
+to 1 MiB and then to 4 MiB before completing them. These observations validate
+the scheduling with JPGs; NEF previews, Review publication, and reconnect
+recovery still need physical verification. For a future flash, attach the
+bridge on its right COM port, close any
 serial monitor and run `niwa-arduino.cmd -Action ports` to identify its port.
 If it appears as COM4, upload with:
 

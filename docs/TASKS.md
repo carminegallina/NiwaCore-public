@@ -19,6 +19,12 @@
 - [x] Firmware 1.3.0 caricato sull'ESP32-S3 via COM4, hash flash verificato;
       `STATUS` conferma versione e configurazione conservata, `WIFI_CONNECT`
       collega NIWA-AP (2026-10-14).
+- [x] Con i cavi corretti, Nikon Z6 II riconosciuta via PTP. Su JPG reali,
+      `_DSC8323`-`_DSC8325` hanno ricevuto ciascuno il primo MiB prima del
+      completamento; `_DSC8329`-`_DSC8331` sono avanzati ciascuno a 4 MiB
+      prima del trasferimento finale. SHA-256 verificato dal Raspberry per i
+      file osservati. Un nuovo scatto ha interrotto e poi fatto riprendere un
+      vecchio upload all'offset confermato (2026-10-14).
 - [ ] Provare una raffica NEF reale con Nikon collegata: ordine dei primi MiB,
       anteprime Review, file finali integri, ripresa dopo scollegamento e
       nessun duplicato.
