@@ -220,8 +220,10 @@ A second burst (`_DSC8329.JPG` through `_DSC8331.JPG`) staged each file first
 to 1 MiB and then to 4 MiB before completing them. Three live slot-1 NEFs
 (`_DSC8335.NEF` through `_DSC8337.NEF`, about 18.8 MB each) followed the same
 order: all first MiB blocks, all 4 MiB prefixes, then full uploads. The
-Raspberry verified all three with SHA-256. Review previews/publication and
-reconnect recovery still need physical verification. For a future flash, attach the
+Raspberry verified all three with SHA-256. Review's photo API lists all three,
+and the user confirmed they are visible on the Tab S10 after the hotspot
+channel change. The in-progress Review preview and camera disconnect/reconnect
+recovery still need physical verification. For a future flash, attach the
 bridge on its right COM port, close any
 serial monitor and run `niwa-arduino.cmd -Action ports` to identify its port.
 If it appears as COM4, upload with:

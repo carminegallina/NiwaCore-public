@@ -28,8 +28,10 @@
 - [x] Raffica NEF reale sullo slot 1: `_DSC8335`-`_DSC8337` hanno ricevuto
       ciascuno 1 MiB, poi 4 MiB, prima dei trasferimenti completi; SHA-256
       verificato dal Raspberry per tutti e tre (2026-10-14).
-- [ ] Verificare sul Tab S10 le anteprime "In arrivo dal bridge" e i NEF
-      pubblicati in Review; poi provare ripresa dopo scollegamento e nessun
+- [x] I tre NEF `_DSC8335`-`_DSC8337` risultano pubblicati nell'API Foto di
+      Review e visibili anche sul Tab S10 dopo il cambio di canale (2026-10-14).
+- [ ] Verificare sul Tab S10 le anteprime "In arrivo dal bridge" durante un
+      upload NEF; poi provare ripresa dopo aver scollegato la Nikon e nessun
       duplicato.
 - [ ] Poi evolvere l'indice Review per raggruppare NEF/JPG, varianti
       `_conflict_` e data di scatto con origine esplicita.
@@ -45,7 +47,8 @@
 - [x] Committare le modifiche importate.
 - [x] Creare repository GitHub privato e pushare `main`.
 - [x] Verificare Companion Panel dal nuovo percorso con `python -m py_compile`.
-- [ ] Verificare firmware su hardware dal nuovo percorso.
+- [x] Compilare, caricare e verificare il firmware 1.3.0 su hardware dal nuovo
+      percorso; raffiche JPG/NEF reali e SHA-256 passati (2026-10-14).
 
 ## Evento 2026-10-08: hotspot e bridge
 
@@ -61,8 +64,9 @@
 - [x] ESP32 ricollegato da solo dopo il cambio 6 -> 1 durante un upload:
       blocco ritentato, trasferimento ripreso e file successivi verificati
       con SHA-256 (2026-10-14).
-- [ ] Verificare sul Tab S10 il ritorno della connessione dopo un cambio
-      di canale durante il trasferimento.
+- [x] Il Tab S10 si e' ricollegato dopo il cambio di canale durante il
+      trasferimento e mostra le foto in Review (confermato dall'utente,
+      2026-10-14).
 - [ ] Sul posto: scegliere fra 1, 6 e 11 il canale con meno reti o con reti
       piu' deboli con "Cerca il canale piu libero" in NIWA System (o con
       un'app tipo WiFi Analyzer). La ricerca vede solo reti Wi-Fi, non altri
