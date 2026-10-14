@@ -276,6 +276,14 @@ is the real time per chunk. Measured on 2026-10-03:
 
 That is a 46 MB NEF published every 60 s or so, per-file overhead included.
 
+On 2026-10-14, live 2 MiB uploads had slowed to about 5.7-6.0 s per chunk
+with NIWA-AP on channel 6 (bridge RSSI -61 dBm). The Raspberry's neighbour
+scan found no networks, so it did not identify a better channel. Switching the
+hotspot to channel 1 through the restricted `niwa-admin` command improved the
+bridge RSSI to -48 dBm and brought subsequent 2 MiB chunks to about 2.2-2.4 s.
+The bridge reconnected during an active upload, retried the interrupted chunk
+and verified the following files. Channel 1 remains configured persistently.
+
 What is left: full-speed USB reads the camera at about 1 MB/s, the ceiling of
 the whole chain. Wi-Fi sends at about 870 KB/s, held back by the TCP send
 buffer compiled into Arduino-ESP32 3.3.11 (`CONFIG_LWIP_TCP_SND_BUF_DEFAULT=5744`,

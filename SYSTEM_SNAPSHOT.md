@@ -1034,9 +1034,13 @@ Current validation:
 
 ## Network notes
 
-Hotspot `NIWA-AP` is fixed to 2.4 GHz channel 1 (`band bg`) since
-2026-10-03. It used auto, which picked channel 6, shared with two neighbours.
-At an event, check the free channels on site with `WIFI_SCAN` on the bridge.
+Hotspot `NIWA-AP` is currently fixed to 2.4 GHz channel 1 (`band bg`). It
+used auto before 2026-10-03, which picked channel 6, shared with two
+neighbours. On 2026-10-14 it was found on channel 6 again; a neighbour scan
+returned no networks, but switching to channel 1 improved live 2 MiB bridge
+uploads from about 5.7-6.0 s to 2.2-2.4 s per chunk. The ESP32 reconnected
+and resumed an active upload. At an event, check free channels with NIWA
+System and compare a real transfer before keeping a new channel.
 
 The Raspberry can create a local hotspot called NIWA-AP.
 

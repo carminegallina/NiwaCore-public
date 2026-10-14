@@ -58,8 +58,11 @@
       ESP32 si ricollegano da soli: la pagina deve avvisarlo prima.
       Installati il 2026-10-05; prova 1 -> 6 -> 1 riuscita, circa 4 s senza
       Wi-Fi, ma senza dispositivi collegati.
-- [ ] Verificare che tablet ed ESP32 si ricolleghino da soli dopo un cambio
-      di canale, con un trasferimento del bridge in corso.
+- [x] ESP32 ricollegato da solo dopo il cambio 6 -> 1 durante un upload:
+      blocco ritentato, trasferimento ripreso e file successivi verificati
+      con SHA-256 (2026-10-14).
+- [ ] Verificare sul Tab S10 il ritorno della connessione dopo un cambio
+      di canale durante il trasferimento.
 - [ ] Sul posto: scegliere fra 1, 6 e 11 il canale con meno reti o con reti
       piu' deboli con "Cerca il canale piu libero" in NIWA System (o con
       un'app tipo WiFi Analyzer). La ricerca vede solo reti Wi-Fi, non altri
