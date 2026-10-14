@@ -462,8 +462,10 @@ Firmware 1.3.0 (2026-10-14) adds burst staging: first 1 MiB of each new shot,
 then up to 4 MiB each for likely embedded JPEG previews, then full uploads.
 It compiles, 34 Import tests pass, and it was flashed on COM4 with flash hash
 verified. `STATUS` reports 1.3.0 with Wi-Fi and bridge token still configured;
-`WIFI_CONNECT` joined NIWA-AP at 10.42.0.100. Nikon PTP, burst scheduling,
-Review previews and reconnect still need physical validation. See
+`WIFI_CONNECT` joined NIWA-AP at 10.42.0.100. Nikon PTP and burst scheduling
+passed with real slot-1 JPGs and three NEFs (`_DSC8335`-`_DSC8337`): first
+1 MiB each, then 4 MiB each, then full Raspberry SHA-256 verification.
+Review previews/publication and reconnect still need physical validation. See
 `firmware/README.md` and `docs/TASKS.md` for the bench sequence.
 
 For repeated Companion prototype flashes, the firmware may also use the ignored
@@ -619,6 +621,6 @@ Agent working notes:
 
 Useful next-thread prompt:
 
-Continue NIWA in C:\Dev\portfolio\NiwaCore. Read AGENTS.md, PROJECT_HISTORY.md, ROADMAP.md, SYSTEM_SNAPSHOT.md, docs/TASKS.md and docs/REVIEW_PRINT_EDITOR_ROADMAP.md. Review and Import checkpoints 71e1b67 and 71ffea3 are deployed; physical CFexpress speed remains to measure. Firmware 1.3.0 phase B is flashed and joins NIWA-AP, but Nikon burst, previews, hashes and reconnect need validation before treating it as stable. Preserve all current workflows. After hardware validation, the next software candidate is the JSON index for shot grouping (NEF+JPG, `_conflict_`) and reliable capture timestamps.
+Continue NIWA in C:\Dev\portfolio\NiwaCore. Read AGENTS.md, PROJECT_HISTORY.md, ROADMAP.md, SYSTEM_SNAPSHOT.md, docs/TASKS.md and docs/REVIEW_PRINT_EDITOR_ROADMAP.md. Review and Import checkpoints 71e1b67 and 71ffea3 are deployed; physical CFexpress speed remains to measure. Firmware 1.3.0 phase B passed the live JPG and three-NEF burst scheduling and Raspberry SHA-256 checks. Confirm Review previews/publication and reconnect without duplicates before treating it as fully stable. Preserve all current workflows. After hardware validation, the next software candidate is the JSON index for shot grouping (NEF+JPG, `_conflict_`) and reliable capture timestamps.
 
 ## Imported Claude Cowork project instructions

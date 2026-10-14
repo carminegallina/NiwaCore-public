@@ -25,9 +25,12 @@
       prima del trasferimento finale. SHA-256 verificato dal Raspberry per i
       file osservati. Un nuovo scatto ha interrotto e poi fatto riprendere un
       vecchio upload all'offset confermato (2026-10-14).
-- [ ] Provare una raffica NEF reale con Nikon collegata: ordine dei primi MiB,
-      anteprime Review, file finali integri, ripresa dopo scollegamento e
-      nessun duplicato.
+- [x] Raffica NEF reale sullo slot 1: `_DSC8335`-`_DSC8337` hanno ricevuto
+      ciascuno 1 MiB, poi 4 MiB, prima dei trasferimenti completi; SHA-256
+      verificato dal Raspberry per tutti e tre (2026-10-14).
+- [ ] Verificare sul Tab S10 le anteprime "In arrivo dal bridge" e i NEF
+      pubblicati in Review; poi provare ripresa dopo scollegamento e nessun
+      duplicato.
 - [ ] Poi evolvere l'indice Review per raggruppare NEF/JPG, varianti
       `_conflict_` e data di scatto con origine esplicita.
 

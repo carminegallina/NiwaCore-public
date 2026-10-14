@@ -217,9 +217,11 @@ first 1 MiB of `_DSC8323.JPG` through `_DSC8325.JPG` before finishing any of
 them; each completed with Raspberry SHA-256 verification. A new capture also
 paused an older upload at its confirmed offset and that upload later resumed.
 A second burst (`_DSC8329.JPG` through `_DSC8331.JPG`) staged each file first
-to 1 MiB and then to 4 MiB before completing them. These observations validate
-the scheduling with JPGs; NEF previews, Review publication, and reconnect
-recovery still need physical verification. For a future flash, attach the
+to 1 MiB and then to 4 MiB before completing them. Three live slot-1 NEFs
+(`_DSC8335.NEF` through `_DSC8337.NEF`, about 18.8 MB each) followed the same
+order: all first MiB blocks, all 4 MiB prefixes, then full uploads. The
+Raspberry verified all three with SHA-256. Review previews/publication and
+reconnect recovery still need physical verification. For a future flash, attach the
 bridge on its right COM port, close any
 serial monitor and run `niwa-arduino.cmd -Action ports` to identify its port.
 If it appears as COM4, upload with:
