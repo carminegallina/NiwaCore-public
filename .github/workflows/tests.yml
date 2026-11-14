@@ -1,0 +1,37 @@
+name: tests
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      # The import service runs on the standard library alone. These are only
+      # the panel test dependencies; rawpy is not needed, because the RAW paths
+      # import it lazily and the tests do not reach them.
+      - name: Install panel test dependencies
+        run: pip install flask Pillow numpy
+
+      - name: Import service
+        run: python -m unittest discover -s host/import-service -p 'test_*.py'
+
+      - name: System panel
+        run: python -m unittest discover -s docker/system-panel/app -p 'test_*.py'
+
+      - name: Review panel
+        run: python -m unittest discover -s docker/review-panel/app -p 'test_*.py'
+
+      - name: Review panel, browser-side logic
+        working-directory: docker/review-panel/app
+        run: |
+          node test_live_refresh.js
+          node test_print_editor_gestures.js

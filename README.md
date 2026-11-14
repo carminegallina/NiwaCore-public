@@ -1,5 +1,7 @@
 # NiwaCore
 
+[![tests](https://github.com/carminegallina/NiwaCore-public/actions/workflows/tests.yml/badge.svg)](https://github.com/carminegallina/NiwaCore-public/actions/workflows/tests.yml)
+
 Hub local-first su Raspberry Pi per il lavoro fotografico sul campo: importa gli
 scatti dalla fotocamera, li fa selezionare su tablet e li stampa, senza cloud e
 senza internet.
@@ -83,8 +85,8 @@ l'hotspot · IPP/CUPS per la stampa
 |---|---|
 | Righe di codice | ~27.400 (15.800 Python, 4.500 Arduino/C++, 1.400 JS) |
 | Servizi Docker | 8, un compose per servizio |
-| Suite di test | 9 (`pytest` e script Node) |
-| Commit | 97, dal 2026-05-25 |
+| Suite di test | 9: 79 test Python e 2 script Node, tutti in CI |
+| Commit | 98, dal 2026-05-25 |
 
 ## Struttura
 
@@ -100,17 +102,32 @@ configs/     configurazione della dashboard
 
 ## Verifiche locali
 
-Il servizio di import non ha dipendenze oltre la standard library:
+Il servizio di import gira sulla sola standard library, quindi i suoi 34 test
+non chiedono di installare niente:
 
 ```bash
-python -m pytest host/import-service/test_niwa_import.py
+python -m unittest discover -s host/import-service -p 'test_*.py'
 ```
 
-I test dei pannelli richiedono le dipendenze del pannello (`flask`) in un venv:
+I pannelli vogliono `flask`, `Pillow` e `numpy` in un venv. `rawpy` compare nel
+`requirements.txt` del Review ma non serve ai test: i percorsi RAW lo importano
+solo quando leggono davvero un NEF.
 
 ```bash
-python -m pytest docker/review-panel/app/test_print_editor.py
+pip install flask Pillow numpy
+python -m unittest discover -s docker/system-panel/app -p 'test_*.py'
+python -m unittest discover -s docker/review-panel/app -p 'test_*.py'
 ```
+
+La logica lato browser dell'editor di stampa ha due test Node senza dipendenze:
+
+```bash
+cd docker/review-panel/app
+node test_live_refresh.js && node test_print_editor_gestures.js
+```
+
+Sono gli stessi comandi che esegue la CI, in
+[.github/workflows/tests.yml](.github/workflows/tests.yml).
 
 Il firmware si compila con `firmware/tools/niwa-arduino.cmd` (FQBN e impostazioni
 IDE in [firmware/README.md](firmware/README.md)).
