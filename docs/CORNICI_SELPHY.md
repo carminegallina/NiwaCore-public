@@ -1,6 +1,6 @@
 # Cornici e stampa SELPHY: guida pratica
 
-Riferimento per creare, adattare e caricare cornici nell'editor di stampa di NIWA Review, e per stampare sulla Canon SELPHY CP1500. Raccoglie quanto verificato fino al 2026-10-05 con stampe reali. Il resto dell'editor è descritto in [REVIEW_PRINT_EDITOR_ROADMAP.md](REVIEW_PRINT_EDITOR_ROADMAP.md).
+Riferimento per creare, adattare e caricare cornici nell'editor di stampa di NIWA Review, e per stampare sulla Canon SELPHY CP1500. Raccoglie quanto verificato fino al 2026-10-05 con stampe reali.
 
 ## In breve
 

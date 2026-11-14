@@ -2,7 +2,6 @@
 
 ## 2026-07-05
 
-- Migrato NIWA da `C:\Users\utente\Projects\niwa` a `C:\Dev\portfolio\NiwaCore`.
 - Preservata storia Git tramite clone locale.
 - Backup scaffold precedente:
   `C:\Dev\portfolio_migration_backup\NiwaCore-scaffold-20260705-192200`

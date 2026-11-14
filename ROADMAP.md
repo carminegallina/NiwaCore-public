@@ -181,7 +181,7 @@ Checks:
   as their embedded JPEG is in (about the first 3 MB), view only; next step
   after the event: firmware that sends the first MB of every shot first
 - pending: tablet and ESP32 reconnection after a switch during a transfer,
-  and camera power for long transfers, see `docs/TASKS.md`
+  and camera power for long transfers
 - keep the existing hardware and avoid a direct Nikon-to-Raspberry connection;
   assess event readiness only after those checks pass
 
@@ -522,8 +522,7 @@ Future:
 
 ### Print workflow
 
-Next: physically validate the deployed, handoff-ready
-[`docs/REVIEW_PRINT_EDITOR_ROADMAP.md`](docs/REVIEW_PRINT_EDITOR_ROADMAP.md).
+Next: physically validate the deployed, handoff-ready print workflow.
 
 Scope: Review photo editor -> frame gallery (generic/event PNGs with visible P/L/C
 or digital-ratio badges) -> separate export size/file choices -> edited JPG/PNG

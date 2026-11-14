@@ -326,8 +326,8 @@ Print editor deployed in Review on the Raspberry on 2026-10-04:
   `niwa-review-before-beside-20261006`.
 - The live Review API and one real Nikon NEF preview/export/download passed.
   The generated P/JPG was verified at 1748 x 1181 px, 300 dpi with ICC/Exif.
-- See `docs/REVIEW_PRINT_EDITOR_ROADMAP.md` for the remaining frame, Tab S10,
-  ESP end-to-end and SELPHY CP1500 validation steps.
+- Remaining to validate: frame handling, Tab S10, ESP end-to-end and the
+  SELPHY CP1500 print path.
 
 Review filter/export update deployed 2026-10-14: photo filter "Con cornice",
 unframed direct P printing, flat selection ZIP with optional day folders and

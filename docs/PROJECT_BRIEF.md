@@ -33,5 +33,4 @@ Costruire un hub locale Raspberry Pi per workflow fotografici/video, storage, re
 
 ## Stato migrazione
 
-Migrato da `C:\Users\utente\Projects\niwa` a `C:\Dev\portfolio\NiwaCore` il 2026-07-05.
 
