@@ -2,116 +2,117 @@
 
 [![tests](https://github.com/carminegallina/NiwaCore-public/actions/workflows/tests.yml/badge.svg)](https://github.com/carminegallina/NiwaCore-public/actions/workflows/tests.yml)
 
-Hub local-first su Raspberry Pi per il lavoro fotografico sul campo: importa gli
-scatti dalla fotocamera, li fa selezionare su tablet e li stampa, senza cloud e
-senza internet.
+**English** · [Italiano](README.it.md)
 
-Non e' un progetto dimostrativo: gira su hardware reale e viene portato alle
-fiere, dove l'unica rete disponibile e' l'hotspot del Raspberry stesso.
+A local-first Raspberry Pi hub for photography work in the field: it pulls shots
+off the camera, lets someone cull them on a tablet, and prints them. No cloud,
+no internet.
+
+This is not a demo project. It runs on real hardware and gets carried to
+conventions, where the only network available is the Raspberry's own hotspot.
 
 ```
- Nikon Z6 II ──USB/PTP──▶ ESP32-S3 ──Wi-Fi──▶ Raspberry Pi ──▶ Review su tablet
+ Nikon Z6 II ──USB/PTP──▶ ESP32-S3 ──Wi-Fi──▶ Raspberry Pi ──▶ Review on a tablet
                                                    │                    │
- CFexpress ──lettore USB 3.0──▶ Import service ─────┘                    └──IPP──▶ Canon SELPHY CP1500
+ CFexpress ──USB 3.0 reader──▶ Import service ─────┘                    └──IPP──▶ Canon SELPHY CP1500
                                                    ▼
                                                /storage
 ```
 
-## I pezzi tecnicamente interessanti
+## The parts worth reading
 
-### Bridge ESP32-S3 fra Nikon Z6 II e Raspberry
+### ESP32-S3 bridge between a Nikon Z6 II and the Raspberry
 
-Un ESP32-S3 fa da USB host PTP verso la fotocamera e carica gli scatti sul
-Raspberry via Wi-Fi, mentre si scatta.
+An ESP32-S3 acts as a USB PTP host towards the camera and uploads shots to the
+Raspberry over Wi-Fi while shooting continues.
 
-- **Upload resumibile a chunk da 2 MiB.** L'offset confermato e' durevole lato
-  Raspberry: se il Wi-Fi cade, il bridge riprende dal punto giusto invece di
-  ricominciare. Ogni file viene verificato con SHA-256 prima della
-  pubblicazione.
-- **Priorita' agli scatti nuovi.** Un upload in corso dal backlog della card si
-  mette in pausa a chunk confermato quando arriva una foto nuova, che viene
-  caricata prima; poi il vecchio riprende. In raffica i file avanzano a gradini
-  (1 MiB, poi 4 MiB) cosi' le anteprime compaiono in Review subito, prima che
-  un singolo NEF da 19 MB sia completo.
-- **Un bug di USB host diagnosticato invece di sostituire la board.** La
-  fotocamera non veniva enumerata: la causa era `usb_host_config_t::enum_filter_cb`
-  lasciata a null, che in ESP-IDF 5.5.5 annulla l'enumerazione di ogni
-  dispositivo, con il warning compilato via (`CONFIG_LOG_MAXIMUM_LEVEL=1`) e
-  quindi nessun messaggio a schermo. La conclusione precedente — board
-  difettosa — era sbagliata.
-- **Limiti misurati, non stimati.** USB legge dalla fotocamera a circa 1 MB/s;
-  il Wi-Fi invia a circa 870 KB/s, tetto imposto dal TCP send buffer compilato
-  in Arduino-ESP32 3.3.11 (`CONFIG_LWIP_TCP_SND_BUF_DEFAULT=5744`, quattro
-  segmenti in volo). Alzarlo richiede ricompilare le librerie del core per circa
-  il 15% in piu', dopodiche' il collo di bottiglia diventa USB.
-- Validato dal vivo con raffiche JPG e NEF reali, con interruzioni volute e
-  cambio di canale dell'hotspot durante il trasferimento.
+- **Resumable uploads in 2 MiB chunks.** The confirmed offset is durable on the
+  Raspberry side, so when Wi-Fi drops the bridge resumes from the right place
+  instead of starting over. Every file is verified with SHA-256 before it is
+  published.
+- **New shots get priority.** An in-flight upload from the card's backlog pauses
+  at a confirmed chunk boundary when a fresh photo arrives; the new one goes
+  first, then the old one resumes. During a burst, files advance in steps
+  (1 MiB, then 4 MiB) so previews show up in Review immediately, long before a
+  single 19 MB NEF is complete.
+- **A USB host bug diagnosed instead of replacing the board.** The camera was
+  never enumerated. The cause was `usb_host_config_t::enum_filter_cb` left null,
+  which in ESP-IDF 5.5.5 cancels enumeration of every device — with the warning
+  compiled out (`CONFIG_LOG_MAXIMUM_LEVEL=1`), so nothing was printed. The
+  earlier conclusion, a faulty board, was wrong.
+- **Limits measured, not guessed.** USB reads from the camera at about 1 MB/s;
+  Wi-Fi sends at about 870 KB/s, a ceiling set by the TCP send buffer compiled
+  into Arduino-ESP32 3.3.11 (`CONFIG_LWIP_TCP_SND_BUF_DEFAULT=5744`, four
+  segments in flight). Raising it means rebuilding the core libraries for about
+  15% more, after which USB becomes the bottleneck.
+- Validated live with real JPEG and NEF bursts, including deliberate
+  interruptions and an hotspot channel change mid-transfer.
 
-### Review e stampa diretta su SELPHY
+### Review and direct printing to a SELPHY
 
-Il pannello Review e' pensato per essere usato in piedi, su un tablet, da una
-persona che non conosce il sistema: selezione a stelle, slideshow, editor di
-stampa con gesture.
+The Review panel is built to be used standing up, on a tablet, by someone who
+has never seen the system: star rating, slideshow, and a print editor driven by
+touch gestures.
 
-La stampa va diretta alla Canon SELPHY CP1500 via IPP, senza passare da un PC.
-I margini non vengono dedotti dal driver ma **misurati su stampe reali**: le
-cartoline hanno perforazioni laterali e un margine sbagliato di 2 mm manda il
-soggetto oltre lo strappo. Un job dimenticato dalla stampante non blocca piu' il
-polling di stato.
+Printing goes straight to a Canon SELPHY CP1500 over IPP, with no PC in the
+path. The margins are not taken from a driver but **measured on real prints**:
+the postcard stock has tear-off perforations down the sides, and a margin that
+is 2 mm off pushes the subject past the tear line. A job the printer forgets no
+longer stalls status polling.
 
-### Import da card senza fidarsi di niente
+### Card import that trusts nothing
 
-Il servizio di import copia da CFexpress verificando gli hash a destinazione e
-riusandoli alla reinserzione della stessa card, cosi' una card gia' importata
-non ricopia nulla. L'ordine di scatto viene ricostruito e **i file sorgente non
-vengono mai modificati**.
+The import service copies from CFexpress while verifying hashes at the
+destination, and reuses them when the same card is reinserted, so a card that
+was already imported copies nothing. Capture order is reconstructed, and **the
+source files are never modified**.
 
-### Accesso privilegiato con allowlist, non `NOPASSWD: ALL`
+### Privileged access via an allowlist, not `NOPASSWD: ALL`
 
-I pannelli in container hanno bisogno di azioni root sull'host (riavvio
-servizi, hotspot up/down, installazione dell'import service). Invece di dare
-sudo pieno all'account SSH, c'e' un wrapper `niwa-admin` con una lista chiusa di
-comandi ammessi: `host/admin/niwa-admin`.
+The containerised panels need root actions on the host: restarting services,
+bringing the hotspot up and down, installing the import service. Rather than
+give the SSH account full sudo, there is a `niwa-admin` wrapper with a closed
+list of permitted commands: `host/admin/niwa-admin`.
 
 ## Stack
 
-Raspberry Pi OS · Docker Compose · Python 3 / Flask · HTML/CSS/JS senza
-framework · Arduino ESP32 (ESP32-S3 e ESP32-CAM) · NetworkManager per
-l'hotspot · IPP/CUPS per la stampa
+Raspberry Pi OS · Docker Compose · Python 3 / Flask · plain HTML/CSS/JS, no
+framework · Arduino ESP32 (ESP32-S3 and ESP32-CAM) · NetworkManager for the
+hotspot · IPP/CUPS for printing
 
-## Numeri
+## By the numbers
 
 | | |
 |---|---|
-| Righe di codice | ~27.400 (15.800 Python, 4.500 Arduino/C++, 1.400 JS) |
-| Servizi Docker | 8, un compose per servizio |
-| Suite di test | 9: 79 test Python e 2 script Node, tutti in CI |
-| Commit | 98, dal 2026-05-25 |
+| Lines of code | ~27,400 (15,800 Python, 4,500 Arduino/C++, 1,400 JS) |
+| Docker services | 8, one compose file each |
+| Test suites | 9: 79 Python tests and 2 Node scripts, all in CI |
+| Commits | 98, since 2026-05-25 |
 
-## Struttura
+## Layout
 
 ```
-docker/      8 servizi: review, drone, shooting-tools, lights, storage,
+docker/      8 services: review, drone, shooting-tools, lights, storage,
              system, companion, filebrowser
-host/        import-service (import da card) e admin (wrapper sudo)
+host/        import-service (card import) and admin (sudo wrapper)
 firmware/    esp32s3-z6ii-bridge (Nikon), esp32cam-companion, esp32cam-lights
-             e sketch di diagnostica
-docs/        architettura, decisioni, guide operative (stampa, cornici)
-configs/     configurazione della dashboard
+             and diagnostic sketches
+docs/        architecture, decisions, field guides (printing, frames)
+configs/     dashboard configuration
 ```
 
-## Verifiche locali
+## Running the tests
 
-Il servizio di import gira sulla sola standard library, quindi i suoi 34 test
-non chiedono di installare niente:
+The import service runs on the standard library alone, so its 34 tests need
+nothing installed:
 
 ```bash
 python -m unittest discover -s host/import-service -p 'test_*.py'
 ```
 
-I pannelli vogliono `flask`, `Pillow` e `numpy` in un venv. `rawpy` compare nel
-`requirements.txt` del Review ma non serve ai test: i percorsi RAW lo importano
-solo quando leggono davvero un NEF.
+The panels want `flask`, `Pillow` and `numpy` in a venv. `rawpy` appears in the
+Review panel's `requirements.txt` but the tests do not need it: the RAW paths
+import it only when they actually read a NEF.
 
 ```bash
 pip install flask Pillow numpy
@@ -119,37 +120,40 @@ python -m unittest discover -s docker/system-panel/app -p 'test_*.py'
 python -m unittest discover -s docker/review-panel/app -p 'test_*.py'
 ```
 
-La logica lato browser dell'editor di stampa ha due test Node senza dipendenze:
+The print editor's browser-side logic has two dependency-free Node tests:
 
 ```bash
 cd docker/review-panel/app
 node test_live_refresh.js && node test_print_editor_gestures.js
 ```
 
-Sono gli stessi comandi che esegue la CI, in
+These are the same commands CI runs, in
 [.github/workflows/tests.yml](.github/workflows/tests.yml).
 
-Il firmware si compila con `firmware/tools/niwa-arduino.cmd` (FQBN e impostazioni
-IDE in [firmware/README.md](firmware/README.md)).
+The firmware builds through `firmware/tools/niwa-arduino.cmd` (FQBN and IDE
+settings in [firmware/README.md](firmware/README.md)).
 
-## Documentazione
+## Documentation
 
-- [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — architettura dei servizi
-- [docs/DECISIONS.md](docs/DECISIONS.md) — scelte di architettura e migrazione
-- [docs/STAMPA_DIRETTA.md](docs/STAMPA_DIRETTA.md) — stampa diretta SELPHY
-- [docs/CORNICI_SELPHY.md](docs/CORNICI_SELPHY.md) — misure reali delle cornici
+The reference documents are written in Italian, the language the project was
+built in. `firmware/README.md` and `AGENTS.md` are in English.
+
+- [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — service architecture
+- [docs/DECISIONS.md](docs/DECISIONS.md) — architecture and migration choices
+- [docs/STAMPA_DIRETTA.md](docs/STAMPA_DIRETTA.md) — direct SELPHY printing
+- [docs/CORNICI_SELPHY.md](docs/CORNICI_SELPHY.md) — real frame measurements
 - [firmware/README.md](firmware/README.md) — firmware, provisioning, throughput
-- [SYSTEM_SNAPSHOT.md](SYSTEM_SNAPSHOT.md) — stato operativo di servizi e porte
-- [PROJECT_HISTORY.md](PROJECT_HISTORY.md) — storia del progetto
+- [SYSTEM_SNAPSHOT.md](SYSTEM_SNAPSHOT.md) — operational state of services and ports
+- [PROJECT_HISTORY.md](PROJECT_HISTORY.md) — how the project got here
 
-## Questa e' la copia pubblica
+## This is the public copy
 
-IP, SSID, hostname, utenti di sistema e indirizzi MAC in questo repository sono
-**segnaposto**: i valori reali vivono solo in variabili d'ambiente e local
-config non versionate. Le cornici di stampa dell'evento sono grafica di terzi e
-non sono incluse. Dettagli in
+IP addresses, SSIDs, hostnames, system users and MAC addresses in this
+repository are **placeholders**: the real values live only in environment
+variables and unversioned local config. The event print frames are third-party
+artwork and are not included. Details in
 [docs/ASSET_PROVENANCE.md](docs/ASSET_PROVENANCE.md).
 
-## Licenza
+## License
 
-MIT — vedi [LICENSE](LICENSE).
+MIT — see [LICENSE](LICENSE).
