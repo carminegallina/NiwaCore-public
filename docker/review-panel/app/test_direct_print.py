@@ -1,3 +1,4 @@
+# Copyright (c) 2026 Carmine Gallina - https://github.com/carminegallina
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from tempfile import TemporaryDirectory

@@ -1,3 +1,4 @@
+# Copyright (c) 2026 Carmine Gallina - https://github.com/carminegallina
 """SELPHY P test sheet for measuring where the card falls on the borderless page.
 
     python selphy_calibration.py landscape NIWA-prova-SELPHY-P.jpg

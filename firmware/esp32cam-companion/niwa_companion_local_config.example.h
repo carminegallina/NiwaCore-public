@@ -1,3 +1,4 @@
+// Copyright (c) 2026 Carmine Gallina - https://github.com/carminegallina
 #pragma once
 
 // Copy this file to niwa_companion_local_config.h for a local build.

@@ -1,3 +1,4 @@
+# Copyright (c) 2026 Carmine Gallina - https://github.com/carminegallina
 """Ask an IPP printer what it supports (Get-Printer-Attributes), stdlib only.
 
 Usage: python3 ipp_probe.py <printer ip> [path]   (path defaults to /ipp/print)

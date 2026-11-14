@@ -1,3 +1,4 @@
+/* Copyright (c) 2026 Carmine Gallina - https://github.com/carminegallina */
 (function () {
   const NIWA_HOSTS = new Set([
     '10.42.0.1',

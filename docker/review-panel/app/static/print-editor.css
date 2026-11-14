@@ -1,3 +1,4 @@
+/* Copyright (c) 2026 Carmine Gallina - https://github.com/carminegallina */
 .print-editor{position:fixed;inset:0;z-index:30;overflow:auto;background:#0e0c0c;color:#fff7f0;padding:12px}
 .print-editor[hidden],.print-editor [hidden]{display:none!important}
 .print-editor-shell{max-width:1500px;margin:auto}

@@ -1,3 +1,4 @@
+/* Copyright (c) 2026 Carmine Gallina - https://github.com/carminegallina */
 (() => {
     const $ = (id) => document.getElementById(id);
     const canvas = $('printCanvas');

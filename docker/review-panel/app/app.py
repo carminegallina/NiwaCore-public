@@ -1,3 +1,4 @@
+# Copyright (c) 2026 Carmine Gallina - https://github.com/carminegallina
 from concurrent.futures import ThreadPoolExecutor
 from flask import Flask, Response, abort, jsonify, request, send_file
 from pathlib import Path

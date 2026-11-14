@@ -1,3 +1,4 @@
+# Copyright (c) 2026 Carmine Gallina - https://github.com/carminegallina
 from pathlib import Path
 from tempfile import TemporaryDirectory
 import importlib.util

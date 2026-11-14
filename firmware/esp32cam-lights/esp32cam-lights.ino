@@ -1,3 +1,4 @@
+// Copyright (c) 2026 Carmine Gallina - https://github.com/carminegallina
 /*
   NIWA Lights - ESP32-CAM Pan/Tilt firmware v0.5
 

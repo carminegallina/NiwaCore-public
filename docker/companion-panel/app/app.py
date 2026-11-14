@@ -1,3 +1,4 @@
+# Copyright (c) 2026 Carmine Gallina - https://github.com/carminegallina
 from flask import Flask, Response, jsonify, request, send_file
 from pathlib import Path
 import copy

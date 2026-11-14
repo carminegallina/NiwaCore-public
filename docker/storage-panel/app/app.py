@@ -1,3 +1,4 @@
+# Copyright (c) 2026 Carmine Gallina - https://github.com/carminegallina
 from flask import jsonify
 from flask import Flask
 from pathlib import Path

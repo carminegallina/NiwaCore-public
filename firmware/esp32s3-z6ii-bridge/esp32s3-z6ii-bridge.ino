@@ -1,3 +1,4 @@
+// Copyright (c) 2026 Carmine Gallina - https://github.com/carminegallina
 /*
   NIWA Z6 II Wi-Fi Bridge
   ESP32-S3 N16R8 / HW-678
