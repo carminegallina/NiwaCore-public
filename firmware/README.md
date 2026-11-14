@@ -137,7 +137,7 @@ sends everything to the board. No secret is written to disk or to the
 repository:
 
 ```powershell
-.\firmware\tools\niwa-bridge-provision.cmd -Port COM4 -IdentityFile $env:USERPROFILE\.ssh\codex_niwa_ed25519
+.\firmware\tools\niwa-bridge-provision.cmd -Port COM4 -IdentityFile $env:USERPROFILE\.ssh\niwa_bridge_ed25519
 ```
 
 Close the Arduino IDE Serial Monitor first: `COM4` is exclusive and any other

@@ -74,7 +74,7 @@ Installata con 36 test passati nel container; Review ha trovato da solo la
 SELPHY su `10.42.0.102` in 2,2 s e l'ha memorizzata in
 `data/selphy_printer.json`. Per un lavoro dimenticato la CP1500 risponde
 0x0404 ("not possible"): ogni errore 0x04xx chiude il controllo dello stato.
-Ritorno indietro: le copie `.bak-claude-stampa-20261006` di `app/app.py`,
+Ritorno indietro: le copie `.bak-stampa-20261006` di `app/app.py`,
 `app/static/print-editor.js`, `app/static/print-editor.css` e
 `app/test_print_editor.py`, l'immagine `niwa-review-before-stampa-20261006`,
 e togliere `app/test_direct_print.py`.

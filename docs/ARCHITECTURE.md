@@ -32,7 +32,6 @@ Il firmware ESP32-CAM Companion gestisce avatar OLED, heartbeat, camera opzional
 
 ## Sicurezza
 
-- `.codex_ssh` ignorato.
 - `firmware/esp32cam-companion/niwa_companion_local_config.h` ignorato.
 - database e config FileBrowser runtime ignorati.
 - `data/*.json` runtime ignorati tranne librerie/esempi esplicitamente versionati.

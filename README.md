@@ -136,7 +136,7 @@ settings in [firmware/README.md](firmware/README.md)).
 ## Documentation
 
 The reference documents are written in Italian, the language the project was
-built in. `firmware/README.md` and `AGENTS.md` are in English.
+built in. `firmware/README.md` is in English.
 
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — service architecture
 - [docs/DECISIONS.md](docs/DECISIONS.md) — architecture and migration choices

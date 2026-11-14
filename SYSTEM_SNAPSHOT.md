@@ -272,7 +272,7 @@ companion-panel, so Review can reach the SELPHY on NIWA-AP (the hotspot's
 firewall refuses connections from the Docker network into it). Verified the
 same day: port 5052 answers on localhost, 10.42.0.1, the LAN and Tailscale;
 NIWA Import's rebuild call on 127.0.0.1:5052 works; System 18/18. Rollback:
-`docker-compose.yml.bak-claude-hostnet-20261006`, then `docker compose up -d`.
+`docker-compose.yml.bak-hostnet-20261006`, then `docker compose up -d`.
 
 Expected Docker volume:
 
@@ -321,7 +321,7 @@ Print editor deployed in Review on the Raspberry on 2026-10-04:
   format replaces that copy. PNG exports stay only in `exports/print`.
   NIWA Import ignores these copies (it compares camera file names only).
   Deployed 2026-10-06, commit c0860f9, 33 tests passed in the container;
-  rollback: the `.bak-claude-beside-20261006` copies of `app/app.py`,
+  rollback: the `.bak-beside-20261006` copies of `app/app.py`,
   `app/static/print-editor.js` and `app/test_print_editor.py`, image
   `niwa-review-before-beside-20261006`.
 - The live Review API and one real Nikon NEF preview/export/download passed.
@@ -334,7 +334,7 @@ unframed direct P printing, flat selection ZIP with optional day folders and
 flat new print exports. 38 Python tests passed in the live container, Review
 status HTTP 200 and NIWA Import health OK. Legacy framed copies have no frame
 metadata and will appear in the filter only after a new export. Rollback:
-`app/app.py.bak-codex-filters-20261014`, corresponding `.bak-codex-filters-20261014`
+`app/app.py.bak-filters-20261014`, corresponding `.bak-filters-20261014`
 copies of `app/static/print-editor.js`, `app/test_print_editor.py`,
 `app/test_review_trash.py` and `app/test_live_refresh.js`; Docker image
 `niwa-review-before-filters-20261014`. The Raspberry's divergent
@@ -363,21 +363,21 @@ Review reliability pass deployed on 2026-10-05:
 - worker update deployed 2026-10-05: works in batches of about 10 s instead
   of one RAW every 20 s, and also prepares the 640 px grid and 2400 px viewer
   images; 39 shots in about 60 s, viewer images served in 10-20 ms. Rollback:
-  `app/app.py.bak-claude-worker-20261005`, image
+  `app/app.py.bak-worker-20261005`, image
   `niwa-review-before-worker-20261005`
 - grid cards deployed 2026-10-05: stars on cards, RAW/JPG/VIDEO labels,
   `_conflict_` names shown without the hash plus a "stesso nome" label,
   selection actions disabled with nothing selected. Rollback:
-  `app/app.py.bak-claude-cards-20261005`, image
+  `app/app.py.bak-cards-20261005`, image
   `niwa-review-before-cards-20261005`
 - scroll and viewer deployed 2026-10-05: the grid loads the next page by
   itself near the end, the viewer prefetches the neighbouring photos, and
   the live refresh adds new shots when the grid is near the top. Rollback:
-  `app/app.py.bak-claude-scroll-20261005`, image
+  `app/app.py.bak-scroll-20261005`, image
   `niwa-review-before-scroll-20261005`
 - the preview worker also prepares grid and viewer images for camera JPGs in
   `photo` (RAW+JPG or JPG-only shooting). Rollback:
-  `app/app.py.bak-claude-jpgworker-20261005`, image
+  `app/app.py.bak-jpgworker-20261005`, image
   `niwa-review-before-jpgworker-20261005`
 - "In arrivo dal bridge" (deployed 2026-10-05): `GET /api/incoming` reads
   `data/bridge_sessions.json` and the `.partial` files in
@@ -386,7 +386,7 @@ Review reliability pass deployed on 2026-10-05:
   images from `/storage/.niwa_cache/review_incoming` via
   `/api/incoming/<key>/<thumb|viewer>`. Real NEF test: ready at 3.5 of
   30.5 MB, about 4 s to prepare once. Rollback:
-  `app/app.py.bak-claude-incoming-20261005`, image
+  `app/app.py.bak-incoming-20261005`, image
   `niwa-review-before-incoming-20261005`
 - SELPHY P export (deployed 2026-10-05): the card is placed on the printer's
   whole borderless page (1872 x 1248 px) where the CP1500 really prints it,
@@ -394,7 +394,7 @@ Review reliability pass deployed on 2026-10-05:
   `SELPHY_PAGES` in `app.py`; test sheets in
   `/mnt/niwa-storage/exports/NIWA-prova-SELPHY-P*.jpg`, generator
   `docker/review-panel/selphy_calibration.py`. Rollback:
-  `app/app.py.bak-claude-selphy-20261005`, image
+  `app/app.py.bak-selphy-20261005`, image
   `niwa-review-before-selphy-20261005`
 - the no-frame print option exports with the original photo ratio
 
@@ -407,13 +407,13 @@ Review direct printing (deployed 2026-10-06, commits 83ced7f and d03e7b5,
   sends it over IPP: borderless P, print-scaling fill, margins from
   `SELPHY_PAGES["P"]["direct"]`; `POST /api/print/print`,
   `GET /api/print/jobs/<id>` for the job state and printer problems
-- rollback: the `.bak-claude-stampa-20261006` copies of `app/app.py`,
+- rollback: the `.bak-stampa-20261006` copies of `app/app.py`,
   `app/static/print-editor.js`, `app/static/print-editor.css` and
   `app/test_print_editor.py`, image `niwa-review-before-stampa-20261006`,
   remove `app/test_direct_print.py`; printer back with Direct Connection On
 
 Review slideshow (deployed 2026-10-06, commit 7bd911d; 32 tests passed in the
-container; rollback `app/app.py.bak-claude-slideshow-20261006`, image
+container; rollback `app/app.py.bak-slideshow-20261006`, image
 `niwa-review-before-slideshow-20261006`, then remove `app/static/slideshow.html`
 and `app/test_slideshow.py`):
 - `/slideshow` (button "Avvia slideshow" in the Review top bar) shows only the
@@ -438,9 +438,9 @@ Review compact lighttable deployed on 2026-10-05 (UI only, same endpoints):
   2026-10-06 the actions (Prepara stampa, Scarica, Scarica JPG HQ, Slideshow,
   Elimina) open from a round menu button bottom-right, so they never cover
   the stars; a tap beside the photo folds the menu first (deployed 2026-10-06,
-  commit abfdd64; rollback `app/app.py.bak-claude-menu-20261006`, image
+  commit abfdd64; rollback `app/app.py.bak-menu-20261006`, image
   `niwa-review-before-menu-20261006`)
-- rollback: `app/app.py.bak-claude-lighttable-20261005` and Docker image
+- rollback: `app/app.py.bak-lighttable-20261005` and Docker image
   `niwa-review-before-lighttable-20261005`
 
 Current behavior:
@@ -688,7 +688,7 @@ Current behavior:
 - checks SSD free space through the read-only storage mount
 - checks the hotspot IP as critical; wired LAN (any 192.168.x address) and
   Tailscale are informative only, so no cable or no internet away from home
-  is not an alarm (since 2026-10-05; rollback `app/app.py.bak-claude-network-20261005`,
+  is not an alarm (since 2026-10-05; rollback `app/app.py.bak-network-20261005`,
   image `niwa-system-before-network-20261005`)
 - shows uptime and current IP addresses
 - exposes `/api/summary` for the Homepage status badge
@@ -843,9 +843,9 @@ Current state:
   to record the SSD signatures; later insertions take the fast path. No card
   was attached at deployment, so physical speed remains to be measured.
   All 33 import/bridge tests passed on the Raspberry; service and Review health
-  returned OK. Backup files: `host/import-service/niwa_import.py.bak-codex-fast-card-20261014`,
-  `niwa_import.py.installed.bak-codex-fast-card-20261014` and
-  `test_niwa_import.py.bak-codex-fast-card-20261014` in that same folder.
+  returned OK. Backup files: `host/import-service/niwa_import.py.bak-fast-card-20261014`,
+  `niwa_import.py.installed.bak-fast-card-20261014` and
+  `test_niwa_import.py.bak-fast-card-20261014` in that same folder.
 - optimized GoPro reinsertion test recognized six unchanged files in about one
   second with zero bytes copied
 - completed staging is removed immediately; interrupted staging is retained for
@@ -871,7 +871,7 @@ Direct CFexpress/SSD incident, 2026-10-05:
   ordered `_DSC7999` (22:48), `_DSC7998` (22:47), `_DSC7997` (22:30)
 - deployed validation passed 31 NIWA Import tests and 28 NIWA Review tests;
   `/api/health` reported Import `0.3.1`
-- rollback files use suffix `.bak-codex-20261005-timestamp-order`; the previous
+- rollback files use suffix `.bak-20261005-timestamp-order`; the previous
   Review image is tagged `niwa-review-before-20261005-timestamp-order`
 
 One-time Raspberry reinstall or update:

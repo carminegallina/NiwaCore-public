@@ -15,7 +15,6 @@
   - `firmware/esp32cam-companion/esp32cam-companion.ino`
 - Repository GitHub privato creato: `https://github.com/carminegallina/NiwaCore`.
 - Push iniziale su `origin/main` completato.
-- Il percorso autorevole per nuove chat Codex/Claude e' `C:\Dev\portfolio\NiwaCore`.
 
 ## 2026-10-03
 
